@@ -502,6 +502,72 @@ export default function AdminPage() {
                     <span>Large</span>
                   </div>
                 </div>
+
+                <div className="setting-group">
+                  <label className="group-label">Map Position ({settings.minimapX || 0}, {settings.minimapY || 0})</label>
+
+                  {/* Side Toggle Buttons */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <RadioGroup
+                      value={settings.minimapPosition || 'left'}
+                      onChange={(value) => handleSettingsChange({ minimapPosition: value as 'left' | 'right' })}
+                      options={[
+                        { value: 'left', label: 'Stick Left Edge', icon: '⬅️' },
+                        { value: 'right', label: 'Stick Right Edge', icon: '➡️' }
+                      ]}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+
+                    {/* Up Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ minimapY: (settings.minimapY || 0) + 10 })}
+                    >
+                      ▲
+                    </button>
+
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {/* Left Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ minimapX: (settings.minimapX || 0) - 10 })}
+                      >
+                        ◀
+                      </button>
+
+                      {/* Reset Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 8px', fontSize: '0.8em', fontWeight: 'bold' }}
+                        onClick={() => handleSettingsChange({ minimapX: 0, minimapY: 0 })}
+                      >
+                        Reset
+                      </button>
+
+                      {/* Right Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ minimapX: (settings.minimapX || 0) + 10 })}
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Down Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ minimapY: (settings.minimapY || 0) - 10 })}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
               </>
             )}
 
@@ -585,6 +651,56 @@ export default function AdminPage() {
                 ]}
               />
             </div>
+          </section>
+
+          {/* Calorie Tracker Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>🔥 Calorie Tracker</h2>
+            </div>
+
+            <div className="setting-group">
+              <div className="checkbox-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showCalorieTracker ?? false}
+                    onChange={(e) => handleSettingsChange({ showCalorieTracker: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Show Calorie Burner Overlay</span>
+                </label>
+                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
+                  Displays a red progress bar based on calories burned from walking distance.
+                </p>
+              </div>
+            </div>
+
+            {settings.showCalorieTracker && (
+              <div className="setting-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label className="group-label" style={{ marginBottom: 0 }}>Daily Calorie Goal</label>
+                  <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
+                    {settings.calorieGoal || 500} kcal
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="100"
+                  max="2000"
+                  step="50"
+                  value={settings.calorieGoal || 500}
+                  onChange={(e) => handleSettingsChange({ calorieGoal: parseInt(e.target.value) })}
+                  className="range-input"
+                  style={{ width: '100%' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', opacity: 0.6, marginTop: '4px' }}>
+                  <span>100 kcal</span>
+                  <span>500 kcal</span>
+                  <span>2000 kcal</span>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Bitrate Section */}

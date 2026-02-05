@@ -161,7 +161,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -211,6 +211,15 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
       ? Math.min(Math.max(cleanSettings.lowBitrateAlertY, -1000), 1000)
       : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertY,
     todoListPosition: cleanSettings.todoListPosition ?? DEFAULT_OVERLAY_SETTINGS.todoListPosition,
+    showCalorieTracker: cleanSettings.showCalorieTracker ?? DEFAULT_OVERLAY_SETTINGS.showCalorieTracker,
+    calorieGoal: cleanSettings.calorieGoal ?? DEFAULT_OVERLAY_SETTINGS.calorieGoal,
+    minimapX: typeof cleanSettings.minimapX === 'number'
+      ? Math.min(Math.max(cleanSettings.minimapX, -2000), 2000)
+      : DEFAULT_OVERLAY_SETTINGS.minimapX,
+    minimapY: typeof cleanSettings.minimapY === 'number'
+      ? Math.min(Math.max(cleanSettings.minimapY, -2000), 2000)
+      : DEFAULT_OVERLAY_SETTINGS.minimapY,
+    minimapPosition: cleanSettings.minimapPosition ?? DEFAULT_OVERLAY_SETTINGS.minimapPosition,
   };
 
   return completeSettings;
@@ -228,7 +237,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition') { // valid keys
       maliciousKeys.push(key);
     }
   }

@@ -135,6 +135,10 @@ body.overlay-page {
   border: none !important;
 }
 
+.overlay-box.no-background * {
+  text-shadow: none !important;
+}
+
 /* Better visual hierarchy: more space after location sub-line for better separation */
 .location-sub-line {
   margin-bottom: 5px !important;

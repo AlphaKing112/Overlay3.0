@@ -56,6 +56,11 @@ const HeartRateMonitor = dynamic(() => import('@/components/HeartRateMonitor'), 
   loading: () => null
 });
 
+const CalorieTracker = dynamic(() => import('@/components/CalorieTracker').then(mod => mod.CalorieTracker), {
+  ssr: false,
+  loading: () => null
+});
+
 // Flag component - simple SVG only, hidden until loaded to prevent alt text flash
 const LocationFlag = ({ countryCode }: { countryCode: string }) => {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -131,11 +136,14 @@ function OverlayPage() {
   const [overlayVisible, setOverlayVisible] = useState(false); // Track if overlay should be visible (fade-in delay)
   const [currentBitrate, setCurrentBitrate] = useState<number | null>(null);
   const [currentRtt, setCurrentRtt] = useState<number | null>(null);
+  const [totalDistanceTracked, setTotalDistanceTracked] = useState(0); // In meters
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
 
   // Persistent storage keys
   const STORAGE_KEY = 'overlay-completed-todos';
   const CACHED_STATE_KEY = 'overlay-cached-state';
+  const DISTANCE_STORAGE_KEY = 'overlay-total-distance';
+  const CALORIES_PER_KM = 62; // Average walking calories per km for 70kg person at 5km/h
 
   // Todo completion tracking with localStorage persistence
   const [completedTodoTimestamps, setCompletedTodoTimestamps] = useState<Map<string, number>>(new Map()); // Track when todos were completed
@@ -762,15 +770,38 @@ function OverlayPage() {
         if (validTimestamps.size > 0) {
           OverlayLogger.overlay(`Loaded ${validTimestamps.size} completed todo timestamps from localStorage`);
         }
-
-        // Don't clean up localStorage here - keep old timestamps so we can check them later
-        // Old timestamps (> 60 seconds) will be filtered out in visibleTodos and tracking logic
       }
     } catch (error) {
       // Ignore localStorage errors (e.g., in private browsing mode)
       OverlayLogger.warn('Failed to load completed todo timestamps from localStorage', { error });
     }
+
+    // Load total distance from localStorage
+    try {
+      const storedDistance = localStorage.getItem(DISTANCE_STORAGE_KEY);
+      if (storedDistance) {
+        const parsedDistance = parseFloat(storedDistance);
+        if (!isNaN(parsedDistance)) {
+          setTotalDistanceTracked(parsedDistance);
+          OverlayLogger.overlay(`Loaded total distance from localStorage: ${Math.round(parsedDistance)}m`);
+        }
+      }
+    } catch (error) {
+      OverlayLogger.warn('Failed to load distance from localStorage', { error });
+    }
   }, []); // Run once on mount
+
+  // Persist distance to localStorage
+  useEffect(() => {
+    try {
+      if (totalDistanceTracked > 0) {
+        localStorage.setItem(DISTANCE_STORAGE_KEY, totalDistanceTracked.toString());
+      }
+    } catch (error) {
+      OverlayLogger.warn('Failed to save distance to localStorage', { error });
+    }
+  }, [totalDistanceTracked]);
+
 
   // Persist completed todo timestamps to localStorage whenever they change
   // Also clean up old timestamps (> 60 seconds) periodically
@@ -1222,6 +1253,14 @@ function OverlayPage() {
 
               // Store coordinates and timestamps for next speed calculation
               lastCoords.current = [lat, lon];
+              // Update total distance if moving
+              if (prevCoords && roundedSpeed > 1) { // Only track if moving > 1 km/h to avoid GPS noise
+                const moved = distanceInMeters(lat, lon, prevCoords[0], prevCoords[1]);
+                // Sanity check: don't add more than 500m in a single update (likely GPS jump)
+                if (moved > 0 && moved < 500) {
+                  setTotalDistanceTracked(prev => prev + moved);
+                }
+              }
               lastCoordsTime.current = now; // Reception time (for staleness detection)
               // Note: lastGpsTimestamp.current is already updated above
 
@@ -2016,12 +2055,14 @@ function OverlayPage() {
   }, []);
 
   // Shared Bitrate JSX to avoid duplication
-  const bitrateJSX = bitrateDisplay && (
+  const bitrateJSX = bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always') && (
     <div
       className="bitrate-container movement-data-line"
       style={{
         opacity: bitrateDisplay.value > 0 ? 1 : 0,
-        transition: 'opacity 3s ease-in-out'
+        height: bitrateDisplay.value > 0 ? 'auto' : 0,
+        overflow: 'hidden',
+        transition: 'all 0.5s ease-in-out'
       }}
     >
       <div className={`weather-temperature bitrate-text ${bitrateDisplay.warningLevel === 'red' ? 'bitrate-warning-red' :
@@ -2048,160 +2089,90 @@ function OverlayPage() {
         <div className="top-left">
           {settings.swapLocationTimePositions ? (
             /* Swapped: Show Location/Weather on Left */
-            <>
-              {/* Show location/weather if:
-                 1. Custom location mode (always show), OR
-                 2. Location display is not 'hidden' AND we have valid data (location or weather) and no incomplete location data
-                 "Hidden" mode hides both location and weather (useful for flights, etc.) */}
-              {settings.locationDisplay !== 'hidden' && (
-                <>
-                  <div className={`overlay-box align-left ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignItems: 'flex-start' }}>
-                    {/* Show location if we have location data (or custom mode) */}
-                    {((settings.locationDisplay === 'custom') || locationDisplay) && locationDisplay && (
-                      <>
-                        {locationDisplay.primary && (
-                          <div className="location location-line">
-                            <div className="location-main">{locationDisplay.primary}</div>
-                          </div>
-                        )}
-                        {locationDisplay.secondary && (
-                          // Only show secondary line (city/state/country) with flag if:
-                          // 1. Not in custom mode (always show for GPS modes), OR
-                          // 2. In custom mode AND showCountryName is enabled
-                          (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
-                            <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
-                              <div className="location-sub">
-                                {locationDisplay.secondary}
-                                {locationDisplay.countryCode && (
-                                  <LocationFlag
-                                    countryCode={locationDisplay.countryCode}
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          )
-                        )}
-                      </>
+            settings.locationDisplay !== 'hidden' && (locationDisplay || weatherDisplay || altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) ? (
+              <div className={`overlay-box align-left ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignItems: 'flex-start' }}>
+                {/* Location section */}
+                {locationDisplay && (
+                  <>
+                    {locationDisplay.primary && (
+                      <div className="location location-line">
+                        <div className="location-main">{locationDisplay.primary}</div>
+                      </div>
                     )}
-
-                    {/* Weather - show if we have weather data (already checked that locationDisplay !== 'hidden' above) */}
-                    {weatherDisplay && settings.showWeather && (
-                      <div className="weather weather-line">
-                        <div className="weather-text-group">
-                          <div className="weather-temperature">
-                            {weatherDisplay.temperature}
-                          </div>
-                          {(weatherDisplay.icon || weatherDisplay.description) && (
-                            <div className="weather-condition-group">
-                              {weatherDisplay.description && (
-                                <span className="weather-description-text">
-                                  {weatherDisplay.description}
-                                </span>
-                              )}
-                              {weatherDisplay.icon && (
-                                <span className="weather-icon-inline">
-                                  {weatherDisplay.icon}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                    {locationDisplay.secondary && (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
+                      <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
+                        <div className="location-sub">
+                          {locationDisplay.secondary}
+                          {locationDisplay.countryCode && <LocationFlag countryCode={locationDisplay.countryCode} />}
                         </div>
                       </div>
                     )}
+                  </>
+                )}
 
-                    {/* Altitude, Speed, & Bitrate - grouped together */}
-                    {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay)) && (
-                      <div className="movement-data-group">
-                        {altitudeDisplay && (
-                          <div className="weather weather-line movement-data-line">
-                            <div className="weather-temperature">
-                              {altitudeDisplay.formatted}
-                            </div>
-                          </div>
-                        )}
-                        {speedDisplay && (
-                          <div className="weather weather-line movement-data-line">
-                            <div className="weather-temperature">
-                              {speedDisplay.formatted}
-                            </div>
-                          </div>
-                        )}
-                        {(settings.bitrateAnchor !== 'time') && bitrateJSX}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Minimap */}
-                  {mapCoords && minimapVisible && (
-                    <div
-                      className="minimap"
-                      style={{
-                        opacity: minimapOpacity,
-                        alignSelf: 'flex-start',
-                        width: `${200 * ((settings.minimapScale || 100) / 100)}px`,
-                        height: `${200 * ((settings.minimapScale || 100) / 100)}px`
-                      }}
-                    >
-                      {sunriseSunset ? (
-                        <ErrorBoundary fallback={<div className="minimap-placeholder" style={{ width: '100%', height: '100%' }}>Map unavailable</div>}>
-                          <MapLibreMinimap
-                            lat={mapCoords[0]}
-                            lon={mapCoords[1]}
-                            isVisible={minimapVisible}
-                            zoomLevel={settings.mapZoomLevel}
-                            timezone={timezone || undefined}
-                            isNight={isNightTime}
-                            mapStyle={settings.mapStyle}
-                          />
-                        </ErrorBoundary>
-                      ) : (
-                        <div className="minimap-placeholder" style={{ width: '100%', height: '100%' }}>Loading map...</div>
+                {/* Weather section */}
+                {weatherDisplay && settings.showWeather && (
+                  <div className="weather weather-line">
+                    <div className="weather-text-group">
+                      <div className="weather-temperature">{weatherDisplay.temperature}</div>
+                      {(weatherDisplay.icon || weatherDisplay.description) && (
+                        <div className="weather-condition-group">
+                          {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
+                          {weatherDisplay.icon && <span className="weather-icon-inline">{weatherDisplay.icon}</span>}
+                        </div>
                       )}
                     </div>
-                  )}
-                </>
-              )}
-            </>
+                  </div>
+                )}
+
+                {/* Movement Data section */}
+                {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) && (
+                  <div className="movement-data-group">
+                    {altitudeDisplay && (
+                      <div className="weather weather-line movement-data-line">
+                        <div className="weather-temperature">{altitudeDisplay.formatted}</div>
+                      </div>
+                    )}
+                    {speedDisplay && (
+                      <div className="weather weather-line movement-data-line">
+                        <div className="weather-temperature">{speedDisplay.formatted}</div>
+                      </div>
+                    )}
+                    {settings.bitrateAnchor !== 'time' && bitrateJSX}
+                  </div>
+                )}
+              </div>
+            ) : null
           ) : (
             /* Normal: Show Time/Date on Left */
-            <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
-              {/* Only show time when we have a valid timezone (not UTC) */}
-              {isValidTimezone(timezone) && timeDisplay.time && (
-                <div className="time time-left time-line">
-                  <div className="time-display">
-                    <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
-                    <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
+            (isValidTimezone(timezone) && (timeDisplay.time || timeDisplay.date) || API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && bitrateJSX)) ? (
+              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
+                {isValidTimezone(timezone) && timeDisplay.time && (
+                  <div className="time time-left time-line">
+                    <div className="time-display">
+                      <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
+                      <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Only show date when we have a valid timezone (not UTC) */}
-              {isValidTimezone(timezone) && timeDisplay.date && (
-                <div className="date date-left date-line">
-                  {timeDisplay.date}
-                </div>
-              )}
-
-              {API_KEYS.PULSOID && (
-                <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
-                  <HeartRateMonitor
-                    pulsoidToken={API_KEYS.PULSOID}
-                  />
-                </ErrorBoundary>
-              )}
-              {settings.bitrateAnchor === 'time' && bitrateJSX}
-            </div>
+                )}
+                {isValidTimezone(timezone) && timeDisplay.date && (
+                  <div className="date date-left date-line">{timeDisplay.date}</div>
+                )}
+                {API_KEYS.PULSOID && (
+                  <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
+                    <HeartRateMonitor pulsoidToken={API_KEYS.PULSOID} />
+                  </ErrorBoundary>
+                )}
+                {settings.bitrateAnchor === 'time' && bitrateJSX}
+              </div>
+            ) : null
           )}
 
           {/* To-Do List - Top Left (below time) */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'left' && (
             <div className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ marginTop: '12px', alignSelf: 'flex-start' }}>
               {visibleTodos
-                .sort((a, b) => {
-                  // Incomplete tasks first, then completed tasks
-                  if (a.completed === b.completed) return 0;
-                  return a.completed ? 1 : -1;
-                })
+                .sort((a, b) => (a.completed === b.completed ? 0 : a.completed ? 1 : -1))
                 .map((todo) => (
                   <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
                     <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
@@ -2215,148 +2186,83 @@ function OverlayPage() {
         <div className="top-right">
           {settings.swapLocationTimePositions ? (
             /* Swapped: Show Time/Date on Right */
-            <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignItems: 'flex-end' }}>
-              {/* Only show time when we have a valid timezone (not UTC) */}
-              {isValidTimezone(timezone) && timeDisplay.time && (
-                <div className="time time-left time-line" style={{ textAlign: 'right' }}>
-                  <div className="time-display" style={{ justifyContent: 'flex-end' }}>
-                    <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
-                    <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
+            (isValidTimezone(timezone) && (timeDisplay.time || timeDisplay.date) || API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && bitrateJSX)) ? (
+              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignItems: 'flex-end' }}>
+                {isValidTimezone(timezone) && timeDisplay.time && (
+                  <div className="time time-left time-line" style={{ textAlign: 'right' }}>
+                    <div className="time-display" style={{ justifyContent: 'flex-end' }}>
+                      <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
+                      <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Only show date when we have a valid timezone (not UTC) */}
-              {isValidTimezone(timezone) && timeDisplay.date && (
-                <div className="date date-left date-line" style={{ textAlign: 'right' }}>
-                  {timeDisplay.date}
-                </div>
-              )}
-
-              {API_KEYS.PULSOID && (
-                <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
-                  <HeartRateMonitor
-                    pulsoidToken={API_KEYS.PULSOID}
-                  />
-                </ErrorBoundary>
-              )}
-              {settings.bitrateAnchor === 'time' && bitrateJSX}
-            </div>
+                )}
+                {isValidTimezone(timezone) && timeDisplay.date && (
+                  <div className="date date-left date-line" style={{ textAlign: 'right' }}>{timeDisplay.date}</div>
+                )}
+                {API_KEYS.PULSOID && (
+                  <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
+                    <HeartRateMonitor pulsoidToken={API_KEYS.PULSOID} />
+                  </ErrorBoundary>
+                )}
+                {settings.bitrateAnchor === 'time' && bitrateJSX}
+              </div>
+            ) : null
           ) : (
             /* Normal: Show Location/Weather on Right */
-            <>
-              {/* Show right section if:
-                  1. Custom location mode (always show), OR
-                  2. Location display is not 'hidden' AND we have valid data (location or weather) and no incomplete location data
-                  "Hidden" mode hides both location and weather (useful for flights, etc.) */}
-              {settings.locationDisplay !== 'hidden' && (
-                <>
-                  <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
-                    {/* Show location if we have location data (or custom mode) */}
-                    {((settings.locationDisplay === 'custom') || locationDisplay) && locationDisplay && (
-                      <>
-                        {locationDisplay.primary && (
-                          <div className="location location-line">
-                            <div className="location-main">{locationDisplay.primary}</div>
-                          </div>
-                        )}
-                        {locationDisplay.secondary && (
-                          // Only show secondary line (city/state/country) with flag if:
-                          // 1. Not in custom mode (always show for GPS modes), OR
-                          // 2. In custom mode AND showCountryName is enabled
-                          (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
-                            <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
-                              <div className="location-sub">
-                                {locationDisplay.secondary}
-                                {locationDisplay.countryCode && (
-                                  <LocationFlag
-                                    countryCode={locationDisplay.countryCode}
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          )
-                        )}
-                      </>
+            settings.locationDisplay !== 'hidden' && (locationDisplay || weatherDisplay || altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) ? (
+              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignSelf: 'flex-end' }}>
+                {/* Location section */}
+                {locationDisplay && (
+                  <>
+                    {locationDisplay.primary && (
+                      <div className="location location-line">
+                        <div className="location-main">{locationDisplay.primary}</div>
+                      </div>
                     )}
-
-                    {/* Weather - show if we have weather data (already checked that locationDisplay !== 'hidden' above) */}
-                    {weatherDisplay && settings.showWeather && (
-                      <div className="weather weather-line">
-                        <div className="weather-text-group">
-                          <div className="weather-temperature">
-                            {weatherDisplay.temperature}
-                          </div>
-                          {(weatherDisplay.icon || weatherDisplay.description) && (
-                            <div className="weather-condition-group">
-                              {weatherDisplay.description && (
-                                <span className="weather-description-text">
-                                  {weatherDisplay.description}
-                                </span>
-                              )}
-                              {weatherDisplay.icon && (
-                                <span className="weather-icon-inline">
-                                  {weatherDisplay.icon}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                    {locationDisplay.secondary && (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
+                      <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
+                        <div className="location-sub">
+                          {locationDisplay.secondary}
+                          {locationDisplay.countryCode && <LocationFlag countryCode={locationDisplay.countryCode} />}
                         </div>
                       </div>
                     )}
+                  </>
+                )}
 
-                    {/* Altitude, Speed, & Bitrate - grouped together */}
-                    {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay)) && (
-                      <div className="movement-data-group">
-                        {altitudeDisplay && (
-                          <div className="weather weather-line movement-data-line">
-                            <div className="weather-temperature">
-                              {altitudeDisplay.formatted}
-                            </div>
-                          </div>
-                        )}
-                        {speedDisplay && (
-                          <div className="weather weather-line movement-data-line">
-                            <div className="weather-temperature">
-                              {speedDisplay.formatted}
-                            </div>
-                          </div>
-                        )}
-                        {(settings.bitrateAnchor !== 'time') && bitrateJSX}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Minimap */}
-                  {mapCoords && minimapVisible && (
-                    <div
-                      className="minimap"
-                      style={{
-                        opacity: minimapOpacity,
-                        width: `${200 * ((settings.minimapScale || 100) / 100)}px`,
-                        height: `${200 * ((settings.minimapScale || 100) / 100)}px`
-                      }}
-                    >
-                      {sunriseSunset ? (
-                        <ErrorBoundary fallback={<div className="minimap-placeholder" style={{ width: '100%', height: '100%' }}>Map unavailable</div>}>
-                          <MapLibreMinimap
-                            lat={mapCoords[0]}
-                            lon={mapCoords[1]}
-                            isVisible={minimapVisible}
-                            zoomLevel={settings.mapZoomLevel}
-                            timezone={timezone || undefined}
-                            isNight={isNightTime}
-                            mapStyle={settings.mapStyle}
-                          />
-                        </ErrorBoundary>
-                      ) : (
-                        <div className="minimap-placeholder" style={{ width: '100%', height: '100%' }}>Loading map...</div>
+                {/* Weather section */}
+                {weatherDisplay && settings.showWeather && (
+                  <div className="weather weather-line">
+                    <div className="weather-text-group">
+                      <div className="weather-temperature">{weatherDisplay.temperature}</div>
+                      {(weatherDisplay.icon || weatherDisplay.description) && (
+                        <div className="weather-condition-group">
+                          {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
+                          {weatherDisplay.icon && <span className="weather-icon-inline">{weatherDisplay.icon}</span>}
+                        </div>
                       )}
                     </div>
-                  )}
-                </>
-              )}
-            </>
+                  </div>
+                )}
+
+                {/* Movement Data section */}
+                {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) && (
+                  <div className="movement-data-group">
+                    {altitudeDisplay && (
+                      <div className="weather weather-line movement-data-line">
+                        <div className="weather-temperature">{altitudeDisplay.formatted}</div>
+                      </div>
+                    )}
+                    {speedDisplay && (
+                      <div className="weather weather-line movement-data-line">
+                        <div className="weather-temperature">{speedDisplay.formatted}</div>
+                      </div>
+                    )}
+                    {settings.bitrateAnchor !== 'time' && bitrateJSX}
+                  </div>
+                )}
+              </div>
+            ) : null
           )}
 
           {/* To-Do List - Top Right (below location) */}
@@ -2380,43 +2286,97 @@ function OverlayPage() {
         </div>
 
         {/* URL List - (Text Links) Bottom Left */}
-        {settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0 && (
-          <div className="bottom-left">
-            <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
-              {settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).map(url => (
-                <div key={url.id} className="url-item">
-                  <div className="url-label">{url.label}</div>
-                  <div className="url-address">{url.url}</div>
-                </div>
-              ))}
+        {
+          settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0 && (
+            <div className="bottom-left">
+              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
+                {settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).map(url => (
+                  <div key={url.id} className="url-item">
+                    <div className="url-label">{url.label}</div>
+                    <div className="url-address">{url.url}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        }
 
         {/* Embedded Browser Sources (Full Screen / Absolute) */}
-        {settings.urls && settings.urls.filter(u => u.active && u.type === 'embed').map(url => (
-          <EmbedUrl key={url.id} url={url} />
-        ))}
+        {
+          settings.urls && settings.urls.filter(u => u.active && u.type === 'embed').map(url => (
+            <EmbedUrl key={url.id} url={url} />
+          ))
+        }
 
 
         {/* Low Bitrate Alert Image (Slide up) */}
-        {settings.showBitrateWarnings && settings.showLowBitrateAlert && (
-          <div
-            className={`low-bitrate-alert-container ${bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `active alert-${bitrateDisplay.warningLevel}` : ''}`}
-            style={{
-              transform: `translateX(calc(-50% + ${settings.lowBitrateAlertX || 0}px)) scale(${settings.lowBitrateAlertScale || 1})`,
-              left: '50%',
-              bottom: bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `${40 + (settings.lowBitrateAlertY || 0)}px` : `${-300 + (settings.lowBitrateAlertY || 0)}px`
-            }}
-          >
-            <img
-              src="/images/low-bitrate-alert.png"
-              alt="LOW BITRATE"
-              className="low-bitrate-alert-image"
-            />
-          </div>
-        )}
-      </div>
+        {
+          settings.showBitrateWarnings && settings.showLowBitrateAlert && (
+            <div
+              className={`low-bitrate-alert-container ${bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `active alert-${bitrateDisplay.warningLevel}` : ''}`}
+              style={{
+                transform: `translateX(calc(-50% + ${settings.lowBitrateAlertX || 0}px)) scale(${settings.lowBitrateAlertScale || 1})`,
+                left: '50%',
+                bottom: bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `${40 + (settings.lowBitrateAlertY || 0)}px` : `${-300 + (settings.lowBitrateAlertY || 0)}px`
+              }}
+            >
+              <img
+                src="/images/low-bitrate-alert.png"
+                alt="LOW BITRATE"
+                className="low-bitrate-alert-image"
+              />
+            </div>
+          )
+        }
+        {/* Calorie Tracker */}
+        <CalorieTracker
+          calories={(totalDistanceTracked / 1000) * CALORIES_PER_KM}
+          goal={settings.calorieGoal || 500}
+          visible={settings.showCalorieTracker || false}
+        />
+
+        {/* Standalone Minimap Container */}
+        {
+          mapCoords && (
+            <div
+              className={`minimap standalone-minimap ${settings.minimapPosition === 'right' ? 'anchor-right' : 'anchor-left'} ${minimapVisible ? 'map-active' : 'map-inactive'}`}
+              style={{
+                opacity: minimapOpacity,
+                position: 'absolute',
+                top: '20px',
+                [settings.minimapPosition === 'right' ? 'right' : 'left']: '20px',
+                width: `${200 * ((settings.minimapScale || 100) / 100)}px`,
+                height: `${200 * ((settings.minimapScale || 100) / 100)}px`,
+                transform: `translate(${settings.minimapX || 0}px, ${-(settings.minimapY || 0)}px) 
+                            ${!minimapVisible ? 'scale(0.7) translateY(-40px) rotate(8deg)' : 'scale(1) translateY(0) rotate(0deg)'}`,
+                transition: 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                zIndex: 100,
+                pointerEvents: 'none',
+                filter: minimapVisible ? `blur(0px) ${settings.showBackground ? 'drop-shadow(0 10px 15px rgba(0,0,0,0.3))' : ''}` : 'blur(8px)',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                boxShadow: (minimapVisible && settings.showBackground) ? '0 10px 30px rgba(0, 0, 0, 0.4)' : 'none'
+              }}
+            >
+              {sunriseSunset ? (
+                <ErrorBoundary fallback={<div className="minimap-placeholder" style={{ width: '100%', height: '100%' }}>Map unavailable</div>}>
+                  <MapLibreMinimap
+                    lat={mapCoords[0]}
+                    lon={mapCoords[1]}
+                    isVisible={minimapVisible}
+                    zoomLevel={settings.mapZoomLevel}
+                    timezone={timezone || undefined}
+                    isNight={isNightTime}
+                    mapStyle={settings.mapStyle}
+                  />
+                </ErrorBoundary>
+              ) : (
+                <div className="minimap-placeholder" style={{ width: '100%', height: '100%' }}>Loading map...</div>
+              )}
+            </div>
+          )
+        }
+      </div >
     </ErrorBoundary >
   );
 }

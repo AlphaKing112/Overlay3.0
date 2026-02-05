@@ -48,6 +48,11 @@ export interface OverlaySettings {
   lowBitrateAlertX?: number;
   lowBitrateAlertY?: number;
   todoListPosition?: 'left' | 'right';
+  showCalorieTracker?: boolean;
+  calorieGoal?: number;
+  minimapX?: number;
+  minimapY?: number;
+  minimapPosition?: 'left' | 'right';
 }
 
 // Default settings (single source of truth)
@@ -78,6 +83,11 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   lowBitrateAlertX: 0,
   lowBitrateAlertY: 0,
   todoListPosition: 'left',
+  showCalorieTracker: false,
+  calorieGoal: 500,
+  minimapX: 0,
+  minimapY: 0,
+  minimapPosition: 'left',
 };
 
 // Valid settings schema for validation
@@ -107,6 +117,11 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   lowBitrateAlertX: 'number',
   lowBitrateAlertY: 'number',
   todoListPosition: 'string',
+  showCalorieTracker: 'boolean',
+  calorieGoal: 'number',
+  minimapX: 'number',
+  minimapY: 'number',
+  minimapPosition: 'string',
 };
 
 // SSE message types
