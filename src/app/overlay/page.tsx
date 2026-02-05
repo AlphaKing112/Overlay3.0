@@ -2333,6 +2333,9 @@ function OverlayPage() {
           calories={(totalDistanceTracked / 1000) * CALORIES_PER_KM}
           goal={settings.calorieGoal || 500}
           visible={settings.showCalorieTracker || false}
+          scale={settings.calorieTrackerScale || 1}
+          x={settings.calorieTrackerX || 0}
+          y={settings.calorieTrackerY || 0}
         />
 
         {/* Standalone Minimap Container */}

@@ -50,6 +50,9 @@ export interface OverlaySettings {
   todoListPosition?: 'left' | 'right';
   showCalorieTracker?: boolean;
   calorieGoal?: number;
+  calorieTrackerScale?: number;
+  calorieTrackerX?: number;
+  calorieTrackerY?: number;
   minimapX?: number;
   minimapY?: number;
   minimapPosition?: 'left' | 'right';
@@ -85,6 +88,9 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   todoListPosition: 'left',
   showCalorieTracker: false,
   calorieGoal: 500,
+  calorieTrackerScale: 1,
+  calorieTrackerX: 0,
+  calorieTrackerY: 0,
   minimapX: 0,
   minimapY: 0,
   minimapPosition: 'left',
@@ -119,6 +125,9 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   todoListPosition: 'string',
   showCalorieTracker: 'boolean',
   calorieGoal: 'number',
+  calorieTrackerScale: 'number',
+  calorieTrackerX: 'number',
+  calorieTrackerY: 'number',
   minimapX: 'number',
   minimapY: 'number',
   minimapPosition: 'string',

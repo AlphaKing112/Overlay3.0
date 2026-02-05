@@ -653,6 +653,7 @@ export default function AdminPage() {
             </div>
           </section>
 
+
           {/* Calorie Tracker Section */}
           <section className="settings-section">
             <div className="section-header">
@@ -677,29 +678,101 @@ export default function AdminPage() {
             </div>
 
             {settings.showCalorieTracker && (
-              <div className="setting-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label className="group-label" style={{ marginBottom: 0 }}>Daily Calorie Goal</label>
-                  <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
-                    {settings.calorieGoal || 500} kcal
-                  </span>
+              <>
+                <div className="setting-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label className="group-label" style={{ marginBottom: 0 }}>Daily Calorie Goal</label>
+                    <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
+                      {settings.calorieGoal || 500} kcal
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="2000"
+                    step="50"
+                    value={settings.calorieGoal || 500}
+                    onChange={(e) => handleSettingsChange({ calorieGoal: parseInt(e.target.value) })}
+                    className="range-input"
+                    style={{ width: '100%' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', opacity: 0.6, marginTop: '4px' }}>
+                    <span>100 kcal</span>
+                    <span>500 kcal</span>
+                    <span>2000 kcal</span>
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="100"
-                  max="2000"
-                  step="50"
-                  value={settings.calorieGoal || 500}
-                  onChange={(e) => handleSettingsChange({ calorieGoal: parseInt(e.target.value) })}
-                  className="range-input"
-                  style={{ width: '100%' }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', opacity: 0.6, marginTop: '4px' }}>
-                  <span>100 kcal</span>
-                  <span>500 kcal</span>
-                  <span>2000 kcal</span>
+
+                {/* Scale and Position Controls */}
+                <div className="setting-group">
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                    {/* Scale Control */}
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
+                        <span style={{ fontSize: '0.85em' }}>{Math.round((settings.calorieTrackerScale || 1) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.0"
+                        step="0.1"
+                        value={settings.calorieTrackerScale || 1}
+                        onChange={(e) => handleSettingsChange({ calorieTrackerScale: parseFloat(e.target.value) })}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+
+                    {/* Position Controls (D-Pad) */}
+                    <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>Position ({settings.calorieTrackerX || 0}, {settings.calorieTrackerY || 0})</label>
+
+                      {/* Up Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ calorieTrackerY: (settings.calorieTrackerY || 0) + 10 })}
+                      >
+                        ▲
+                      </button>
+
+                      {/* Left, Reset, Right */}
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ calorieTrackerX: (settings.calorieTrackerX || 0) - 10 })}
+                        >
+                          ◀
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ calorieTrackerX: 0, calorieTrackerY: 0, calorieTrackerScale: 1 })}
+                        >
+                          Reset
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ calorieTrackerX: (settings.calorieTrackerX || 0) + 10 })}
+                        >
+                          ▶
+                        </button>
+                      </div>
+
+                      {/* Down Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ calorieTrackerY: (settings.calorieTrackerY || 0) - 10 })}
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </section>
 
@@ -1286,11 +1359,11 @@ export default function AdminPage() {
             </div>
           </section>
 
-        </div>
-      </main>
+        </div >
+      </main >
 
       {/* Sticky actions for mobile */}
-      <div className="admin-sticky-actions">
+      < div className="admin-sticky-actions" >
         <button className="btn btn-secondary" onClick={openPreview}>👁️ Preview</button>
         <button
           className="btn btn-primary"
@@ -1304,7 +1377,7 @@ export default function AdminPage() {
             }
           }}
         >🚪 Logout</button>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 } 

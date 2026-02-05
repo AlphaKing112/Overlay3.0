@@ -6,9 +6,12 @@ interface CalorieTrackerProps {
   calories: number;
   goal: number;
   visible: boolean;
+  scale?: number;
+  x?: number;
+  y?: number;
 }
 
-export const CalorieTracker = ({ calories, goal, visible }: CalorieTrackerProps) => {
+export const CalorieTracker = ({ calories, goal, visible, scale = 1, x = 0, y = 0 }: CalorieTrackerProps) => {
   const [shouldRender, setShouldRender] = useState(visible);
 
   useEffect(() => {
@@ -27,7 +30,13 @@ export const CalorieTracker = ({ calories, goal, visible }: CalorieTrackerProps)
   if (!shouldRender) return null;
 
   return (
-    <div className={`calorie-tracker-container ${visible ? 'fade-in' : 'fade-out'}`}>
+    <div
+      className={`calorie-tracker-container ${visible ? 'fade-in' : 'fade-out'}`}
+      style={{
+        transform: `translate(${x}px, ${y}px) scale(${scale})`,
+        transformOrigin: 'bottom right'
+      }}
+    >
       <div className="calorie-header">
         <div className="calorie-label">
           <span className="fire-icon">🔥</span>
@@ -69,12 +78,10 @@ export const CalorieTracker = ({ calories, goal, visible }: CalorieTrackerProps)
 
         .fade-in {
           opacity: 1;
-          transform: translateY(0);
         }
 
         .fade-out {
           opacity: 0;
-          transform: translateY(20px);
         }
 
         .calorie-header {

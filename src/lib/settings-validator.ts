@@ -213,6 +213,15 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     todoListPosition: cleanSettings.todoListPosition ?? DEFAULT_OVERLAY_SETTINGS.todoListPosition,
     showCalorieTracker: cleanSettings.showCalorieTracker ?? DEFAULT_OVERLAY_SETTINGS.showCalorieTracker,
     calorieGoal: cleanSettings.calorieGoal ?? DEFAULT_OVERLAY_SETTINGS.calorieGoal,
+    calorieTrackerScale: typeof cleanSettings.calorieTrackerScale === 'number'
+      ? Math.min(Math.max(cleanSettings.calorieTrackerScale, 0.5), 2.0)
+      : DEFAULT_OVERLAY_SETTINGS.calorieTrackerScale,
+    calorieTrackerX: typeof cleanSettings.calorieTrackerX === 'number'
+      ? Math.min(Math.max(cleanSettings.calorieTrackerX, -1000), 1000)
+      : DEFAULT_OVERLAY_SETTINGS.calorieTrackerX,
+    calorieTrackerY: typeof cleanSettings.calorieTrackerY === 'number'
+      ? Math.min(Math.max(cleanSettings.calorieTrackerY, -500), 500)
+      : DEFAULT_OVERLAY_SETTINGS.calorieTrackerY,
     minimapX: typeof cleanSettings.minimapX === 'number'
       ? Math.min(Math.max(cleanSettings.minimapX, -2000), 2000)
       : DEFAULT_OVERLAY_SETTINGS.minimapX,
@@ -237,7 +246,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition') { // valid keys
       maliciousKeys.push(key);
     }
   }
