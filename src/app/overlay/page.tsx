@@ -131,8 +131,8 @@ function OverlayPage() {
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
 
   // Persistent storage keys
-  const STORAGE_KEY = 'tazo-completed-todos';
-  const CACHED_STATE_KEY = 'tazo-cached-state';
+  const STORAGE_KEY = 'overlay-completed-todos';
+  const CACHED_STATE_KEY = 'overlay-cached-state';
 
   // Todo completion tracking with localStorage persistence
   const [completedTodoTimestamps, setCompletedTodoTimestamps] = useState<Map<string, number>>(new Map()); // Track when todos were completed

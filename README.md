@@ -1,4 +1,4 @@
-# 🎮 Tazo Streaming Overlay
+# 🎮 Streaming Overlay
 
 A modern, real-time streaming overlay for IRL streams with GPS tracking, weather display, heart rate monitoring, altitude/speed tracking, and smooth animated value transitions.
 
