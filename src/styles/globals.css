@@ -1,0 +1,869 @@
+/* === CSS CUSTOM PROPERTIES === */
+:root {
+  /* Font sizes (scaled up by 25%) */
+  --font-size-xs: 0.9375rem;
+  /* 0.75rem * 1.25 */
+  --font-size-sm: 1.125rem;
+  /* 0.9rem * 1.25 */
+  --font-size-base: 1.5625rem;
+  /* 1.25rem * 1.25 */
+  --font-size-lg: 1.875rem;
+  /* 1.5rem * 1.25 */
+  --font-size-xl: 2.5rem;
+  /* 2rem * 1.25 */
+  --font-size-2xl: 3.125rem;
+  /* 2.5rem * 1.25 */
+
+  /* Spacing (scaled up by 25%) */
+  --gap-xs: 3.75px;
+  /* 3px * 1.25 */
+  --gap-sm: 5px;
+  /* 4px * 1.25 */
+  --gap-md: 7.5px;
+  /* 6px * 1.25 */
+  --gap-lg: 10px;
+  /* 8px * 1.25 */
+  --gap-xl: 12.5px;
+  /* 10px * 1.25 */
+  --gap-2xl: 15px;
+  /* 12px * 1.25 */
+  --gap-3xl: 20px;
+  /* 16px * 1.25 */
+
+  /* Border radius */
+  --radius-sm: 5px;
+  --radius-md: 15px;
+
+  /* Shared styles */
+  --text-shadow:
+    1px 1px 3px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.4);
+  --letter-spacing-compact: 0.01em;
+  --letter-spacing-uppercase: 0.08em;
+}
+
+/* === OVERLAY CONTAINER === */
+.overlay-container {
+  /* OBS-friendly rendering applied once at container level */
+  /* Overlay positioning and visibility */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  padding: 10px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  color: white;
+  text-shadow: var(--text-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-out;
+  z-index: 9999;
+  /* Performance optimizations */
+  will-change: opacity;
+  contain: layout style paint;
+}
+
+/* === GLOBAL RESET === */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Overlay page specific styles */
+body.overlay-page {
+  background: transparent !important;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* === OBS-FRIENDLY RENDERING UTILITY === */
+/* Shared rendering optimizations for OBS compatibility */
+.obs-render {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* === SHARED CONTAINER STYLES === */
+/* Unified background - one cohesive block for cleaner appearance */
+.overlay-box {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 0;
+  padding: var(--gap-md) var(--gap-xl) var(--gap-lg) var(--gap-xl);
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  color: white;
+  font-weight: 600;
+  align-items: flex-start;
+  backdrop-filter: blur(8px);
+}
+
+.overlay-box>* {
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  line-height: 1;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  text-shadow: var(--text-shadow);
+}
+
+.overlay-box>*:not(:last-child) {
+  margin-bottom: 3px;
+}
+
+/* === BACKGROUND TOGGLE === */
+.overlay-box.no-background {
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  border: none !important;
+}
+
+/* Better visual hierarchy: more space after location sub-line for better separation */
+.location-sub-line {
+  margin-bottom: 5px !important;
+}
+
+.time-line,
+.date-line,
+.location-line,
+.weather-line,
+.heart-rate-line {
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+/* Ensure first child elements have consistent spacing from top */
+.overlay-box> :first-child {
+  margin-top: 0;
+}
+
+.top-left .overlay-box {
+  align-items: flex-start;
+}
+
+.top-right .overlay-box {
+  align-items: flex-end;
+}
+
+.bottom-right .overlay-box {
+  align-items: flex-start;
+}
+
+.overlay-box:empty {
+  display: none;
+}
+
+/* === LEFT ALIGNMENT OVERRIDES === */
+/* Forces elements to align left when needed (e.g. for swapped location display) */
+.align-left .location-line,
+.align-left .location-sub-line,
+.align-left .location-sub,
+.align-left .weather-line,
+.align-left .weather-condition-group,
+.align-left .weather-text-group,
+.align-left .weather-description,
+.align-left .weather-temperature,
+.align-left .movement-data-group,
+.align-left .speed-indicator,
+.align-left .location-flag-container {
+  justify-content: flex-start !important;
+  text-align: left !important;
+  align-items: flex-start !important;
+}
+
+.align-left .weather-line {
+  align-items: flex-start !important;
+}
+
+.align-left .weather-icon {
+  margin-left: 0 !important;
+  margin-right: var(--gap-md) !important;
+  order: -1;
+  /* Move icon to the left of text */
+}
+
+/* Ensure consistent spacing for left-aligned elements */
+.align-left .location-main,
+.align-left .location-sub,
+.align-left .time-display,
+.align-left .date {
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+
+/* === POSITIONING CLASSES === */
+.top-left {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  text-align: left;
+}
+
+.top-right {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  text-align: right;
+  max-width: 450px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.bottom-right {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  text-align: right;
+  max-width: 450px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.bottom-left {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  text-align: left;
+  max-width: 450px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* === URL LIST STYLES === */
+.url-item {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  margin-bottom: 8px;
+}
+
+.url-item:last-child {
+  margin-bottom: 0;
+}
+
+.url-label {
+  color: rgba(255, 255, 255, 0.8);
+  text-transform: uppercase;
+  font-size: 0.7em;
+  letter-spacing: var(--letter-spacing-uppercase);
+}
+
+.url-address {
+  color: white;
+  font-size: 0.9em;
+  word-break: break-word;
+}
+
+/* === TO-DO LIST STYLES === */
+.todo-item {
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-compact);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  text-align: left;
+}
+
+.todo-item.completed {
+  opacity: 0.6;
+}
+
+.todo-checkbox-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3em;
+  height: 1.3em;
+  font-size: 1em;
+  color: rgba(255, 255, 255, 0.95);
+  flex-shrink: 0;
+  font-weight: 700;
+  text-shadow: var(--text-shadow);
+}
+
+.todo-item.completed .todo-checkbox-icon {
+  color: rgba(34, 197, 94, 0.9);
+}
+
+.todo-text {
+  flex: 1;
+  text-align: left;
+  /* Natural left-to-right reading flow */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  /* Ensure it respects parent constraints */
+}
+
+/* === TIME DISPLAY STYLES === */
+.time,
+.time-line {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.time-display {
+  display: flex;
+  align-items: baseline;
+  /* Align to text baseline for proper AM/PM alignment */
+  gap: var(--gap-xs);
+  /* Use CSS variable instead of hardcoded 4px */
+}
+
+.time-value {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: 1;
+  /* Ensure consistent line height */
+}
+
+.time-period {
+  font-size: 0.45em;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1;
+  /* Ensure consistent line height */
+  vertical-align: baseline;
+  /* Align to baseline */
+}
+
+.date,
+.date-line {
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-uppercase);
+  opacity: 0.85;
+}
+
+/* === HEART RATE STYLES === */
+.heart-rate-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: fit-content;
+}
+
+.heart-rate-wrapper:empty {
+  display: none;
+}
+
+.heart-rate {
+  color: white;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.heart-rate-content {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.heart-rate-icon {
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--font-size-lg);
+  width: var(--font-size-lg);
+  flex-shrink: 0;
+  transition: animation-duration 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.heart-rate-icon svg {
+  width: 100%;
+  height: 100%;
+  /* Ensure SVG renders properly in OBS */
+  shape-rendering: geometricPrecision;
+  text-rendering: optimizeLegibility;
+  /* Subtle, OBS-friendly glow (heart icon is always red) */
+  filter: drop-shadow(0 0 4px rgba(255, 68, 68, 0.5)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+.heart-rate-icon.beating {
+  animation: heartbeat 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.heart-rate-text {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  /* Consistent with time display - align to baseline */
+  gap: var(--gap-sm);
+  line-height: 1;
+  flex: 1;
+}
+
+.heart-rate-value {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  /* Ensure consistent line height */
+}
+
+/* === LOCATION DISPLAY STYLES === */
+.location-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-sm);
+  transition: opacity 0.3s ease-in-out;
+}
+
+.location-main {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  letter-spacing: var(--letter-spacing-compact);
+  line-height: 1;
+}
+
+.location-sub-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-sm);
+}
+
+.location-sub {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-sm);
+  letter-spacing: var(--letter-spacing-compact);
+}
+
+.location-sub-line.country-only .location-sub {
+  font-size: var(--font-size-lg);
+  opacity: 1;
+}
+
+.location-sub-line.country-only .location-flag {
+  width: 36px;
+  height: 22px;
+}
+
+.location-flag-container {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.location-flag {
+  width: 32px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+}
+
+.location-flag-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: var(--gap-sm);
+  width: 32px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.location-flag-small {
+  border-radius: 2px;
+}
+
+/* === WEATHER DISPLAY STYLES === */
+.weather-line {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  width: fit-content;
+  transition: opacity 0.3s ease-in-out;
+}
+
+/* Spacing between location and weather */
+.location-line:last-of-type+.weather-line {
+  margin-top: var(--gap-md);
+}
+
+/* Movement data group - altitude and speed together */
+.movement-data-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--gap-xs);
+  /* Consistent spacing between altitude and speed */
+  margin-top: var(--gap-xs);
+  /* Consistent spacing from weather section above */
+}
+
+/* Ensure weather condition group doesn't add extra space */
+.weather-condition-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-md);
+  /* Increased from sm to md for better visual balance */
+  line-height: 1;
+  /* Prevent extra line height from adding space */
+  margin: 0;
+  /* Ensure no margin */
+  padding: 0;
+  /* Ensure no padding */
+}
+
+.movement-data-line {
+  margin-top: 0;
+  /* Remove default margin, handled by parent gap */
+}
+
+.weather-text-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--gap-xs);
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.weather-description-text {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-uppercase);
+  opacity: 0.85;
+  line-height: 1;
+}
+
+.weather-description {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-uppercase);
+  opacity: 0.85;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+
+.weather-temperature {
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-uppercase);
+  opacity: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 18px;
+  margin-left: var(--gap-md);
+  width: 24px;
+  flex-shrink: 0;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.weather-icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+  margin: 0;
+  /* Remove margin - gap handles spacing */
+  margin-bottom: 0;
+  height: 1em;
+  /* Match text line height */
+}
+
+
+
+/* === SPEED INDICATOR STYLES === */
+.speed-indicator {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0;
+  color: white;
+  text-shadow: var(--text-shadow);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.speed-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.speed-value {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.speed-label {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  opacity: 0.9;
+  text-transform: uppercase;
+  text-align: center;
+  align-self: center;
+}
+
+.speed-separator {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  opacity: 0.7;
+  margin: 0 8px;
+  align-self: center;
+}
+
+/* === ⚠️ API STATUS INDICATOR === */
+.api-status-indicator {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 193, 7, 0.9);
+  color: #000;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.api-status-icon {
+  font-size: 14px;
+}
+
+.api-status-text {
+  white-space: nowrap;
+}
+
+/* === MINIMAP STYLES === */
+.minimap {
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 200px;
+  overflow: hidden;
+  background: rgba(30, 20, 60, 0.2);
+  opacity: 0.95;
+  /* Force clean rendering */
+  transform: translateZ(0);
+  /* Prevent any potential border artifacts */
+  outline: none;
+  /* Performance optimizations */
+  will-change: transform, opacity;
+  contain: layout style paint;
+  /* Smooth fade transitions */
+  transition: opacity 1s ease-out;
+}
+
+.minimap.fading-out {
+  opacity: 0;
+}
+
+.minimap.fading-in {
+  opacity: 0.95;
+}
+
+/* Position minimap relative to top-right container - handled by minimap positioning */
+
+.minimap-loading {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(248, 250, 252, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 0.875rem;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.minimap-placeholder {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(30, 20, 60, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* === ANIMATIONS === */
+@keyframes heartbeat {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+
+  8% {
+    transform: scale(1.12);
+    filter: brightness(1.08);
+  }
+
+  16% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+
+  24% {
+    transform: scale(1.08);
+    filter: brightness(1.04);
+  }
+
+  32% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+
+/* === 🚨 ERROR BOUNDARY STYLES === */
+.error-boundary {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  text-align: center;
+  max-width: 400px;
+  z-index: 9999;
+  /* Performance optimizations */
+  will-change: transform;
+  contain: layout style paint;
+}
+
+.error-reload-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 1rem;
+  font-size: 1rem;
+}
+
+.error-reload-btn:hover {
+  background: #c82333;
+}
+
+/* Minimap styling - handled by main .minimap rule above */
+
+.error-details {
+  margin-top: 1rem;
+  text-align: left;
+}
+
+.error-details summary {
+  cursor: pointer;
+  color: #ffc107;
+}
+
+.error-details pre {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}

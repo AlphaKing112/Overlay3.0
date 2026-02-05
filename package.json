@@ -1,0 +1,34 @@
+{
+  "name": "tazo-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "clean": "rm -rf .next && rm -rf node_modules/.cache",
+    "clean:win": "Remove-Item -Recurse -Force .next",
+    "dev:debug": "npm run dev | tee dev.log",
+    "analyze": "cross-env ANALYZE=true npm run build",
+    "fix-icloud": "bash scripts/fix-icloud-sync.sh"
+  },
+  "dependencies": {
+    "@vercel/kv": "^3.0.0",
+    "maplibre-gl": "^5.7.1",
+    "next": "^16.0.7",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "baseline-browser-mapping": "^2.9.19",
+    "cross-env": "^7.0.3",
+    "eslint": "^9",
+    "eslint-config-next": "^16.0.7",
+    "typescript": "^5"
+  }
+}
