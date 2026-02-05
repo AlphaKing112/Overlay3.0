@@ -612,6 +612,86 @@ body.overlay-page {
   font-variant-numeric: tabular-nums;
 }
 
+.bitrate-text {
+  color: #4ade80 !important;
+  /* Green for "Live" status */
+  font-weight: 800;
+  text-shadow: 0 0 5px rgba(74, 222, 128, 0.4);
+  transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+.bitrate-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--gap-md);
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+}
+
+.bitrate-warning-yellow {
+  color: #fbbf24 !important;
+  /* Amber/Yellow for caution */
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+  animation: bitrate-pulse 1.5s infinite alternate;
+}
+
+.bitrate-warning-red {
+  color: #ff4d4d !important;
+  /* Bright red for critical */
+  text-shadow: 0 0 10px rgba(255, 77, 77, 0.7);
+  animation: bitrate-pulse 0.8s infinite alternate;
+}
+
+@keyframes bitrate-pulse {
+  from {
+    opacity: 0.7;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+.low-bitrate-alert-container {
+  position: fixed;
+  z-index: 1000;
+  transition: bottom 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.low-bitrate-alert-image {
+  max-width: 400px;
+  height: auto;
+  filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.5));
+}
+
+/* Hovering Animation like the bitrate text */
+.low-bitrate-alert-container.alert-yellow .low-bitrate-alert-image {
+  animation: low-bitrate-hover 2s infinite ease-in-out;
+}
+
+.low-bitrate-alert-container.alert-red .low-bitrate-alert-image {
+  animation: low-bitrate-hover 1s infinite ease-in-out;
+}
+
+@keyframes low-bitrate-hover {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-15px) scale(1.04);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
 .weather-icon {
   display: inline-flex;
   align-items: center;
@@ -866,4 +946,81 @@ body.overlay-page {
   font-size: 0.8rem;
   overflow-x: auto;
   margin-top: 0.5rem;
+}
+
+/* To-Do List Animations */
+.todo-item {
+  animation: todo-slide-in 0.3s ease-out;
+  transition: all 0.3s ease;
+}
+
+.todo-item.completed {
+  animation: todo-complete 0.6s ease-out;
+}
+
+.todo-item.removing {
+  animation: todo-remove 0.8s ease-out forwards;
+}
+
+@keyframes todo-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes todo-complete {
+  0% {
+    transform: scale(1);
+  }
+
+  25% {
+    transform: scale(1.1) rotate(2deg);
+  }
+
+  50% {
+    transform: scale(0.95) rotate(-2deg);
+  }
+
+  75% {
+    transform: scale(1.05) rotate(1deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes todo-remove {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+    filter: blur(0px);
+  }
+
+  30% {
+    opacity: 0.7;
+    transform: translateY(10px) scale(0.95) rotate(-5deg);
+    filter: blur(0px);
+  }
+
+  60% {
+    opacity: 0.3;
+    transform: translateY(25px) scale(0.7) rotate(-10deg);
+    filter: blur(2px);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.3) rotate(-15deg);
+    filter: blur(5px);
+    max-height: 0;
+    margin: 0;
+    padding: 0;
+  }
 }

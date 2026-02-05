@@ -8,7 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useRenderPerformance } from '@/lib/performance';
 import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
-import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
+import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 
 // Extract constants for cleaner code
 const {
@@ -22,9 +22,10 @@ const {
   MINIMAP_STALENESS_CHECK_INTERVAL,
   MINIMAP_SPEED_GRACE_PERIOD,
   MINIMAP_GPS_STALE_GRACE_PERIOD,
+  BITRATE_UPDATE_INTERVAL,
 } = TIMERS;
 import { distanceInMeters } from '@/utils/location-utils';
-import { fetchWeatherAndTimezoneFromOpenWeatherMap, fetchLocationFromLocationIQ, type SunriseSunsetData } from '@/utils/api-utils';
+import { fetchWeatherAndTimezoneFromOpenWeatherMap, fetchLocationFromLocationIQ, fetchBitrateStats, type SunriseSunsetData } from '@/utils/api-utils';
 import { formatLocation, formatCountryName, type LocationData } from '@/utils/location-utils';
 import { checkRateLimit } from '@/utils/rate-limiting';
 import {
@@ -128,6 +129,8 @@ function OverlayPage() {
   const [minimapOpacity, setMinimapOpacity] = useState(1.0); // Fully opaque for better readability
   const [hasIncompleteLocationData, setHasIncompleteLocationData] = useState(false); // Track if we have incomplete location data (country but no code)
   const [overlayVisible, setOverlayVisible] = useState(false); // Track if overlay should be visible (fade-in delay)
+  const [currentBitrate, setCurrentBitrate] = useState<number | null>(null);
+  const [currentRtt, setCurrentRtt] = useState<number | null>(null);
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
 
   // Persistent storage keys
@@ -169,6 +172,8 @@ function OverlayPage() {
   const lastAltitudeGpsTimestamp = useRef(0); // Track GPS timestamp when altitude was last updated
   const [speedUpdateTimestamp, setSpeedUpdateTimestamp] = useState(0); // State to trigger re-renders
   const [altitudeUpdateTimestamp, setAltitudeUpdateTimestamp] = useState(0); // State to trigger re-renders
+  const [bitrateUpdateTimestamp, setBitrateUpdateTimestamp] = useState(0); // State to trigger re-renders
+  const consecutiveBitrateFailuresRef = useRef(0);
 
   // Helper: Check if GPS update is fresh (within 15 minutes)
   const isGpsUpdateFresh = (gpsUpdateTime: number, now: number): boolean => {
@@ -1839,6 +1844,12 @@ function OverlayPage() {
     allowNull: true,
   });
 
+  // Animated bitrate value - counts through each integer
+  const displayedBitrate = useAnimatedValue(currentBitrate, {
+    ...BITRATE_ANIMATION,
+    allowNull: true,
+  });
+
   // Altitude display logic - hybrid change + rate detection for notable elevation
   const altitudeDisplay = useMemo(() => {
     // Hide if no altitude data
@@ -1918,6 +1929,109 @@ function OverlayPage() {
     return { value: speedKmh, formatted: `${Math.round(speedKmh)} km/h (${Math.round(speedMph)} mph)` };
   }, [currentSpeed, displayedSpeed, settings.speedDisplay, speedUpdateTimestamp]);
 
+  // Bitrate display logic
+  const bitrateDisplay = useMemo(() => {
+    // Hide ONLY if hidden in settings
+    if (settings.bitrateDisplay === 'hidden') {
+      return null;
+    }
+
+    // Auto mode: hide if no data, 0 bitrate, or data is stale
+    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
+    if (settings.bitrateDisplay === 'auto' && (currentBitrate === null || currentBitrate <= 0 || isStale)) {
+      return null;
+    }
+
+    // Mode is 'always' OR mode is 'auto' with valid data
+    // If animated value is null but raw value isn't, use raw value
+    // This handles the very first frame before animation starts
+    const bitrate = displayedBitrate !== null ? displayedBitrate : (currentBitrate || 0);
+    const rtt = currentRtt;
+
+    let formatted = `${bitrate.toLocaleString()} Kbps`;
+    if (rtt !== null && rtt !== undefined) {
+      formatted += ` / ${rtt}ms`;
+    }
+
+    return {
+      value: bitrate,
+      formatted,
+      warningLevel: (!settings.showBitrateWarnings || bitrate <= 0) ? 'none' : (bitrate < 900 ? 'red' : (bitrate < 1300 ? 'yellow' : 'none'))
+    };
+  }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp]);
+
+  // Periodic bitrate stats fetcher
+  useEffect(() => {
+    if (!API_KEYS.BITRATE_URL) {
+      console.warn('📡 Bitrate display is active but NEXT_PUBLIC_NOALBS_STATS_URL is not set in .env.local');
+      return;
+    }
+
+    console.log('📡 Bitrate debugger: Periodic fetching started from', API_KEYS.BITRATE_URL);
+    if (API_KEYS.SRT_PUBLISHER_KEY) {
+      console.log('📡 Bitrate debugger: Filtering for publisher key:', API_KEYS.SRT_PUBLISHER_KEY);
+    } else {
+      console.log('📡 Bitrate debugger: No publisher key set, will use the first stream found.');
+    }
+
+    let isActive = true;
+    let timer: NodeJS.Timeout;
+
+    const fetchStats = async () => {
+      if (!isActive) return;
+
+      const stats = await fetchBitrateStats(API_KEYS.BITRATE_URL!, API_KEYS.SRT_PUBLISHER_KEY);
+
+      if (isActive) {
+        if (stats) {
+          // Success case - no need to spam console
+          setCurrentBitrate(stats.bitrateKbps);
+          setCurrentRtt(stats.rttMs ?? null);
+          setBitrateUpdateTimestamp(Date.now());
+          consecutiveBitrateFailuresRef.current = 0;
+        } else {
+          // Failure or No Data - increment failures
+          consecutiveBitrateFailuresRef.current++;
+
+          // If we have 3 consecutive failures (approx 6-10 seconds), clear the display
+          // This ensures "auto" mode disappears when you end your stream
+          if (consecutiveBitrateFailuresRef.current >= 3) {
+            setCurrentBitrate(0);
+            setCurrentRtt(null);
+          }
+
+          console.warn('📡 Bitrate debugger: Fetch attempted but returned no data. Check if your stream is LIVE and the stats URL is reachable.');
+        }
+
+        timer = setTimeout(fetchStats, BITRATE_UPDATE_INTERVAL);
+      }
+    };
+
+    fetchStats();
+
+    return () => {
+      isActive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  // Shared Bitrate JSX to avoid duplication
+  const bitrateJSX = bitrateDisplay && (
+    <div
+      className="bitrate-container movement-data-line"
+      style={{
+        opacity: bitrateDisplay.value > 0 ? 1 : 0,
+        transition: 'opacity 3s ease-in-out'
+      }}
+    >
+      <div className={`weather-temperature bitrate-text ${bitrateDisplay.warningLevel === 'red' ? 'bitrate-warning-red' :
+        bitrateDisplay.warningLevel === 'yellow' ? 'bitrate-warning-yellow' : ''
+        }`}>
+        {bitrateDisplay.formatted}
+      </div>
+    </div>
+  );
+
   return (
     <ErrorBoundary autoReload={false}>
       <div
@@ -1995,8 +2109,8 @@ function OverlayPage() {
                       </div>
                     )}
 
-                    {/* Altitude & Speed - grouped together */}
-                    {(altitudeDisplay || speedDisplay) && (
+                    {/* Altitude, Speed, & Bitrate - grouped together */}
+                    {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay)) && (
                       <div className="movement-data-group">
                         {altitudeDisplay && (
                           <div className="weather weather-line movement-data-line">
@@ -2012,6 +2126,7 @@ function OverlayPage() {
                             </div>
                           </div>
                         )}
+                        {(settings.bitrateAnchor !== 'time') && bitrateJSX}
                       </div>
                     )}
                   </div>
@@ -2074,6 +2189,25 @@ function OverlayPage() {
                   />
                 </ErrorBoundary>
               )}
+              {settings.bitrateAnchor === 'time' && bitrateJSX}
+            </div>
+          )}
+
+          {/* To-Do List - Top Left (below time) */}
+          {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'left' && (
+            <div className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ marginTop: '12px', alignSelf: 'flex-start' }}>
+              {visibleTodos
+                .sort((a, b) => {
+                  // Incomplete tasks first, then completed tasks
+                  if (a.completed === b.completed) return 0;
+                  return a.completed ? 1 : -1;
+                })
+                .map((todo) => (
+                  <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
+                    <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
+                    <span className="todo-text">{todo.text}</span>
+                  </div>
+                ))}
             </div>
           )}
         </div>
@@ -2106,6 +2240,7 @@ function OverlayPage() {
                   />
                 </ErrorBoundary>
               )}
+              {settings.bitrateAnchor === 'time' && bitrateJSX}
             </div>
           ) : (
             /* Normal: Show Location/Weather on Right */
@@ -2170,8 +2305,8 @@ function OverlayPage() {
                       </div>
                     )}
 
-                    {/* Altitude & Speed - grouped together */}
-                    {(altitudeDisplay || speedDisplay) && (
+                    {/* Altitude, Speed, & Bitrate - grouped together */}
+                    {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay)) && (
                       <div className="movement-data-group">
                         {altitudeDisplay && (
                           <div className="weather weather-line movement-data-line">
@@ -2187,6 +2322,7 @@ function OverlayPage() {
                             </div>
                           </div>
                         )}
+                        {(settings.bitrateAnchor !== 'time') && bitrateJSX}
                       </div>
                     )}
                   </div>
@@ -2222,6 +2358,25 @@ function OverlayPage() {
               )}
             </>
           )}
+
+          {/* To-Do List - Top Right (below location) */}
+          {/* Show todo list when enabled and there are visible todos */}
+          {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'right' && (
+            <div className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ marginTop: '12px', alignSelf: 'flex-end' }}>
+              {visibleTodos
+                .sort((a, b) => {
+                  // Incomplete tasks first, then completed tasks
+                  if (a.completed === b.completed) return 0;
+                  return a.completed ? 1 : -1;
+                })
+                .map((todo) => (
+                  <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
+                    <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
+                    <span className="todo-text">{todo.text}</span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* URL List - (Text Links) Bottom Left */}
@@ -2243,28 +2398,26 @@ function OverlayPage() {
           <EmbedUrl key={url.id} url={url} />
         ))}
 
-        {/* To-Do List - Bottom Right */}
-        {/* Show todo list when enabled and there are visible todos */}
-        {settings.showTodoList && visibleTodos.length > 0 && (
-          <div className="bottom-right">
-            <div className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`}>
-              {visibleTodos
-                .sort((a, b) => {
-                  // Incomplete tasks first, then completed tasks
-                  if (a.completed === b.completed) return 0;
-                  return a.completed ? 1 : -1;
-                })
-                .map((todo) => (
-                  <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
-                    <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
-                    <span className="todo-text">{todo.text}</span>
-                  </div>
-                ))}
-            </div>
+
+        {/* Low Bitrate Alert Image (Slide up) */}
+        {settings.showBitrateWarnings && settings.showLowBitrateAlert && (
+          <div
+            className={`low-bitrate-alert-container ${bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `active alert-${bitrateDisplay.warningLevel}` : ''}`}
+            style={{
+              transform: `translateX(calc(-50% + ${settings.lowBitrateAlertX || 0}px)) scale(${settings.lowBitrateAlertScale || 1})`,
+              left: '50%',
+              bottom: bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `${40 + (settings.lowBitrateAlertY || 0)}px` : `${-300 + (settings.lowBitrateAlertY || 0)}px`
+            }}
+          >
+            <img
+              src="/images/low-bitrate-alert.png"
+              alt="LOW BITRATE"
+              className="low-bitrate-alert-image"
+            />
           </div>
         )}
       </div>
-    </ErrorBoundary>
+    </ErrorBoundary >
   );
 }
 

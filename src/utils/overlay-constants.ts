@@ -2,7 +2,7 @@
 export const TIMERS = {
   // Weather updates - time-based only (weather changes regardless of movement)
   WEATHER_UPDATE_INTERVAL: 300000, // 5 minutes - weather changes over time
-  
+
   OVERLAY_FADE_TIMEOUT: 5000,
   MINIMAP_HIDE_DELAY: 10000, // 10s
   SPEED_HIDE_DELAY: 10000, // 10s
@@ -14,13 +14,13 @@ export const TIMERS = {
   MAP_MIN_INTERVAL_SLOW: 20000,  // <10 km/h (was 30s)
   MAP_MIN_INTERVAL_MED: 10000,   // 10–50 km/h (was 15s)
   MAP_MIN_INTERVAL_FAST: 6000,   // >50 km/h (was 8s)
-  
+
   // GPS freshness and staleness timeouts
   GPS_FRESHNESS_TIMEOUT: 15 * 60 * 1000, // 15 minutes
   GPS_STALE_TIMEOUT: 10000, // 10 seconds
   WEATHER_DATA_VALIDITY_TIMEOUT: 30 * 60 * 1000, // 30 minutes
   LOCATION_DATA_VALIDITY_TIMEOUT: 30 * 60 * 1000, // 30 minutes
-  
+
   // Minimap and speed thresholds
   MINIMAP_FADE_DURATION: 1000, // 1 second
   WALKING_PACE_THRESHOLD: 5, // km/h
@@ -28,6 +28,7 @@ export const TIMERS = {
   MINIMAP_STALENESS_CHECK_INTERVAL: 1000, // 1 second
   MINIMAP_SPEED_GRACE_PERIOD: 60 * 1000, // 1 minute - grace period before hiding when speed drops below threshold
   MINIMAP_GPS_STALE_GRACE_PERIOD: 60 * 1000, // 1 minute - grace period before hiding when GPS becomes stale
+  BITRATE_UPDATE_INTERVAL: 2000, // 2 seconds
 } as const;
 
 // Animation configurations for integer counting - different speeds for different metrics
@@ -60,6 +61,15 @@ export const ELEVATION_ANIMATION = {
   precision: 0,
 } as const;
 
+// Bitrate: Fast - values can jump significantly between updates (e.g., 2000 to 5000)
+// 0.2ms/Kbps = 0.6s for 3000 Kbps change - smooth but fast
+export const BITRATE_ANIMATION = {
+  immediateThreshold: 0.1,
+  durationMultiplier: 0.2, // 0.2ms per Kbps
+  maxDuration: 1500, // 1.5 seconds max
+  precision: 0,
+} as const;
+
 // Legacy: Keep for backwards compatibility (defaults to heart rate speed)
 export const INTEGER_COUNTING_ANIMATION = HEART_RATE_ANIMATION;
 
@@ -68,6 +78,8 @@ export const API_KEYS = {
   LOCATIONIQ: process.env.NEXT_PUBLIC_LOCATIONIQ_KEY,
   PULSOID: process.env.NEXT_PUBLIC_PULSOID_TOKEN,
   OPENWEATHER: process.env.NEXT_PUBLIC_OPENWEATHERMAP_KEY,
+  BITRATE_URL: process.env.NEXT_PUBLIC_NOALBS_STATS_URL,
+  SRT_PUBLISHER_KEY: process.env.NEXT_PUBLIC_SRT_PUBLISHER_KEY,
 } as const;
 
 // Weather mapping constants

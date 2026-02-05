@@ -149,9 +149,19 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     }
   }
 
+  // Validate bitrateAnchor
+  if (settings.bitrateAnchor !== undefined) {
+    const validAnchors = ['location', 'time'];
+    if (typeof settings.bitrateAnchor === 'string' && validAnchors.includes(settings.bitrateAnchor)) {
+      cleanSettings.bitrateAnchor = settings.bitrateAnchor as any;
+    } else {
+      cleanSettings.bitrateAnchor = 'location';
+    }
+  }
+
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -187,6 +197,20 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     minimapScale: cleanSettings.minimapScale ?? DEFAULT_OVERLAY_SETTINGS.minimapScale,
     showBackground: cleanSettings.showBackground ?? DEFAULT_OVERLAY_SETTINGS.showBackground,
     mapStyle: cleanSettings.mapStyle ?? DEFAULT_OVERLAY_SETTINGS.mapStyle,
+    bitrateDisplay: cleanSettings.bitrateDisplay ?? DEFAULT_OVERLAY_SETTINGS.bitrateDisplay,
+    bitrateAnchor: cleanSettings.bitrateAnchor ?? DEFAULT_OVERLAY_SETTINGS.bitrateAnchor,
+    showLowBitrateAlert: cleanSettings.showLowBitrateAlert ?? DEFAULT_OVERLAY_SETTINGS.showLowBitrateAlert,
+    showBitrateWarnings: cleanSettings.showBitrateWarnings ?? DEFAULT_OVERLAY_SETTINGS.showBitrateWarnings,
+    lowBitrateAlertScale: typeof cleanSettings.lowBitrateAlertScale === 'number'
+      ? Math.min(Math.max(cleanSettings.lowBitrateAlertScale, 0.1), 2.0)
+      : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertScale,
+    lowBitrateAlertX: typeof cleanSettings.lowBitrateAlertX === 'number'
+      ? Math.min(Math.max(cleanSettings.lowBitrateAlertX, -1000), 1000)
+      : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertX,
+    lowBitrateAlertY: typeof cleanSettings.lowBitrateAlertY === 'number'
+      ? Math.min(Math.max(cleanSettings.lowBitrateAlertY, -1000), 1000)
+      : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertY,
+    todoListPosition: cleanSettings.todoListPosition ?? DEFAULT_OVERLAY_SETTINGS.todoListPosition,
   };
 
   return completeSettings;
@@ -204,7 +228,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition') { // valid keys
       maliciousKeys.push(key);
     }
   }

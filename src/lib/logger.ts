@@ -27,13 +27,13 @@ let productionLogCounter = 0;
  */
 function shouldLog(level: LogLevel): boolean {
   const baseCheck = LOG_LEVELS[level] >= LOG_LEVELS[LOG_CONFIG.level];
-  
+
   // In production, reduce frequency of info/debug logs
   if (process.env.NODE_ENV === 'production' && level === 'info') {
     productionLogCounter++;
     return baseCheck && (productionLogCounter % LOG_CONFIG.productionLogInterval === 0);
   }
-  
+
   return baseCheck;
 }
 
@@ -42,7 +42,7 @@ function shouldLog(level: LogLevel): boolean {
  */
 function formatMessage(level: LogLevel, context: string, message: string): string {
   const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '');
-  
+
   // Enhanced emojis and colors for different contexts
   const contextStyles = {
     'API-LOCATIONIQ': { emoji: '🗺️', color: '#4A90E2' },
@@ -56,14 +56,14 @@ function formatMessage(level: LogLevel, context: string, message: string): strin
     'ERROR': { emoji: '❌', color: '#D0021B' },
     'WARNING': { emoji: '⚠️', color: '#F5A623' },
   };
-  
+
   const contextStyle = contextStyles[context as keyof typeof contextStyles] || { emoji: '📝', color: '#9B9B9B' };
-  
+
   // Create styled components
   const timestampStr = `%c${timestamp}`;
   const contextStr = `%c${contextStyle.emoji} ${context.toUpperCase()}`;
   const messageStr = `%c${message}`;
-  
+
   // Return formatted string with CSS styles
   return `${timestampStr} ${contextStr} ${messageStr}`;
 }
@@ -84,17 +84,17 @@ function getLogStyles(level: LogLevel, context: string): string[] {
     'ERROR': { emoji: '❌', color: '#D0021B' },
     'WARNING': { emoji: '⚠️', color: '#F5A623' },
   };
-  
+
   const levelStyles = {
     debug: { emoji: '🔍', color: '#9B9B9B' },
     info: { emoji: 'ℹ️', color: '#4A90E2' },
     warn: { emoji: '⚠️', color: '#F5A623' },
     error: { emoji: '❌', color: '#D0021B' },
   };
-  
+
   const contextStyle = contextStyles[context as keyof typeof contextStyles] || { emoji: '📝', color: '#9B9B9B' };
   const levelStyle = levelStyles[level];
-  
+
   return [
     `color: #9B9B9B; font-size: 11px; font-weight: normal;`, // timestamp
     `color: ${contextStyle.color}; font-weight: bold; font-size: 12px;`, // context
@@ -107,12 +107,18 @@ function getLogStyles(level: LogLevel, context: string): string[] {
  */
 function formatData(data: unknown): string {
   if (data === null || data === undefined) return '';
+
+  // Special handling for Error objects (JSON.stringify returns {} for Errors)
+  if (data instanceof Error) {
+    return `${data.name}: ${data.message}${data.stack ? `\n${data.stack}` : ''}`;
+  }
+
   if (typeof data === 'string') {
     // Don't show empty strings as data
     return data.trim() === '' ? '' : data;
   }
   if (typeof data === 'number' || typeof data === 'boolean') return String(data);
-  
+
   try {
     const json = JSON.stringify(data, null, 2);
     // Don't show empty objects/arrays as data
@@ -188,13 +194,13 @@ export class Logger {
  * API-specific logger with standardized formatting
  */
 export const ApiLogger = {
-  info: (api: string, message: string, data?: unknown) => 
+  info: (api: string, message: string, data?: unknown) =>
     new Logger(`API-${api}`).info(message, data),
-  
-  error: (api: string, message: string, error?: unknown) => 
+
+  error: (api: string, message: string, error?: unknown) =>
     new Logger(`API-${api}`).error(message, error),
-  
-  warn: (api: string, message: string, data?: unknown) => 
+
+  warn: (api: string, message: string, data?: unknown) =>
     new Logger(`API-${api}`).warn(message, data),
 } as const;
 
@@ -202,22 +208,22 @@ export const ApiLogger = {
  * Overlay-specific logger with emoji prefixes
  */
 export const OverlayLogger = {
-  overlay: (message: string, data?: unknown) => 
+  overlay: (message: string, data?: unknown) =>
     new Logger('OVERLAY').info(message, data),
-  
-  weather: (message: string, data?: unknown) => 
+
+  weather: (message: string, data?: unknown) =>
     new Logger('WEATHER').info(message, data),
-  
-  location: (message: string, data?: unknown) => 
+
+  location: (message: string, data?: unknown) =>
     new Logger('LOCATION').info(message, data),
-  
-  settings: (message: string, data?: unknown) => 
+
+  settings: (message: string, data?: unknown) =>
     new Logger('SETTINGS').info(message, data),
-  
-  error: (message: string, error?: unknown) => 
+
+  error: (message: string, error?: unknown) =>
     new Logger('ERROR').error(message, error),
-  
-  warn: (message: string, data?: unknown) => 
+
+  warn: (message: string, data?: unknown) =>
     new Logger('WARNING').warn(message, data),
 } as const;
 
@@ -225,10 +231,10 @@ export const OverlayLogger = {
  * Heart rate monitor logger
  */
 export const HeartRateLogger = {
-  info: (message: string, data?: unknown) => 
+  info: (message: string, data?: unknown) =>
     new Logger('HEART-RATE').info(message, data),
-  
-  error: (message: string, error?: unknown) => 
+
+  error: (message: string, error?: unknown) =>
     new Logger('HEART-RATE').error(message, error),
 } as const;
 
@@ -236,13 +242,13 @@ export const HeartRateLogger = {
  * Broadcast system logger
  */
 export const BroadcastLogger = {
-  info: (message: string, data?: unknown) => 
+  info: (message: string, data?: unknown) =>
     new Logger('BROADCAST').info(message, data),
-  
-  warn: (message: string, data?: unknown) => 
+
+  warn: (message: string, data?: unknown) =>
     new Logger('BROADCAST').warn(message, data),
-  
-  error: (message: string, error?: unknown) => 
+
+  error: (message: string, error?: unknown) =>
     new Logger('BROADCAST').error(message, error),
 } as const;
 
@@ -257,11 +263,11 @@ export const LogSeparator = {
     ];
     console.log(`%c━━━ ${title} ━━━%c`, ...styles);
   },
-  
+
   divider: () => {
     console.log('%c─────────────────────────────────────────', 'color: #E0E0E0; font-size: 10px;');
   },
-  
+
   success: (message: string) => {
     const styles = [
       'color: #7ED321; font-weight: bold; font-size: 12px;',
@@ -269,7 +275,7 @@ export const LogSeparator = {
     ];
     console.log(`%c✅ %c${message}`, ...styles);
   },
-  
+
   highlight: (message: string) => {
     const styles = [
       'color: #F5A623; font-weight: bold; font-size: 12px;',

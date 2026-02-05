@@ -40,6 +40,14 @@ export interface OverlaySettings {
   minimapScale?: number;
   showBackground?: boolean;
   mapStyle?: 'auto' | 'standard' | 'dark' | 'gta';
+  bitrateDisplay?: DisplayMode;
+  bitrateAnchor?: 'time' | 'location';
+  showLowBitrateAlert?: boolean;
+  showBitrateWarnings?: boolean;
+  lowBitrateAlertScale?: number;
+  lowBitrateAlertX?: number;
+  lowBitrateAlertY?: number;
+  todoListPosition?: 'left' | 'right';
 }
 
 // Default settings (single source of truth)
@@ -62,6 +70,14 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   minimapScale: 100,
   showBackground: true,
   mapStyle: 'auto',
+  bitrateDisplay: 'auto',
+  bitrateAnchor: 'location',
+  showLowBitrateAlert: true,
+  showBitrateWarnings: true,
+  lowBitrateAlertScale: 0.6,
+  lowBitrateAlertX: 0,
+  lowBitrateAlertY: 0,
+  todoListPosition: 'left',
 };
 
 // Valid settings schema for validation
@@ -82,7 +98,15 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   swapLocationTimePositions: 'boolean',
   minimapScale: 'number',
   showBackground: 'boolean',
-  mapStyle: 'string'
+  mapStyle: 'string',
+  bitrateDisplay: 'string',
+  bitrateAnchor: 'string',
+  showLowBitrateAlert: 'boolean',
+  showBitrateWarnings: 'boolean',
+  lowBitrateAlertScale: 'number',
+  lowBitrateAlertX: 'number',
+  lowBitrateAlertY: 'number',
+  todoListPosition: 'string',
 };
 
 // SSE message types

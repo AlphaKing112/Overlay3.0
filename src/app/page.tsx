@@ -587,6 +587,159 @@ export default function AdminPage() {
             </div>
           </section>
 
+          {/* Bitrate Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>📡 Bitrate & Network</h2>
+            </div>
+
+            <div className="setting-group">
+              <div className="checkbox-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showBitrateWarnings ?? true}
+                    onChange={(e) => handleSettingsChange({ showBitrateWarnings: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Enable Low Bitrate Warnings</span>
+                </label>
+                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
+                  Globally enable/disable all bitrate alerts (colors and image pop-ups).
+                </p>
+              </div>
+            </div>
+
+            <div className="setting-group">
+              <label className="group-label">Bitrate Display</label>
+              <RadioGroup
+                value={settings.bitrateDisplay || 'auto'}
+                onChange={(value) => handleSettingsChange({ bitrateDisplay: value as DisplayMode })}
+                options={[
+                  { value: 'always', label: 'Always Show', icon: '👁️' },
+                  { value: 'auto', label: 'Auto', icon: '📡', description: 'Shows when bitrate > 0' },
+                  { value: 'hidden', label: 'Hidden', icon: '🚫' }
+                ]}
+              />
+            </div>
+
+            <div className="setting-group">
+              <label className="group-label">Bitrate Position</label>
+              <RadioGroup
+                value={settings.bitrateAnchor || 'location'}
+                onChange={(value) => handleSettingsChange({ bitrateAnchor: value as 'time' | 'location' })}
+                options={[
+                  { value: 'location', label: 'With Location', icon: '📍', description: 'Attaches to the location/weather overlay' },
+                  { value: 'time', label: 'With Time', icon: '🕒', description: 'Attaches to the time/date overlay' }
+                ]}
+              />
+            </div>
+
+            <div className="setting-group">
+              <div className="checkbox-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showLowBitrateAlert ?? true}
+                    onChange={(e) => handleSettingsChange({ showLowBitrateAlert: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Enable Low Bitrate Image Alert</span>
+                </label>
+                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
+                  Shows a visual warning image when bitrate drops below 1300 Kbps.
+                </p>
+              </div>
+
+              {/* Scale and Position Controls (only show when alert is enabled) */}
+              {settings.showLowBitrateAlert && (
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginTop: '12px' }}>
+                  {/* Scale Control */}
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
+                      <span style={{ fontSize: '0.85em' }}>{Math.round((settings.lowBitrateAlertScale || 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="2.0"
+                      step="0.1"
+                      value={settings.lowBitrateAlertScale || 1}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        handleSettingsChange({ lowBitrateAlertScale: val });
+                      }}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  {/* Position Controls (D-Pad) */}
+                  <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>Position ({settings.lowBitrateAlertX || 0}, {settings.lowBitrateAlertY || 0})</label>
+
+                    {/* Up Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => {
+                        handleSettingsChange({ lowBitrateAlertY: (settings.lowBitrateAlertY || 0) + 10 });
+                      }}
+                    >
+                      ▲
+                    </button>
+
+                    {/* Left, Reset, Right */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => {
+                          handleSettingsChange({ lowBitrateAlertX: (settings.lowBitrateAlertX || 0) - 10 });
+                        }}
+                      >
+                        ◀
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                        onClick={() => {
+                          handleSettingsChange({ lowBitrateAlertX: 0, lowBitrateAlertY: 0, lowBitrateAlertScale: 1 });
+                        }}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => {
+                          handleSettingsChange({ lowBitrateAlertX: (settings.lowBitrateAlertX || 0) + 10 });
+                        }}
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Down Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => {
+                        handleSettingsChange({ lowBitrateAlertY: (settings.lowBitrateAlertY || 0) - 10 });
+                      }}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <p className="setting-description" style={{ marginTop: '12px', fontSize: '0.9em', opacity: 0.8 }}>
+                Requires <code>NEXT_PUBLIC_NOALBS_STATS_URL</code> to be set in <code>.env.local</code>.
+              </p>
+            </div>
+          </section>
+
           {/* To-Do List Section */}
           <section className="settings-section">
             <div className="section-header">
@@ -602,6 +755,18 @@ export default function AdminPage() {
                   <span className="checkbox-text">Show on overlay</span>
                 </label>
               </div>
+            </div>
+
+            <div className="setting-group">
+              <label className="group-label">To-Do List Position</label>
+              <RadioGroup
+                value={settings.todoListPosition || 'left'}
+                onChange={(value) => handleSettingsChange({ todoListPosition: value as 'left' | 'right' })}
+                options={[
+                  { value: 'left', label: 'Top Left', icon: '⬅️', description: 'Below time overlay' },
+                  { value: 'right', label: 'Top Right', icon: '➡️', description: 'Below location overlay' }
+                ]}
+              />
             </div>
 
             <div className="setting-group">
