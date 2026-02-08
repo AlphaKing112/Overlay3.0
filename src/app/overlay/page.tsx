@@ -131,7 +131,7 @@ function OverlayPage() {
   const [currentAltitude, setCurrentAltitude] = useState<number | null>(null);
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
   const [minimapVisible, setMinimapVisible] = useState(false);
-  const [minimapOpacity, setMinimapOpacity] = useState(1.0); // Fully opaque for better readability
+  const [minimapOpacity, setMinimapOpacity] = useState(0); // Initialize hidden, fade in when active
   const [hasIncompleteLocationData, setHasIncompleteLocationData] = useState(false); // Track if we have incomplete location data (country but no code)
   const [overlayVisible, setOverlayVisible] = useState(false); // Track if overlay should be visible (fade-in delay)
   const [currentBitrate, setCurrentBitrate] = useState<number | null>(null);
@@ -241,6 +241,9 @@ function OverlayPage() {
         if (minimapVisible) {
           setMinimapVisible(false);
           setMinimapOpacity(0);
+        } else {
+          // Ensure opacity is 0 even if already hidden
+          setMinimapOpacity(0);
         }
         // Clear speed readings and low speed timer when GPS is stale
         speedReadingsRef.current = [];
@@ -283,7 +286,8 @@ function OverlayPage() {
             lowSpeedStartTimeRef.current = null;
           }
         } else {
-          // Already hidden - clear readings and timer
+          // Already hidden - ensure opacity is 0 and clear readings
+          setMinimapOpacity(0);
           speedReadingsRef.current = [];
           lowSpeedStartTimeRef.current = null;
         }
@@ -303,12 +307,10 @@ function OverlayPage() {
       // Hide immediately when manually turned off (no fade delay)
       speedReadingsRef.current = [];
       lowSpeedStartTimeRef.current = null;
-      if (minimapVisible) {
-        setMinimapVisible(false);
-        setMinimapOpacity(0);
-        // Clear any pending fade timeout
-        clearTimer(minimapFadeTimeoutRef);
-      }
+      setMinimapVisible(false);
+      setMinimapOpacity(0);
+      // Clear any pending fade timeout
+      clearTimer(minimapFadeTimeoutRef);
     }
   }, [settings.showMinimap, settings.minimapSpeedBased, minimapVisible]);
 
