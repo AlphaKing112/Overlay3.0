@@ -1093,7 +1093,13 @@ function OverlayPage() {
 
         // ── Subscriber ───────────────────────────────────────────────────
         // Twitch keeps 50% by default — configurable via twitchRevenueSplit
-        else if (eventType === 'subscriber' || eventType.includes('sub')) {
+        else if (eventType === 'subscriber' || eventType.includes('sub') || eventType.includes('community') || eventType.includes('gift')) {
+          // Prevent double-counting individual subs that are part of a community gift
+          if ((data.isCommunityGift || data.playedAsCommunityGift) && !data.bulkGifted && !eventType.includes('community')) {
+             OverlayLogger.overlay(`Ignoring individual community gift event for ${username}`);
+             return;
+          }
+
           const tierPrices: Record<string, number> = {
             '1000': 4.99, 'prime': 4.99,
             '2000': 9.99,
@@ -1104,18 +1110,24 @@ function OverlayPage() {
           const splitPercent = (currentSettings.twitchRevenueSplit ?? 50) / 100;
           
           let subMultiplier = 1;
-          const isGift = data.gifted === true || data.isGift === true || data.sender !== undefined;
+          const isGift = data.gifted === true || data.isGift === true || data.sender !== undefined || data.bulkGifted === true || eventType.includes('community');
           
           let displayUsername = username;
           if (isGift && data.sender) {
              displayUsername = data.sender;
           }
           
-          // For gifted subs, data.amount often contains the number of subs gifted (for bulk gifts)
-          if (isGift && data.amount !== undefined) {
-             const amt = typeof data.amount === 'number' ? data.amount : parseInt(data.amount);
-             if (!isNaN(amt) && amt > 1) {
-                subMultiplier = amt;
+          // For gifted subs, check multiple fields where SE might store the total quantity
+          if (isGift) {
+             const potentialFields = [data.amount, data.quantity, data.count, data.giftedCount, data.bulkAmount];
+             for (const field of potentialFields) {
+                if (field !== undefined && field !== null) {
+                   const parsed = typeof field === 'number' ? field : parseInt(field);
+                   if (!isNaN(parsed) && parsed > 1) {
+                      subMultiplier = parsed;
+                      break;
+                   }
+                }
              }
           }
           
