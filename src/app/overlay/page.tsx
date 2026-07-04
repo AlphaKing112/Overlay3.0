@@ -1102,10 +1102,41 @@ function OverlayPage() {
           const tier = String(data.tier ?? '1000');
           const tierPrice = tierPrices[tier] ?? 4.99;
           const splitPercent = (currentSettings.twitchRevenueSplit ?? 50) / 100;
-          amount = parseFloat((tierPrice * splitPercent).toFixed(2));
+          
+          let subMultiplier = 1;
+          const isGift = data.gifted === true || data.isGift === true || data.sender !== undefined;
+          
+          // For gifted subs, data.amount often contains the number of subs gifted (for bulk gifts)
+          if (isGift && data.amount !== undefined) {
+             const amt = typeof data.amount === 'number' ? data.amount : parseInt(data.amount);
+             if (!isNaN(amt) && amt > 1) {
+                subMultiplier = amt;
+             }
+          }
+          
+          // Wait, if it's not a gift, data.amount might be the months resubbed. We don't multiply revenue by months.
+          
+          amount = parseFloat((tierPrice * splitPercent * subMultiplier).toFixed(2));
           const tierLabel = tier === 'prime' ? 'Prime' : `Tier ${parseInt(tier) / 1000}`;
-          OverlayLogger.overlay(`SE Sub: ${tierLabel} = $${amount} (${currentSettings.twitchRevenueSplit ?? 50}% of $${tierPrice}) from ${username}`);
-          showDonoToast(username, tierLabel, 'SUBSCRIBED', '⭐');
+          
+          let alertText = tierLabel;
+          let actionText = 'SUBSCRIBED';
+          let icon = '⭐';
+
+          if (isGift) {
+            if (subMultiplier > 1) {
+              alertText = `Gifted ${subMultiplier} Subs`;
+              actionText = 'GIFTED SUBS';
+              icon = '🎁';
+            } else {
+              alertText = `Gifted a Sub`;
+              actionText = 'GIFTED SUB';
+              icon = '🎁';
+            }
+          }
+
+          OverlayLogger.overlay(`SE Sub: ${alertText} = $${amount} from ${username}`);
+          showDonoToast(username, alertText, actionText, icon);
         }
 
         if (amount !== null && amount > 0) {
