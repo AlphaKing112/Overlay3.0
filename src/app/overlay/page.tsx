@@ -2237,6 +2237,12 @@ function OverlayPage() {
       else if (weather.id === 781) warningEmoji = '🌪️⚠️'; // Tornado
     }
     
+    // Temperature-based warnings (if no severe condition warning exists)
+    if (!warningEmoji) {
+      if (tempF >= 95) warningEmoji = '🔥⚠️'; // Heat Wave Warning
+      else if (tempF <= 32) warningEmoji = '🧊⚠️'; // Freeze Warning
+    }
+    
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
       ? `${tempEmoji} ${tempF}°F ${warningEmoji}`.trim()
       : `${tempEmoji} ${weather.temp}°C (${tempF}°F) ${warningEmoji}`.trim();
