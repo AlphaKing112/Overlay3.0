@@ -2226,26 +2226,26 @@ function OverlayPage() {
     const tempEmoji = getWeatherIcon(weather.desc, true, isNightTime) || '';
     
     // Add weather warning based on OpenWeatherMap condition ID
-    let warningEmoji = '';
+    let warningText = '';
     if (weather.id !== undefined) {
-      if (weather.id >= 200 && weather.id <= 232) warningEmoji = '⚡'; // Thunderstorm
-      else if (weather.id === 502 || weather.id === 503 || weather.id === 504) warningEmoji = '⚠️'; // Heavy Rain
-      else if (weather.id === 602 || weather.id === 622) warningEmoji = '⚠️'; // Heavy Snow
-      else if (weather.id === 711) warningEmoji = '💨⚠️'; // Smoke
-      else if (weather.id === 762) warningEmoji = '🌋⚠️'; // Volcanic Ash
-      else if (weather.id === 771) warningEmoji = '💨⚠️'; // Squalls
-      else if (weather.id === 781) warningEmoji = '🌪️⚠️'; // Tornado
+      if (weather.id >= 200 && weather.id <= 232) warningText = ' | THUNDERSTORM WARNING';
+      else if (weather.id === 502 || weather.id === 503 || weather.id === 504) warningText = ' | HEAVY RAIN WARNING';
+      else if (weather.id === 602 || weather.id === 622) warningText = ' | HEAVY SNOW WARNING';
+      else if (weather.id === 711) warningText = ' | SMOKE WARNING';
+      else if (weather.id === 762) warningText = ' | VOLCANIC ASH WARNING';
+      else if (weather.id === 771) warningText = ' | SQUALL WARNING';
+      else if (weather.id === 781) warningText = ' | TORNADO WARNING';
     }
     
     // Temperature-based warnings (if no severe condition warning exists)
-    if (!warningEmoji) {
-      if (tempF >= 95) warningEmoji = '🔥⚠️'; // Heat Wave Warning
-      else if (tempF <= 32) warningEmoji = '🧊⚠️'; // Freeze Warning
+    if (!warningText) {
+      if (tempF >= 95) warningText = ' | HEAT WARNING';
+      else if (tempF <= 32) warningText = ' | FREEZE WARNING';
     }
     
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
-      ? `${tempEmoji} ${tempF}°F ${warningEmoji}`.trim()
-      : `${tempEmoji} ${weather.temp}°C (${tempF}°F) ${warningEmoji}`.trim();
+      ? `${tempEmoji} ${tempF}°F${warningText}`.trim()
+      : `${tempEmoji} ${weather.temp}°C (${tempF}°F)${warningText}`.trim();
 
     const display = {
       temperature: temperatureStr,
