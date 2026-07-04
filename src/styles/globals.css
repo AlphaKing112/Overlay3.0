@@ -1160,99 +1160,60 @@ body.overlay-page {
   }
 }
 
-/* === SOCIAL TEXT THEMES (Aligned with Low Bitrate alert style) === */
-/* Applied to .social-item wrapper via data-theme attribute */
+/* === SOCIAL TEXT THEMES === */
+/* Only styles text and icon — no container background/border/padding changes */
 
-/* Reset default padding / styling to allow theme overrides */
 .social-item {
   display: flex;
   align-items: center;
   gap: 10px;
   font-family: inherit;
-  transition: all 0.3s ease;
+  transition: color 0.3s ease;
 }
 
-/* 0. Default — White Montserrat bold style warning layout */
-.social-item[data-theme="default"] {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.9) 0%, rgba(185, 28, 28, 0.9) 100%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  padding: 6px 12px;
-  color: #ffffff;
-}
+/* 0. Default — white bold text */
 .social-item[data-theme="default"] .social-name {
   color: #ffffff;
   font-weight: 800;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  text-shadow: var(--text-shadow);
 }
 
-/* 1. Neon Cyberpunk — black translucent box with cyan neon glow and hot pink details */
-.social-item[data-theme="neon"] {
-  background: rgba(0, 0, 0, 0.85) !important;
-  border: 2px solid #00f5ff !important;
-  border-radius: 4px;
-  box-shadow: 0 0 15px rgba(0, 245, 255, 0.4), inset 0 0 15px rgba(0, 245, 255, 0.2);
-  padding: 6px 12px;
-}
+/* 1. Neon Cyberpunk — glowing cyan text, hot pink icon */
 .social-item[data-theme="neon"] .social-name {
   color: #00f5ff;
   font-weight: 900;
   letter-spacing: 0.12em;
-  text-shadow: 0 0 8px #00f5ff, 0 0 18px rgba(0, 245, 255, 0.6);
+  text-shadow: 0 0 8px #00f5ff, 0 0 18px rgba(0, 245, 255, 0.6), 1px 1px 3px rgba(0,0,0,0.9);
 }
 .social-item[data-theme="neon"] .social-icon {
   color: #f700ff !important;
   filter: drop-shadow(0 0 8px #f700ff);
 }
 
-/* 2. Retro Arcade (Pixel Monospace double-bordered) */
-.social-item[data-theme="retro"] {
-  background: #000000 !important;
-  border: 4px double #ffe44d !important;
-  border-radius: 0;
-  box-shadow: 0 4px 0 #000000;
-  padding: 6px 12px;
-}
+/* 2. Retro Arcade — amber monospace text, amber icon */
 .social-item[data-theme="retro"] .social-name {
   color: #ffe44d;
   font-family: 'Courier New', Courier, monospace;
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-shadow: 0 0 4px rgba(255, 228, 77, 0.7), 1px 1px 0 rgba(0,0,0,0.9);
 }
 .social-item[data-theme="retro"] .social-icon {
   color: #ffe44d !important;
+  filter: drop-shadow(0 0 3px rgba(255, 228, 77, 0.6));
 }
 
-/* 3. Bold Block / Heavy Warning Stripes */
-.social-item[data-theme="bold"] {
-  background: repeating-linear-gradient(
-    45deg,
-    #ef4444,
-    #ef4444 10px,
-    #b91c1c 10px,
-    #b91c1c 20px
-  ) !important;
-  border: 3px solid #ffffff !important;
-  border-radius: 8px;
-  padding: 6px 12px;
-}
+/* 3. Bold Striped — oversized uppercase white text with hard outline */
 .social-item[data-theme="bold"] .social-name {
-  font-size: 1.1em;
-  font-weight: 900;
   color: #ffffff;
+  font-size: 1.2em;
+  font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-shadow: 2px 2px 0px #000000, 3px 3px 6px rgba(0,0,0,0.6);
 }
 
-/* 4. Comic Impact (tilted comic book style) */
-.social-item[data-theme="impact"] {
-  background: #ffffff !important;
-  border: 3px solid #000000 !important;
-  border-radius: 20px;
-  box-shadow: 4px 4px 0px #000000;
-  padding: 6px 14px;
-}
+/* 4. Comic Impact — red italic text with yellow+black outline, black icon */
 .social-item[data-theme="impact"] .social-name {
   color: #ef4444;
   font-weight: 900;
@@ -1261,7 +1222,8 @@ body.overlay-page {
   text-shadow: 1.5px 1.5px 0px #ffe44d, 2.5px 2.5px 0px #000000;
 }
 .social-item[data-theme="impact"] .social-icon {
-  color: #000000 !important;
+  color: #ef4444 !important;
+  filter: drop-shadow(1px 1px 0px #000000);
 }
 
 /* ─── Donation Toast Notification ────────────────────────────────────── */
