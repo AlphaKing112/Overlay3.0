@@ -43,11 +43,18 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
         if (todo && typeof todo === 'object' && 'id' in todo && 'text' in todo && 'completed' in todo) {
           const todoObj = todo as Record<string, unknown>;
           if (typeof todoObj.id === 'string' && typeof todoObj.text === 'string' && typeof todoObj.completed === 'boolean') {
-            validTodos.push({
+            const validTodo: TodoItem = {
               id: todoObj.id,
               text: String(todoObj.text).slice(0, 200), // Limit text length
               completed: Boolean(todoObj.completed)
-            });
+            };
+            if (todoObj.current !== undefined && typeof todoObj.current === 'number') {
+              validTodo.current = todoObj.current;
+            }
+            if (todoObj.goal !== undefined && typeof todoObj.goal === 'number') {
+              validTodo.goal = todoObj.goal;
+            }
+            validTodos.push(validTodo);
           }
         }
       }

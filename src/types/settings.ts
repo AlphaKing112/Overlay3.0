@@ -8,6 +8,8 @@ export interface TodoItem {
   id: string;
   text: string;
   completed: boolean;
+  current?: number;
+  goal?: number;
 }
 
 export interface UrlItem {

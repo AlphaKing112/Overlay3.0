@@ -1407,37 +1407,79 @@ export default function AdminPage() {
             </div>
 
             <div className="setting-group">
-              <div className="todo-input-group">
+              <div className="todo-input-group" style={{ display: 'flex', gap: '8px' }}>
                 <input
                   type="text"
                   placeholder="Add a new task..."
                   className="todo-input"
+                  style={{ flex: 1 }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                      const text = e.currentTarget.value.trim();
+                      const parent = e.currentTarget.parentElement;
+                      const goalInput = parent?.querySelector('.todo-goal-input') as HTMLInputElement;
+                      const goalVal = goalInput && goalInput.value ? parseInt(goalInput.value) : undefined;
+                      
                       const newTodo: TodoItem = {
                         id: Date.now().toString(),
-                        text: e.currentTarget.value.trim(),
-                        completed: false
+                        text,
+                        completed: false,
+                        ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {})
                       };
                       const updatedTodos = [...(settings.todos || []), newTodo];
                       handleSettingsChange({ todos: updatedTodos });
                       e.currentTarget.value = '';
+                      if (goalInput) goalInput.value = '';
+                    }
+                  }}
+                />
+                <input
+                  type="number"
+                  placeholder="Goal (optional)"
+                  className="todo-goal-input"
+                  min="1"
+                  style={{ width: '120px', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const parent = e.currentTarget.parentElement;
+                      const textInput = parent?.querySelector('.todo-input') as HTMLInputElement;
+                      const goalVal = e.currentTarget.value ? parseInt(e.currentTarget.value) : undefined;
+                      if (textInput && textInput.value.trim()) {
+                        const text = textInput.value.trim();
+                        const newTodo: TodoItem = {
+                          id: Date.now().toString(),
+                          text,
+                          completed: false,
+                          ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {})
+                        };
+                        const updatedTodos = [...(settings.todos || []), newTodo];
+                        handleSettingsChange({ todos: updatedTodos });
+                        textInput.value = '';
+                        e.currentTarget.value = '';
+                      }
                     }
                   }}
                 />
                 <button
                   className="btn btn-primary btn-small"
                   onClick={(e) => {
-                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                    if (input && input.value.trim()) {
+                    const parent = e.currentTarget.parentElement;
+                    const textInput = parent?.querySelector('.todo-input') as HTMLInputElement;
+                    const goalInput = parent?.querySelector('.todo-goal-input') as HTMLInputElement;
+                    if (textInput && textInput.value.trim()) {
+                      const text = textInput.value.trim();
+                      const goalVal = goalInput && goalInput.value ? parseInt(goalInput.value) : undefined;
+                      
                       const newTodo: TodoItem = {
                         id: Date.now().toString(),
-                        text: input.value.trim(),
-                        completed: false
+                        text,
+                        completed: false,
+                        ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {})
                       };
                       const updatedTodos = [...(settings.todos || []), newTodo];
                       handleSettingsChange({ todos: updatedTodos });
-                      input.value = '';
+                      textInput.value = '';
+                      if (goalInput) goalInput.value = '';
                     }
                   }}
                 >
@@ -1475,9 +1517,17 @@ export default function AdminPage() {
                               type="checkbox"
                               checked={todo.completed}
                               onChange={() => {
-                                const updatedTodos = settings.todos!.map(t =>
-                                  t.id === todo.id ? { ...t, completed: !t.completed } : t
-                                );
+                                const updatedTodos = settings.todos!.map(t => {
+                                  if (t.id === todo.id) {
+                                    const nextCompleted = !t.completed;
+                                    const updated = { ...t, completed: nextCompleted };
+                                    if (t.goal !== undefined && t.goal > 0) {
+                                      updated.current = nextCompleted ? t.goal : 0;
+                                    }
+                                    return updated;
+                                  }
+                                  return t;
+                                });
                                 handleSettingsChange({ todos: updatedTodos });
                               }}
                               className="todo-checkbox"
@@ -1527,10 +1577,61 @@ export default function AdminPage() {
                                 title="Double-click to edit"
                               >
                                 {todo.text}
+                                {todo.goal !== undefined && todo.goal > 0 && (
+                                  <span style={{ fontSize: '0.85em', opacity: 0.7, marginLeft: '6px', fontWeight: 'bold' }}>
+                                    ({todo.current ?? 0}/{todo.goal})
+                                  </span>
+                                )}
                               </span>
                             )}
                           </label>
                           <div className="todo-actions">
+                            {editingTodoId !== todo.id && todo.goal !== undefined && todo.goal > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
+                                <button
+                                  className="btn btn-secondary btn-small"
+                                  style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
+                                  onClick={() => {
+                                    const updatedTodos = settings.todos!.map(t => {
+                                      if (t.id === todo.id) {
+                                        const newCurrent = Math.max(0, (t.current ?? 0) - 1);
+                                        return {
+                                          ...t,
+                                          current: newCurrent,
+                                          completed: newCurrent >= t.goal!
+                                        };
+                                      }
+                                      return t;
+                                    });
+                                    handleSettingsChange({ todos: updatedTodos });
+                                  }}
+                                  title="Decrease"
+                                >
+                                  -
+                                </button>
+                                <button
+                                  className="btn btn-secondary btn-small"
+                                  style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
+                                  onClick={() => {
+                                    const updatedTodos = settings.todos!.map(t => {
+                                      if (t.id === todo.id) {
+                                        const newCurrent = Math.min(t.goal!, (t.current ?? 0) + 1);
+                                        return {
+                                          ...t,
+                                          current: newCurrent,
+                                          completed: newCurrent >= t.goal!
+                                        };
+                                      }
+                                      return t;
+                                    });
+                                    handleSettingsChange({ todos: updatedTodos });
+                                  }}
+                                  title="Increase"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            )}
                             {editingTodoId !== todo.id && (
                               <button
                                 className="todo-edit-btn"

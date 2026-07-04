@@ -2549,7 +2549,14 @@ function OverlayPage() {
                 .map((todo) => (
                   <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
                     <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
-                    <span className="todo-text">{todo.text}</span>
+                    <span className="todo-text">
+                      {todo.text}
+                      {todo.goal !== undefined && todo.goal > 0 && (
+                        <span className="todo-goal-progress" style={{ opacity: 0.8, fontSize: '0.85em', fontWeight: 'bold', marginLeft: '6px' }}>
+                          ({todo.current ?? 0}/{todo.goal})
+                        </span>
+                      )}
+                    </span>
                   </div>
                 ))}
             </div>
@@ -2683,7 +2690,14 @@ function OverlayPage() {
                 .map((todo) => (
                   <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
                     <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
-                    <span className="todo-text">{todo.text}</span>
+                    <span className="todo-text">
+                      {todo.text}
+                      {todo.goal !== undefined && todo.goal > 0 && (
+                        <span className="todo-goal-progress" style={{ opacity: 0.8, fontSize: '0.85em', fontWeight: 'bold', marginLeft: '6px' }}>
+                          ({todo.current ?? 0}/{todo.goal})
+                        </span>
+                      )}
+                    </span>
                   </div>
                 ))}
             </div>
