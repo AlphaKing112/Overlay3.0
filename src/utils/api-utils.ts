@@ -80,6 +80,7 @@ export interface WeatherData {
   temp: number; // actual temperature
   desc: string;
   id?: number; // OpenWeatherMap condition code for warnings
+  feelsLike?: number; // "feels like" temperature for heat warnings
 }
 
 export interface WeatherTimezoneResponse {
@@ -357,6 +358,7 @@ export async function fetchWeatherAndTimezoneFromOpenWeatherMap(
         temp: Math.round(data.main.temp), // Use actual temperature
         desc: data.weather[0].description || 'unknown',
         id: data.weather[0].id,
+        feelsLike: typeof data.main.feels_like === 'number' ? Math.round(data.main.feels_like) : undefined,
       };
 
       ApiLogger.info('openweathermap', 'Weather data received', weather);
@@ -366,6 +368,7 @@ export async function fetchWeatherAndTimezoneFromOpenWeatherMap(
         temp: Math.round(data.main.feels_like),
         desc: data.weather[0].description || 'unknown',
         id: data.weather[0].id,
+        feelsLike: Math.round(data.main.feels_like),
       };
 
       ApiLogger.info('openweathermap', 'Weather data received (using feels_like as regular temp unavailable)', weather);

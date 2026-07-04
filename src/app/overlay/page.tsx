@@ -123,7 +123,7 @@ function OverlayPage() {
     secondary?: string;
     countryCode?: string;
   } | null>(null);
-  const [weather, setWeather] = useState<{ temp: number; desc: string; id?: number } | null>(null);
+  const [weather, setWeather] = useState<{ temp: number; desc: string; id?: number; feelsLike?: number } | null>(null);
   const [timezone, setTimezone] = useState<string | null>(null);
   const [sunriseSunset, setSunriseSunset] = useState<SunriseSunsetData | null>(null);
   const [mapCoords, setMapCoords] = useState<[number, number] | null>(null);
@@ -631,7 +631,7 @@ function OverlayPage() {
     lastSuccessfulLocationFetch.current = Date.now();
   }, []);
 
-  const updateWeather = useCallback((weatherData: { temp: number; desc: string; id?: number }) => {
+  const updateWeather = useCallback((weatherData: { temp: number; desc: string; id?: number; feelsLike?: number }) => {
     setWeather(weatherData);
     lastSuccessfulWeatherFetch.current = Date.now();
   }, []);
@@ -1723,7 +1723,7 @@ function OverlayPage() {
                         lastWeatherTime.current = Date.now();
                         if (weatherResult && typeof weatherResult === 'object' && 'weather' in weatherResult) {
                           const result = weatherResult as {
-                            weather?: { temp: number; desc: string; id?: number };
+                            weather?: { temp: number; desc: string; id?: number; feelsLike?: number };
                             timezone?: string;
                             sunriseSunset?: SunriseSunsetData;
                           };
@@ -2241,8 +2241,10 @@ function OverlayPage() {
     
     // Temperature-based warnings (if no severe condition warning exists)
     if (!warningText) {
-      if (tempF >= 95) { warningText = '| 🔥⚠️ HEAT WARNING'; warningColor = '#ef4444'; } // Red
-      else if (tempF <= 32) { warningText = '| 🧊⚠️ FREEZE WARNING'; warningColor = '#60a5fa'; } // Blue
+      // Use feelsLike temperature for heat warning if available, otherwise use actual temp
+      const effectiveTempF = weather.feelsLike !== undefined ? celsiusToFahrenheit(weather.feelsLike) : tempF;
+      if (effectiveTempF >= 90) { warningText = '| 🔥⚠️ HEAT WARNING'; warningColor = '#ef4444'; } // Red
+      else if (effectiveTempF <= 32) { warningText = '| 🧊⚠️ FREEZE WARNING'; warningColor = '#60a5fa'; } // Blue
     }
     
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
