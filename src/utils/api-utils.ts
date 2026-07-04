@@ -513,26 +513,40 @@ export async function fetchBitrateStats(
     let response;
     let usedProxy = false;
 
+    // OBS Browser Source is very aggressive with caching fetch requests.
+    // Adding a timestamp cache buster to the URL ensures we always get fresh data.
+    const cacheBuster = `t=${Date.now()}`;
+    const directUrl = url.includes('?') ? `${url}&${cacheBuster}` : `${url}?${cacheBuster}`;
+    
     if (isBrowser && isHttps) {
       try {
         // Try direct fetch first
-        response = await fetchWithRetry(url, {
+        response = await fetchWithRetry(directUrl, {
           timeout: 5000,
-          headers: { 'Accept': 'application/json' }
+          headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          cache: 'no-store'
         });
         if (!response.ok) throw new Error('Direct fetch failed');
       } catch (e) {
         // Fallback to proxy if direct fetch fails (likely CORS)
-        const proxyUrl = `/api/bitrate?url=${encodeURIComponent(url)}`;
-        response = await fetchWithRetry(proxyUrl, { timeout: 15000 });
+        const proxyUrl = `/api/bitrate?url=${encodeURIComponent(url)}&${cacheBuster}`;
+        response = await fetchWithRetry(proxyUrl, { 
+          timeout: 15000,
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          cache: 'no-store'
+        });
         usedProxy = true;
       }
     } else {
       // Use proxy for HTTP to avoid Mixed Content errors, or if not in browser
       const fetchUrl = isBrowser
-        ? `/api/bitrate?url=${encodeURIComponent(url)}`
-        : url;
-      response = await fetchWithRetry(fetchUrl, { timeout: 20000 });
+        ? `/api/bitrate?url=${encodeURIComponent(url)}&${cacheBuster}`
+        : directUrl;
+      response = await fetchWithRetry(fetchUrl, { 
+        timeout: 20000,
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        cache: 'no-store'
+      });
       usedProxy = true;
     }
 
