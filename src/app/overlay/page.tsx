@@ -2425,14 +2425,14 @@ function OverlayPage() {
   }, []);
 
   // Shared Bitrate JSX to avoid duplication
-  const bitrateJSX = bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always') && (
+  const isBitrateVisible = bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always');
+  
+  const bitrateJSX = isBitrateVisible && (
     <div
       className="bitrate-container movement-data-line"
       style={{
-        opacity: bitrateDisplay.value > 0 ? 1 : 0,
-        height: bitrateDisplay.value > 0 ? 'auto' : 0,
-        overflow: 'hidden',
-        transition: 'all 0.5s ease-in-out'
+        opacity: 1, // Let React mounting handle visibility, avoid OBS height/opacity animation bugs
+        height: 'auto',
       }}
     >
       <div className={`weather-temperature bitrate-text ${bitrateDisplay.warningLevel === 'red' ? 'bitrate-warning-red' :
