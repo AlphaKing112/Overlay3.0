@@ -2685,7 +2685,10 @@ function OverlayPage() {
                 {weatherDisplay && settings.showWeather && (
                   <div className="weather weather-line">
                     <div className="weather-text-group">
-                      <div className="weather-temperature" style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</div>
+                      <div className="weather-temperature">
+                        <span style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</span>
+                        {weatherDisplay.warningText && <span style={{ color: weatherDisplay.warningColor, fontWeight: 'bold', marginLeft: '6px' }}>{weatherDisplay.warningText}</span>}
+                      </div>
                       {(weatherDisplay.icon || weatherDisplay.description) && (
                         <div className="weather-condition-group">
                           {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
