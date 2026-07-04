@@ -1266,7 +1266,7 @@ export default function AdminPage() {
                   <span className="checkbox-text">Enable Low Bitrate Text Alert</span>
                 </label>
                 <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
-                  Shows a flashing text alert when bitrate drops below 1300 Kbps.
+                  Shows a flashing text alert when bitrate drops below {settings.lowBitrateThreshold ?? 1300} Kbps.
                 </p>
               </div>
 
@@ -1287,6 +1287,49 @@ export default function AdminPage() {
                   />
                 </div>
               )}
+
+              {/* Threshold Controls */}
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginTop: '12px' }}>
+                {/* Low Threshold */}
+                <div style={{ flex: 1, minWidth: '150px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Low Threshold</label>
+                    <span style={{ fontSize: '0.85em' }}>{settings.lowBitrateThreshold ?? 1300} Kbps</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="10000"
+                    step="100"
+                    value={settings.lowBitrateThreshold ?? 1300}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      handleSettingsChange({ lowBitrateThreshold: val });
+                    }}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* Critical Threshold */}
+                <div style={{ flex: 1, minWidth: '150px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Critical Threshold</label>
+                    <span style={{ fontSize: '0.85em' }}>{settings.criticalBitrateThreshold ?? 900} Kbps</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="10000"
+                    step="100"
+                    value={settings.criticalBitrateThreshold ?? 900}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      handleSettingsChange({ criticalBitrateThreshold: val });
+                    }}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
 
               {/* Scale and Position Controls (only show when alert is enabled) */}
               {settings.showLowBitrateAlert && (

@@ -2357,12 +2357,15 @@ function OverlayPage() {
       formatted += ` / ${rtt}ms`;
     }
 
+    const criticalThreshold = settings.criticalBitrateThreshold ?? 900;
+    const lowThreshold = settings.lowBitrateThreshold ?? 1300;
+
     return {
       value: bitrate,
       formatted,
-      warningLevel: (!settings.showBitrateWarnings || bitrate <= 0) ? 'none' : (bitrate < 900 ? 'red' : (bitrate < 1300 ? 'yellow' : 'none'))
+      warningLevel: (!settings.showBitrateWarnings || bitrate <= 0) ? 'none' : (bitrate < criticalThreshold ? 'red' : (bitrate < lowThreshold ? 'yellow' : 'none'))
     };
-  }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp]);
+  }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp, settings.lowBitrateThreshold, settings.criticalBitrateThreshold, settings.showBitrateWarnings]);
 
   // Periodic bitrate stats fetcher
   useEffect(() => {

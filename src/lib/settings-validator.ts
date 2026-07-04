@@ -193,7 +193,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -237,6 +237,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     bitrateAnchor: cleanSettings.bitrateAnchor ?? DEFAULT_OVERLAY_SETTINGS.bitrateAnchor,
     showLowBitrateAlert: cleanSettings.showLowBitrateAlert ?? DEFAULT_OVERLAY_SETTINGS.showLowBitrateAlert,
     showBitrateWarnings: cleanSettings.showBitrateWarnings ?? DEFAULT_OVERLAY_SETTINGS.showBitrateWarnings,
+    lowBitrateThreshold: cleanSettings.lowBitrateThreshold ?? DEFAULT_OVERLAY_SETTINGS.lowBitrateThreshold,
+    criticalBitrateThreshold: cleanSettings.criticalBitrateThreshold ?? DEFAULT_OVERLAY_SETTINGS.criticalBitrateThreshold,
     lowBitrateAlertScale: typeof cleanSettings.lowBitrateAlertScale === 'number'
       ? Math.min(Math.max(cleanSettings.lowBitrateAlertScale, 0.1), 2.0)
       : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertScale,
