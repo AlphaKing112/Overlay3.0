@@ -1799,12 +1799,11 @@ export default function AdminPage() {
                     value={settings.socialTextTheme || 'default'}
                     onChange={(value) => handleSettingsChange({ socialTextTheme: value as any })}
                     options={[
-                      { value: 'default', label: 'Default', icon: '📝', description: 'Simple white text with soft shadow' },
-                      { value: 'neon', label: 'Neon Cyan', icon: '💻', description: 'Glowy cyber-cyan theme with magenta icon' },
-                      { value: 'minimal', label: 'Minimalist', icon: '☁️', description: 'Clean soft-grey branding text' },
-                      { value: 'bold', label: 'Heavy Bold', icon: '💥', description: 'Oversized thick-bordered retro letter spacing' },
-                      { value: 'retro', label: 'Arcade Monospace', icon: '🕹️', description: 'Amber Courier retro computer style' },
-                      { value: 'glass', label: 'Glassmorphism', icon: '✨', description: 'Frosted transparent background pill' }
+                      { value: 'default', label: 'Default', icon: '📝', description: 'Bold sans-serif warning pill styling' },
+                      { value: 'neon', label: 'Neon Cyberpunk', icon: '💻', description: 'Glowy cyan cyberpunk theme' },
+                      { value: 'retro', label: 'Retro Arcade', icon: '🕹️', description: '1980s monospaced double-bordered pixel style' },
+                      { value: 'bold', label: 'Bold Striped', icon: '🚧', description: 'Heavy warning stripes style' },
+                      { value: 'impact', label: 'Comic Impact', icon: '💥', description: 'Playful comic impact style' }
                     ]}
                   />
                 </div>

@@ -81,7 +81,7 @@ export interface OverlaySettings {
   socialTiktokName?: string;
   socialRotateInterval?: number;
   socialPosition?: 'top-middle' | 'bottom-left';
-  socialTextTheme?: 'default' | 'neon' | 'minimal' | 'bold' | 'retro' | 'glass';
+  socialTextTheme?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   socialShowBackground?: boolean;
   donationGoals?: DonationGoal[];
   showDonationGoals?: boolean;

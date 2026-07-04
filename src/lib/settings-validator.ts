@@ -287,8 +287,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     socialPosition: (cleanSettings.socialPosition === 'top-middle' || cleanSettings.socialPosition === 'bottom-left')
       ? cleanSettings.socialPosition
       : DEFAULT_OVERLAY_SETTINGS.socialPosition,
-    socialTextTheme: (['default', 'neon', 'minimal', 'bold', 'retro', 'glass'] as const).includes(cleanSettings.socialTextTheme as any)
-      ? cleanSettings.socialTextTheme as 'default' | 'neon' | 'minimal' | 'bold' | 'retro' | 'glass'
+    socialTextTheme: (['default', 'neon', 'retro', 'bold', 'impact'] as const).includes(cleanSettings.socialTextTheme as any)
+      ? cleanSettings.socialTextTheme as 'default' | 'neon' | 'retro' | 'bold' | 'impact'
       : DEFAULT_OVERLAY_SETTINGS.socialTextTheme,
     socialShowBackground: cleanSettings.socialShowBackground ?? DEFAULT_OVERLAY_SETTINGS.socialShowBackground,
     donationGoals: (() => {
