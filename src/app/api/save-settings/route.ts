@@ -33,6 +33,29 @@ async function handlePOST(request: NextRequest) {
     // Validate and sanitize the settings
     const settings = validateAndSanitizeSettings(rawSettings);
     
+    // Merge/preserve real-time updates from StreamElements (prevent resetting raised amount)
+    try {
+      const existingSettings = await kv.get('overlay_settings') as any;
+      if (existingSettings) {
+        if (existingSettings.donationGoals && settings.donationGoals) {
+          settings.donationGoals = settings.donationGoals.map((newGoal: any) => {
+            const existingGoal = existingSettings.donationGoals.find((eg: any) => eg.id === newGoal.id);
+            if (existingGoal) {
+              return {
+                ...newGoal,
+                current: Math.max(existingGoal.current || 0, newGoal.current || 0)
+              };
+            }
+            return newGoal;
+          });
+        } else if (existingSettings.donationGoals && !settings.donationGoals) {
+          settings.donationGoals = existingSettings.donationGoals;
+        }
+      }
+    } catch (err) {
+      OverlayLogger.error('Failed to merge existing settings for donation progress', err);
+    }
+    
     const startTime = Date.now();
     
     // Batch KV operations to reduce calls

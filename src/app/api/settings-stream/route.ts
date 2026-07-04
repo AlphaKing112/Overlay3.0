@@ -109,17 +109,30 @@ export async function GET(request: NextRequest): Promise<Response> {
           checkForUpdates();
         }, 100);
       
+      // Gracefully close the connection after 9 seconds to prevent Vercel Serverless Function timeouts (10s limit)
+      // This avoids "Gateway Timeout" (504) entries on the Vercel Dashboard
+      const graceTimeout = setTimeout(() => {
+        clearInterval(interval);
+        removeConnection(connectionId);
+        try {
+          controller.close();
+        } catch {}
+      }, 9000);
+      
       // Check for updates every 2 seconds for more responsive updates
       const interval = setInterval(checkForUpdates, 2000);
       
       // Cleanup on close
       request.signal.addEventListener('abort', () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[SSE] Connection closed: ${connectionId}`);
-      }
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[SSE] Connection closed: ${connectionId}`);
+        }
         clearInterval(interval);
+        clearTimeout(graceTimeout);
         removeConnection(connectionId);
-        controller.close();
+        try {
+          controller.close();
+        } catch {}
       });
     },
   });

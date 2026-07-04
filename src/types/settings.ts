@@ -21,12 +21,23 @@ export interface UrlItem {
   y?: number;
 }
 
+export interface DonationGoal {
+  id: string;
+  name: string;
+  goal: number;
+  current: number;
+  duration?: number;
+  lastTriggered?: number;
+}
+
 export interface OverlaySettings {
   locationDisplay: LocationDisplayMode;
   customLocation?: string;
   showCountryName: boolean;
   showWeather: boolean;
   weatherConditionDisplay: DisplayMode;
+  temperatureUnit?: 'both' | 'F';
+  showDate?: boolean;
   showMinimap: boolean;
   minimapSpeedBased: boolean;
   mapZoomLevel: MapZoomLevel;
@@ -56,6 +67,26 @@ export interface OverlaySettings {
   minimapX?: number;
   minimapY?: number;
   minimapPosition?: 'left' | 'right';
+  socialXEnabled?: boolean;
+  socialXName?: string;
+  socialYoutubeEnabled?: boolean;
+  socialYoutubeName?: string;
+  socialInstagramEnabled?: boolean;
+  socialInstagramName?: string;
+  socialRotateInterval?: number;
+  socialPosition?: 'top-middle' | 'bottom-left';
+  socialTextTheme?: 'default' | 'neon' | 'minimal' | 'bold' | 'retro' | 'glass';
+  socialShowBackground?: boolean;
+  donationGoals?: DonationGoal[];
+  showDonationGoals?: boolean;
+  donationGoalsX?: number;
+  donationGoalsY?: number;
+  donationGoalsScale?: number;
+  streamElementsEnabled?: boolean;
+  streamElementsToken?: string;
+  twitchRevenueSplit?: number;
+  donationGoalsDuration?: number;
+  timeWeatherLocationScale?: number;
 }
 
 // Default settings (single source of truth)
@@ -65,6 +96,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   showCountryName: true,
   showWeather: true,
   weatherConditionDisplay: 'auto',
+  temperatureUnit: 'both',
+  showDate: true,
   showMinimap: false,
   minimapSpeedBased: false,
   mapZoomLevel: 'city',
@@ -94,16 +127,38 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   minimapX: 0,
   minimapY: 0,
   minimapPosition: 'left',
+  socialXEnabled: false,
+  socialXName: '',
+  socialYoutubeEnabled: false,
+  socialYoutubeName: '',
+  socialInstagramEnabled: false,
+  socialInstagramName: '',
+  socialRotateInterval: 5,
+  socialPosition: 'top-middle',
+  socialTextTheme: 'default',
+  socialShowBackground: true,
+  donationGoals: [],
+  showDonationGoals: false,
+  donationGoalsX: 0,
+  donationGoalsY: 0,
+  donationGoalsScale: 1,
+  timeWeatherLocationScale: 1.0,
+  streamElementsEnabled: false,
+  streamElementsToken: '',
+  twitchRevenueSplit: 50,
+  donationGoalsDuration: 0,
 };
 
 // Valid settings schema for validation
-// Note: 'todos' and 'urls' are handled separately in the validator as they are arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', and 'donationGoals' are handled separately in the validator as they are arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals'>, 'boolean' | 'string' | 'number'> = {
   locationDisplay: 'string',
   customLocation: 'string',
   showCountryName: 'boolean',
   showWeather: 'boolean',
   weatherConditionDisplay: 'string',
+  temperatureUnit: 'string',
+  showDate: 'boolean',
   showMinimap: 'boolean',
   minimapSpeedBased: 'boolean',
   mapZoomLevel: 'string',
@@ -131,6 +186,25 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   minimapX: 'number',
   minimapY: 'number',
   minimapPosition: 'string',
+  socialXEnabled: 'boolean',
+  socialXName: 'string',
+  socialYoutubeEnabled: 'boolean',
+  socialYoutubeName: 'string',
+  socialInstagramEnabled: 'boolean',
+  socialInstagramName: 'string',
+  socialRotateInterval: 'number',
+  socialPosition: 'string',
+  socialTextTheme: 'string',
+  socialShowBackground: 'boolean',
+  showDonationGoals: 'boolean',
+  donationGoalsX: 'number',
+  donationGoalsY: 'number',
+  donationGoalsScale: 'number',
+  timeWeatherLocationScale: 'number',
+  streamElementsEnabled: 'boolean',
+  streamElementsToken: 'string',
+  twitchRevenueSplit: 'number',
+  donationGoalsDuration: 'number',
 };
 
 // SSE message types

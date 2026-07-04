@@ -14,18 +14,20 @@
     "fix-icloud": "bash scripts/fix-icloud-sync.sh"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "@vercel/kv": "^3.0.0",
     "maplibre-gl": "^5.7.1",
     "next": "^16.0.7",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "baseline-browser-mapping": "^2.9.19",
+    "baseline-browser-mapping": "^2.10.40",
     "cross-env": "^7.0.3",
     "eslint": "^9",
     "eslint-config-next": "^16.0.7",

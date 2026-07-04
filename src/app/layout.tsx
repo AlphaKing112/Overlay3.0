@@ -2,6 +2,7 @@ import "../styles/globals.css";
 import { ReactNode } from "react";
 import { Montserrat } from "next/font/google";
 import { performStartupValidation } from '@/lib/startup';
+import { Analytics } from '@vercel/analytics/react';
 
 // Font configuration - preload warning is harmless (font loads normally, just not immediately used due to fade-in delay)
 const montserrat = Montserrat({ 
@@ -28,7 +29,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <link rel="preconnect" href="https://flagcdn.com" />
         <link rel="preconnect" href="https://api.open-meteo.com" />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 } 

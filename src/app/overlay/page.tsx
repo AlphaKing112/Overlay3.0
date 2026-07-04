@@ -149,6 +149,95 @@ function OverlayPage() {
   const [completedTodoTimestamps, setCompletedTodoTimestamps] = useState<Map<string, number>>(new Map()); // Track when todos were completed
   const completedTodoTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map()); // Track timers for hiding completed todos
 
+  // Social media rotation state and logic
+  const [activeSocialIndex, setActiveSocialIndex] = useState(0);
+
+  // Donation toast notification state
+  const [donationToast, setDonationToast] = useState<{
+    username: string;
+    amount: string;
+    label: string;
+    icon: string;
+    phase: 'entering' | 'exiting';
+  } | null>(null);
+  const donationToastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Donation Goal auto-hide expiration timestamps and time tick for countdown
+  const [goalExpiryTimestamps, setGoalExpiryTimestamps] = useState<Record<string, number>>({});
+  const [timeTick, setTimeTick] = useState(Date.now());
+
+  // Singleton socket ref — prevents duplicate connections when settings re-render
+  const seSocketRef = useRef<any>(null);
+  // Always-current settings ref so the socket handler reads fresh values without reconnecting
+  const seSettingsRef = useRef(settings);
+  useEffect(() => { seSettingsRef.current = settings; }, [settings]);
+
+  // Set up second tick for countdown timers
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeTick(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Trigger visibility preview when donation settings change, so the user can see updates on the screen
+  useEffect(() => {
+    if (settings.showDonationGoals && settings.donationGoals && settings.donationGoals.length > 0) {
+      const now = Date.now();
+      const newExpiries: Record<string, number> = {};
+      settings.donationGoals.forEach(g => {
+        const duration = g.duration || 0;
+        if (duration > 0) {
+          // Set expiry to 20 seconds from now for settings change preview
+          newExpiries[g.id] = now + 20000;
+        }
+      });
+      setGoalExpiryTimestamps(prev => ({ ...prev, ...newExpiries }));
+    }
+  }, [
+    settings.donationGoalsScale,
+    settings.donationGoalsX,
+    settings.donationGoalsY,
+    settings.showDonationGoals,
+    settings.donationGoals
+  ]);
+
+
+  const activeSocials = useMemo(() => {
+    const list = [];
+    if (settings.socialXEnabled && settings.socialXName) {
+      list.push({ type: 'x', name: settings.socialXName });
+    }
+    if (settings.socialYoutubeEnabled && settings.socialYoutubeName) {
+      list.push({ type: 'youtube', name: settings.socialYoutubeName });
+    }
+    if (settings.socialInstagramEnabled && settings.socialInstagramName) {
+      list.push({ type: 'instagram', name: settings.socialInstagramName });
+    }
+    return list;
+  }, [
+    settings.socialXEnabled,
+    settings.socialXName,
+    settings.socialYoutubeEnabled,
+    settings.socialYoutubeName,
+    settings.socialInstagramEnabled,
+    settings.socialInstagramName
+  ]);
+
+  useEffect(() => {
+    if (activeSocials.length <= 1) {
+      setActiveSocialIndex(0);
+      return;
+    }
+
+    const intervalSeconds = settings.socialRotateInterval || 5;
+    const intervalId = setInterval(() => {
+      setActiveSocialIndex((prevIndex) => (prevIndex + 1) % activeSocials.length);
+    }, intervalSeconds * 1000);
+
+    return () => clearInterval(intervalId);
+  }, [activeSocials, settings.socialRotateInterval]);
+
 
   // Rate-gating refs for external API calls
   const lastWeatherTime = useRef(0);
@@ -735,6 +824,82 @@ function OverlayPage() {
     });
   }, [settings.todos, completedTodoTimestamps]);
 
+  // Donation goals memoized JSX
+  const donationGoalsJSX = useMemo(() => {
+    if (!settings.showDonationGoals || !settings.donationGoals || settings.donationGoals.length === 0) {
+      return null;
+    }
+
+    return (
+      <div
+        className={`overlay-box donation-goals-box ${!settings.showBackground ? 'no-background' : ''}`}
+        style={{
+          marginTop: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          minWidth: '220px',
+          maxWidth: '320px',
+          alignSelf: settings.todoListPosition === 'right' ? 'flex-end' : 'flex-start',
+          transform: `translate(${settings.donationGoalsX || 0}px, ${settings.donationGoalsY || 0}px) scale(${settings.donationGoalsScale || 1})`,
+          transformOrigin: settings.todoListPosition === 'right' ? 'top right' : 'top left',
+          pointerEvents: 'none',
+          padding: '12px 16px',
+        }}
+      >
+        {(settings.donationGoals ?? []).map((g) => {
+          const pct = g.goal > 0 ? Math.min(100, (g.current / g.goal) * 100) : 0;
+          const done = pct >= 100;
+          
+          // Expiry and visibility check
+          const duration = g.duration || 0;
+          const expiry = goalExpiryTimestamps[g.id] || 0;
+          const isVisible = duration > 0 ? expiry > timeTick : true;
+          
+          return (
+            <div
+              key={g.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                width: '100%',
+                opacity: isVisible ? 1 : 0,
+                maxHeight: isVisible ? '100px' : '0px',
+                margin: isVisible ? '0 0' : '-4px 0',
+                overflow: 'hidden',
+                transition: 'opacity 0.5s ease-in-out, max-height 0.5s ease-in-out, margin 0.5s ease-in-out'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                  DONO GOAL: {g.name}
+                </span>
+                <span style={{ color: done ? '#fbbf24' : 'rgba(255,255,255,0.75)', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                  ${Number(g.current).toLocaleString(undefined, { minimumFractionDigits: Number(g.current) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${Number(g.goal).toLocaleString(undefined, { minimumFractionDigits: Number(g.goal) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.15)', overflow: 'hidden', width: '100%' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${pct}%`,
+                    background: done
+                      ? 'linear-gradient(90deg, #fbbf24, #f59e0b)'
+                      : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    borderRadius: 4,
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }, [settings.showDonationGoals, settings.donationGoals, settings.todoListPosition, settings.donationGoalsX, settings.donationGoalsY, settings.donationGoalsScale, settings.showBackground, goalExpiryTimestamps, timeTick]);
+
+
   // Load completed todo timestamps from localStorage on mount and set up timers
   useEffect(() => {
     try {
@@ -803,6 +968,184 @@ function OverlayPage() {
       OverlayLogger.warn('Failed to save distance to localStorage', { error });
     }
   }, [totalDistanceTracked]);
+
+
+  // StreamElements Realtime Donation Integration
+  // Only reconnects when the token or enabled flag changes — twitchRevenueSplit is read
+  // via seSettingsRef so we never need to tear down and rebuild the socket for that alone.
+  useEffect(() => {
+    // Disconnect any existing socket when disabled or token cleared
+    if (!settings.streamElementsEnabled || !settings.streamElementsToken) {
+      if (seSocketRef.current) {
+        seSocketRef.current.disconnect();
+        seSocketRef.current = null;
+      }
+      return;
+    }
+
+    // If a socket already exists (same token), don't create another one
+    if (seSocketRef.current) return;
+
+    const token = settings.streamElementsToken;
+
+    import('socket.io-client').then(({ io }) => {
+      // Double-check: another render might have beaten us to it
+      if (seSocketRef.current) return;
+
+      OverlayLogger.overlay('Connecting to StreamElements realtime server...');
+      const socket = io('https://realtime.streamelements.com', {
+        transports: ['websocket']
+      });
+      seSocketRef.current = socket;
+
+      socket.on('connect', () => {
+        OverlayLogger.overlay('Connected to StreamElements realtime server');
+        socket.emit('authenticate', { method: 'jwt', token });
+      });
+
+      socket.on('authenticated', () => {
+        OverlayLogger.overlay('Successfully authenticated with StreamElements');
+      });
+
+      socket.on('unauthorized', (err: any) => {
+        OverlayLogger.error('StreamElements authentication failed:', err);
+      });
+
+      const showDonoToast = (username: string, amountStr: string, label: string, icon: string) => {
+        if (donationToastTimerRef.current) clearTimeout(donationToastTimerRef.current);
+        setDonationToast({ username, amount: amountStr, label, icon, phase: 'entering' });
+        donationToastTimerRef.current = setTimeout(() => {
+          setDonationToast(prev => prev ? { ...prev, phase: 'exiting' } : null);
+          donationToastTimerRef.current = setTimeout(() => setDonationToast(null), 400);
+        }, 4000);
+      };
+
+      // Global dedup set — one set shared across event + event:test listeners
+      // Prevents double-counting when SE fires both for the same replay
+      const recentEventIds = new Set<string>();
+
+      const handleSEEvent = (rawEvent: any) => {
+        if (!rawEvent) return;
+        
+        // Normalize: production events place details in rawEvent.data, test/replays place them in rawEvent.event
+        const data = rawEvent.data || rawEvent.event;
+        if (!data) return;
+
+        const eventType = (rawEvent.type || '').toLowerCase() || (rawEvent.listener || '').toLowerCase();
+        const username = data.username || data.name || 'Anonymous';
+        const dedupKey = rawEvent._id || data._id || `${eventType}-${data.amount}-${username}`;
+        
+        if (recentEventIds.has(dedupKey)) {
+          OverlayLogger.overlay(`SE duplicate ignored: ${dedupKey}`);
+          return;
+        }
+        recentEventIds.add(dedupKey);
+        setTimeout(() => recentEventIds.delete(dedupKey), 3000);
+
+        let amount: number | null = null;
+        // Read latest settings from ref — no stale closure risk
+        const currentSettings = seSettingsRef.current;
+
+        // ── Tip / Donation ─────────────────────────────────────────────
+        if (eventType === 'tip' || eventType === 'donation' || eventType.includes('tip')) {
+          if (typeof data.amount === 'number') {
+            amount = data.amount;
+          } else if (typeof data.amount === 'string') {
+            const parsed = parseFloat(data.amount);
+            if (!isNaN(parsed)) amount = parsed;
+          }
+          if (amount !== null) {
+            OverlayLogger.overlay(`SE Tip: $${amount} from ${username}`);
+            showDonoToast(username, `$${amount.toFixed(2)}`, 'DONATED', '💸');
+          }
+        }
+
+        // ── Cheer / Bits ─────────────────────────────────────────────────
+        // Streamers receive $0.01/bit — Twitch takes cut at viewer purchase
+        else if (eventType === 'cheer' || eventType.includes('cheer')) {
+          let bits: number | null = null;
+          if (typeof data.amount === 'number') {
+            bits = data.amount;
+          } else if (typeof data.amount === 'string') {
+            const parsed = parseInt(data.amount);
+            if (!isNaN(parsed)) bits = parsed;
+          }
+          if (bits !== null) {
+            amount = parseFloat((bits * 0.01).toFixed(2));
+            OverlayLogger.overlay(`SE Cheer: ${bits} bits = $${amount} from ${username}`);
+            showDonoToast(username, `${bits} BITS`, 'CHEERED', '⚡');
+          }
+        }
+
+        // ── Subscriber ───────────────────────────────────────────────────
+        // Twitch keeps 50% by default — configurable via twitchRevenueSplit
+        else if (eventType === 'subscriber' || eventType.includes('sub')) {
+          const tierPrices: Record<string, number> = {
+            '1000': 4.99, 'prime': 4.99,
+            '2000': 9.99,
+            '3000': 24.99,
+          };
+          const tier = String(data.tier ?? '1000');
+          const tierPrice = tierPrices[tier] ?? 4.99;
+          const splitPercent = (currentSettings.twitchRevenueSplit ?? 50) / 100;
+          amount = parseFloat((tierPrice * splitPercent).toFixed(2));
+          const tierLabel = tier === 'prime' ? 'Prime' : `Tier ${parseInt(tier) / 1000}`;
+          OverlayLogger.overlay(`SE Sub: ${tierLabel} = $${amount} (${currentSettings.twitchRevenueSplit ?? 50}% of $${tierPrice}) from ${username}`);
+          showDonoToast(username, tierLabel, 'SUBSCRIBED', '⭐');
+        }
+
+        if (amount !== null && amount > 0) {
+          // Trigger showing all active donation goals for their respective auto-hide durations
+          const currentGoals = currentSettings.donationGoals ?? [];
+          const now = Date.now();
+          const newExpiries: Record<string, number> = {};
+          currentGoals.forEach(g => {
+            const duration = g.duration || 0;
+            if (duration > 0) {
+              newExpiries[g.id] = now + duration * 60 * 1000;
+            }
+          });
+          setGoalExpiryTimestamps(prev => ({ ...prev, ...newExpiries }));
+
+          // Always use fresh token from ref — closure token may be stale if settings were re-saved
+          const freshToken = seSettingsRef.current.streamElementsToken || token;
+          fetch('/api/record-donation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, token: freshToken, eventId: dedupKey })
+          }).then(async res => {
+            if (!res.ok) {
+              const body = await res.text().catch(() => '(no body)');
+              OverlayLogger.error(`record-donation failed HTTP ${res.status}:`, body);
+            } else {
+              OverlayLogger.overlay(`record-donation OK: $${amount} applied to goals`);
+            }
+          }).catch(err => {
+            OverlayLogger.error('Failed to reach record-donation API:', err);
+          });
+        }
+      };
+
+      socket.on('event', handleSEEvent);
+      socket.on('event:test', handleSEEvent);
+
+      socket.on('disconnect', () => {
+        OverlayLogger.overlay('Disconnected from StreamElements');
+        seSocketRef.current = null; // Allow reconnect on next effect run
+      });
+    }).catch(err => {
+      OverlayLogger.error('Failed to load socket.io-client:', err);
+    });
+
+    // Cleanup only on unmount or when token/enabled actually changes
+    return () => {
+      if (seSocketRef.current) {
+        seSocketRef.current.disconnect();
+        seSocketRef.current = null;
+      }
+    };
+  }, [settings.streamElementsEnabled, settings.streamElementsToken]);
+  // Note: twitchRevenueSplit intentionally excluded — read via seSettingsRef to avoid socket rebuild
 
 
   // Persist completed todo timestamps to localStorage whenever they change
@@ -995,14 +1338,8 @@ function OverlayPage() {
       }
     };
 
-    // Set up Server-Sent Events for real-time updates (disabled if KV not available)
+    // Set up Server-Sent Events for real-time updates
     const setupSSE = () => {
-      // Check if KV is available before setting up SSE
-      if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-        OverlayLogger.overlay('SSE disabled: Vercel KV not configured');
-        return null;
-      }
-
       const eventSource = new EventSource('/api/settings-stream');
 
       eventSource.onmessage = (event) => {
@@ -1077,15 +1414,24 @@ function OverlayPage() {
         if (res.ok) {
           const data = await res.json();
           if (data) {
-            const newHash = createSettingsHash(data);
+            // Merge with defaults to ensure all fields are present (including new ones)
+            const mergedData = {
+              ...DEFAULT_OVERLAY_SETTINGS,
+              ...data,
+              weatherConditionDisplay: data.weatherConditionDisplay || DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
+              altitudeDisplay: data.altitudeDisplay || DEFAULT_OVERLAY_SETTINGS.altitudeDisplay,
+              speedDisplay: data.speedDisplay || DEFAULT_OVERLAY_SETTINGS.speedDisplay,
+            } as OverlaySettings;
+            const newHash = createSettingsHash(mergedData);
             if (newHash !== lastSettingsHash.current) {
               lastSettingsHash.current = newHash;
               OverlayLogger.settings('Settings updated via polling', {
-                locationDisplay: data.locationDisplay,
-                showWeather: data.showWeather,
-                showMinimap: data.showMinimap
+                locationDisplay: mergedData.locationDisplay,
+                showWeather: mergedData.showWeather,
+                showMinimap: mergedData.showMinimap,
+                donationGoalsCurrent: mergedData.donationGoals?.map(g => g.current)
               });
-              setSettings(data); // UI updates immediately - this triggers location re-formatting
+              setSettings(mergedData);
             }
           }
         }
@@ -1865,13 +2211,25 @@ function OverlayPage() {
     const icon = showIcon ? getWeatherIcon(weather.desc, settings.weatherConditionDisplay === 'always', isNightTime) : null;
     const description = showDescription ? weather.desc : null;
 
+    const tempF = celsiusToFahrenheit(weather.temp);
+    // Color: red if hot (≥80°F), blue if cold (≤45°F), white in between
+    const tempColor: string =
+      tempF >= 80 ? `hsl(${Math.max(0, 10 - (tempF - 80) * 0.3)}, 100%, 60%)` :
+      tempF <= 45 ? `hsl(${Math.min(220, 195 + (45 - tempF) * 0.6)}, 100%, 65%)` :
+      '#ffffff';
+
+    const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
+      ? `${tempF}°F`
+      : `${weather.temp}°C (${tempF}°F)`;
+
     const display = {
-      temperature: `${weather.temp}°C (${celsiusToFahrenheit(weather.temp)}°F)`,
+      temperature: temperatureStr,
       icon: icon,
-      description: description
+      description: description,
+      tempColor
     };
     return display;
-  }, [weather, settings.weatherConditionDisplay, getWeatherIcon, isNotableWeatherCondition, isNightTime]);
+  }, [weather, settings.weatherConditionDisplay, settings.temperatureUnit, getWeatherIcon, isNotableWeatherCondition, isNightTime]);
 
   // Animated speed value - counts through each integer (50, 51, 52...) - faster for responsiveness
   const displayedSpeed = useAnimatedValue(currentSpeed, {
@@ -2092,7 +2450,14 @@ function OverlayPage() {
           {settings.swapLocationTimePositions ? (
             /* Swapped: Show Location/Weather on Left */
             settings.locationDisplay !== 'hidden' && (locationDisplay || weatherDisplay || altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) ? (
-              <div className={`overlay-box align-left ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignItems: 'flex-start' }}>
+              <div
+                className={`overlay-box align-left ${!settings.showBackground ? 'no-background' : ''}`}
+                style={{
+                  alignItems: 'flex-start',
+                  transform: `scale(${settings.timeWeatherLocationScale ?? 1.0})`,
+                  transformOrigin: 'top left'
+                }}
+              >
                 {/* Location section */}
                 {locationDisplay && (
                   <>
@@ -2116,7 +2481,7 @@ function OverlayPage() {
                 {weatherDisplay && settings.showWeather && (
                   <div className="weather weather-line">
                     <div className="weather-text-group">
-                      <div className="weather-temperature">{weatherDisplay.temperature}</div>
+                      <div className="weather-temperature" style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</div>
                       {(weatherDisplay.icon || weatherDisplay.description) && (
                         <div className="weather-condition-group">
                           {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
@@ -2148,7 +2513,13 @@ function OverlayPage() {
           ) : (
             /* Normal: Show Time/Date on Left */
             (isValidTimezone(timezone) && (timeDisplay.time || timeDisplay.date) || API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && bitrateJSX)) ? (
-              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
+              <div
+                className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}
+                style={{
+                  transform: `scale(${settings.timeWeatherLocationScale ?? 1.0})`,
+                  transformOrigin: 'top left'
+                }}
+              >
                 {isValidTimezone(timezone) && timeDisplay.time && (
                   <div className="time time-left time-line">
                     <div className="time-display">
@@ -2157,7 +2528,7 @@ function OverlayPage() {
                     </div>
                   </div>
                 )}
-                {isValidTimezone(timezone) && timeDisplay.date && (
+                {isValidTimezone(timezone) && timeDisplay.date && (settings.showDate ?? true) && (
                   <div className="date date-left date-line">{timeDisplay.date}</div>
                 )}
                 {API_KEYS.PULSOID && (
@@ -2183,13 +2554,38 @@ function OverlayPage() {
                 ))}
             </div>
           )}
+          {settings.todoListPosition === 'left' && donationGoalsJSX}
+          {settings.todoListPosition === 'left' && settings.showDonationGoals && donationToast && (
+            <div
+              className={`dono-toast ${donationToast.phase}`}
+              style={{
+                marginTop: '8px',
+                transform: `scale(${settings.donationGoalsScale || 1})`,
+                transformOrigin: 'top left',
+                alignSelf: 'flex-start',
+              }}
+            >
+              <span className="dono-toast-icon">{donationToast.icon}</span>
+              <div className="dono-toast-body">
+                <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
+                <span className="dono-toast-amount">{donationToast.amount}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="top-right">
           {settings.swapLocationTimePositions ? (
             /* Swapped: Show Time/Date on Right */
             (isValidTimezone(timezone) && (timeDisplay.time || timeDisplay.date) || API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && bitrateJSX)) ? (
-              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignItems: 'flex-end' }}>
+              <div
+                className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}
+                style={{
+                  alignItems: 'flex-end',
+                  transform: `scale(${settings.timeWeatherLocationScale ?? 1.0})`,
+                  transformOrigin: 'top right'
+                }}
+              >
                 {isValidTimezone(timezone) && timeDisplay.time && (
                   <div className="time time-left time-line" style={{ textAlign: 'right' }}>
                     <div className="time-display" style={{ justifyContent: 'flex-end' }}>
@@ -2198,7 +2594,7 @@ function OverlayPage() {
                     </div>
                   </div>
                 )}
-                {isValidTimezone(timezone) && timeDisplay.date && (
+                {isValidTimezone(timezone) && timeDisplay.date && (settings.showDate ?? true) && (
                   <div className="date date-left date-line" style={{ textAlign: 'right' }}>{timeDisplay.date}</div>
                 )}
                 {API_KEYS.PULSOID && (
@@ -2212,7 +2608,14 @@ function OverlayPage() {
           ) : (
             /* Normal: Show Location/Weather on Right */
             settings.locationDisplay !== 'hidden' && (locationDisplay || weatherDisplay || altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) ? (
-              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ alignSelf: 'flex-end' }}>
+              <div
+                className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}
+                style={{
+                  alignSelf: 'flex-end',
+                  transform: `scale(${settings.timeWeatherLocationScale ?? 1.0})`,
+                  transformOrigin: 'top right'
+                }}
+              >
                 {/* Location section */}
                 {locationDisplay && (
                   <>
@@ -2236,7 +2639,7 @@ function OverlayPage() {
                 {weatherDisplay && settings.showWeather && (
                   <div className="weather weather-line">
                     <div className="weather-text-group">
-                      <div className="weather-temperature">{weatherDisplay.temperature}</div>
+                      <div className="weather-temperature" style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</div>
                       {(weatherDisplay.icon || weatherDisplay.description) && (
                         <div className="weather-condition-group">
                           {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
@@ -2285,12 +2688,114 @@ function OverlayPage() {
                 ))}
             </div>
           )}
+          {settings.todoListPosition === 'right' && donationGoalsJSX}
+          {settings.todoListPosition === 'right' && settings.showDonationGoals && donationToast && (
+            <div
+              className={`dono-toast ${donationToast.phase}`}
+              style={{
+                marginTop: '8px',
+                transform: `scale(${settings.donationGoalsScale || 1})`,
+                transformOrigin: 'top right',
+                alignSelf: 'flex-end',
+              }}
+            >
+              <span className="dono-toast-icon">{donationToast.icon}</span>
+              <div className="dono-toast-body">
+                <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
+                <span className="dono-toast-amount">{donationToast.amount}</span>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* URL List - (Text Links) Bottom Left */}
-        {
-          settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0 && (
-            <div className="bottom-left">
+        {/* Top Middle Panel (Social Media Rotation) */}
+        {settings.socialPosition !== 'bottom-left' && activeSocials.length > 0 && (
+          <div className="top-middle">
+            <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
+              {(() => {
+                const social = activeSocials[activeSocialIndex] || activeSocials[0];
+                if (!social) return null;
+                const theme = settings.socialTextTheme || 'default';
+
+                return (
+                  <div key={social.type} className="social-item" data-theme={theme} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--font-size-sm)', animation: 'fadeIn 0.5s ease' }}>
+                    {social.type === 'x' && (
+                      <>
+                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px' }}>
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                        </span>
+                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                      </>
+                    )}
+                    {social.type === 'youtube' && (
+                      <>
+                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#FF0000' }}>
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                        </span>
+                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                      </>
+                    )}
+                    {social.type === 'instagram' && (
+                      <>
+                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#E1306C' }}>
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                        </span>
+                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom Left Panel (Social Media & URLs) */}
+        {((settings.socialPosition === 'bottom-left' && activeSocials.length > 0) ||
+          (settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0)) && (
+          <div className="bottom-left">
+            {/* Social Media Panel */}
+            {settings.socialPosition === 'bottom-left' && activeSocials.length > 0 && (
+              <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
+                {(() => {
+                  const social = activeSocials[activeSocialIndex] || activeSocials[0];
+                  if (!social) return null;
+                  const theme = settings.socialTextTheme || 'default';
+
+                  return (
+                    <div key={social.type} className="social-item" data-theme={theme} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--font-size-sm)', animation: 'fadeIn 0.5s ease' }}>
+                      {social.type === 'x' && (
+                        <>
+                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px' }}>
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                          </span>
+                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                        </>
+                      )}
+                      {social.type === 'youtube' && (
+                        <>
+                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#FF0000' }}>
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                          </span>
+                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                        </>
+                      )}
+                      {social.type === 'instagram' && (
+                        <>
+                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#E1306C' }}>
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                          </span>
+                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* URLs Panel */}
+            {settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0 && (
               <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
                 {settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).map(url => (
                   <div key={url.id} className="url-item">
@@ -2299,9 +2804,9 @@ function OverlayPage() {
                   </div>
                 ))}
               </div>
-            </div>
-          )
-        }
+            )}
+          </div>
+        )}
 
         {/* Embedded Browser Sources (Full Screen / Absolute) */}
         {
@@ -2339,6 +2844,7 @@ function OverlayPage() {
           x={settings.calorieTrackerX || 0}
           y={settings.calorieTrackerY || 0}
         />
+
 
         {/* Standalone Minimap Container */}
         {

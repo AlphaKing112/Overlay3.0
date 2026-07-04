@@ -86,6 +86,31 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     }
   }
 
+  // Validate donationGoals array
+  if (settings.donationGoals !== undefined) {
+    if (Array.isArray(settings.donationGoals)) {
+      const validGoals = [];
+      for (const g of settings.donationGoals) {
+        if (g && typeof g === 'object' && 'id' in g && 'name' in g && 'goal' in g && 'current' in g) {
+          const gObj = g as Record<string, unknown>;
+          if (typeof gObj.id === 'string' && typeof gObj.name === 'string' && typeof gObj.goal === 'number' && typeof gObj.current === 'number') {
+            validGoals.push({
+              id: gObj.id,
+              name: String(gObj.name).slice(0, 100),
+              goal: Math.max(0, gObj.goal),
+              current: Math.max(0, gObj.current),
+              duration: typeof gObj.duration === 'number' ? Math.min(Math.max(0, gObj.duration), 1440) : 0,
+              lastTriggered: typeof gObj.lastTriggered === 'number' ? gObj.lastTriggered : 0
+            });
+          }
+        }
+      }
+      cleanSettings.donationGoals = validGoals;
+    } else {
+      console.warn('Invalid type for donationGoals: expected array');
+      rejectedKeys.push('donationGoals');
+    }
+  }
 
   // Validate showTodoList (it's in SETTINGS_CONFIG but handle explicitly for clarity)
   if (settings.showTodoList !== undefined) {
@@ -161,7 +186,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -185,6 +210,10 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     showCountryName: cleanSettings.showCountryName ?? DEFAULT_OVERLAY_SETTINGS.showCountryName,
     showWeather: cleanSettings.showWeather ?? DEFAULT_OVERLAY_SETTINGS.showWeather,
     weatherConditionDisplay: cleanSettings.weatherConditionDisplay ?? DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
+    temperatureUnit: (cleanSettings.temperatureUnit === 'F' || cleanSettings.temperatureUnit === 'both')
+      ? cleanSettings.temperatureUnit
+      : DEFAULT_OVERLAY_SETTINGS.temperatureUnit,
+    showDate: cleanSettings.showDate ?? DEFAULT_OVERLAY_SETTINGS.showDate,
     showMinimap: cleanSettings.showMinimap ?? DEFAULT_OVERLAY_SETTINGS.showMinimap,
     minimapSpeedBased: cleanSettings.minimapSpeedBased ?? DEFAULT_OVERLAY_SETTINGS.minimapSpeedBased,
     mapZoomLevel: cleanSettings.mapZoomLevel ?? DEFAULT_OVERLAY_SETTINGS.mapZoomLevel,
@@ -229,6 +258,60 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
       ? Math.min(Math.max(cleanSettings.minimapY, -2000), 2000)
       : DEFAULT_OVERLAY_SETTINGS.minimapY,
     minimapPosition: cleanSettings.minimapPosition ?? DEFAULT_OVERLAY_SETTINGS.minimapPosition,
+    socialXEnabled: cleanSettings.socialXEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialXEnabled,
+    socialXName: cleanSettings.socialXName ?? DEFAULT_OVERLAY_SETTINGS.socialXName,
+    socialYoutubeEnabled: cleanSettings.socialYoutubeEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialYoutubeEnabled,
+    socialYoutubeName: cleanSettings.socialYoutubeName ?? DEFAULT_OVERLAY_SETTINGS.socialYoutubeName,
+    socialInstagramEnabled: cleanSettings.socialInstagramEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialInstagramEnabled,
+    socialInstagramName: cleanSettings.socialInstagramName ?? DEFAULT_OVERLAY_SETTINGS.socialInstagramName,
+    socialRotateInterval: typeof cleanSettings.socialRotateInterval === 'number'
+      ? Math.min(Math.max(cleanSettings.socialRotateInterval, 1), 60)
+      : DEFAULT_OVERLAY_SETTINGS.socialRotateInterval,
+    socialPosition: (cleanSettings.socialPosition === 'top-middle' || cleanSettings.socialPosition === 'bottom-left')
+      ? cleanSettings.socialPosition
+      : DEFAULT_OVERLAY_SETTINGS.socialPosition,
+    socialTextTheme: (['default', 'neon', 'minimal', 'bold', 'retro', 'glass'] as const).includes(cleanSettings.socialTextTheme as any)
+      ? cleanSettings.socialTextTheme as 'default' | 'neon' | 'minimal' | 'bold' | 'retro' | 'glass'
+      : DEFAULT_OVERLAY_SETTINGS.socialTextTheme,
+    socialShowBackground: cleanSettings.socialShowBackground ?? DEFAULT_OVERLAY_SETTINGS.socialShowBackground,
+    donationGoals: (() => {
+      if (!Array.isArray(cleanSettings.donationGoals)) return DEFAULT_OVERLAY_SETTINGS.donationGoals;
+      const valid = [];
+      for (const g of cleanSettings.donationGoals) {
+        if (g && typeof g === 'object' && typeof g.id === 'string' && typeof g.name === 'string' && typeof g.goal === 'number' && typeof g.current === 'number') {
+          valid.push({
+            id: g.id,
+            name: String(g.name).slice(0, 100),
+            goal: Math.max(0, g.goal),
+            current: Math.max(0, g.current),
+            duration: typeof g.duration === 'number' ? Math.min(Math.max(0, g.duration), 1440) : 0,
+            lastTriggered: typeof g.lastTriggered === 'number' ? g.lastTriggered : 0
+          });
+        }
+      }
+      return valid;
+    })(),
+    showDonationGoals: cleanSettings.showDonationGoals ?? DEFAULT_OVERLAY_SETTINGS.showDonationGoals,
+    donationGoalsX: typeof cleanSettings.donationGoalsX === 'number'
+      ? Math.min(Math.max(cleanSettings.donationGoalsX, -2000), 2000)
+      : DEFAULT_OVERLAY_SETTINGS.donationGoalsX,
+    donationGoalsY: typeof cleanSettings.donationGoalsY === 'number'
+      ? Math.min(Math.max(cleanSettings.donationGoalsY, -2000), 2000)
+      : DEFAULT_OVERLAY_SETTINGS.donationGoalsY,
+    donationGoalsScale: typeof cleanSettings.donationGoalsScale === 'number'
+      ? Math.min(Math.max(cleanSettings.donationGoalsScale, 0.3), 3.0)
+      : DEFAULT_OVERLAY_SETTINGS.donationGoalsScale,
+    streamElementsEnabled: cleanSettings.streamElementsEnabled ?? DEFAULT_OVERLAY_SETTINGS.streamElementsEnabled,
+    streamElementsToken: cleanSettings.streamElementsToken ?? DEFAULT_OVERLAY_SETTINGS.streamElementsToken,
+    twitchRevenueSplit: typeof cleanSettings.twitchRevenueSplit === 'number'
+      ? Math.min(Math.max(cleanSettings.twitchRevenueSplit, 0), 100)
+      : DEFAULT_OVERLAY_SETTINGS.twitchRevenueSplit,
+    donationGoalsDuration: typeof cleanSettings.donationGoalsDuration === 'number'
+      ? Math.min(Math.max(cleanSettings.donationGoalsDuration, 0), 1440)
+      : DEFAULT_OVERLAY_SETTINGS.donationGoalsDuration,
+    timeWeatherLocationScale: typeof cleanSettings.timeWeatherLocationScale === 'number'
+      ? Math.min(Math.max(cleanSettings.timeWeatherLocationScale, 0.3), 3.0)
+      : DEFAULT_OVERLAY_SETTINGS.timeWeatherLocationScale,
   };
 
   return completeSettings;
@@ -246,7 +329,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals') { // valid keys
       maliciousKeys.push(key);
     }
   }

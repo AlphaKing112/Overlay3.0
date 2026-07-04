@@ -30,7 +30,8 @@ export function middleware(request: NextRequest) {
     '/overlay',
     '/api/get-settings',
     '/api/settings-stream',
-    '/api/health'
+    '/api/health',
+    '/api/record-donation'
   ];
   
   if (publicRoutes.includes(pathname)) {
