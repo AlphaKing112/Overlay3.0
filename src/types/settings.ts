@@ -188,6 +188,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   bitrateAnchor: 'string',
   showLowBitrateAlert: 'boolean',
   showBitrateWarnings: 'boolean',
+  lowBitrateThreshold: 'number',
+  criticalBitrateThreshold: 'number',
   lowBitrateAlertScale: 'number',
   lowBitrateAlertX: 'number',
   lowBitrateAlertY: 'number',
