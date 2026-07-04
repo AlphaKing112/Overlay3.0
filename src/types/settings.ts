@@ -70,12 +70,15 @@ export interface OverlaySettings {
   minimapX?: number;
   minimapY?: number;
   minimapPosition?: 'left' | 'right';
+  showSocials?: boolean;
   socialXEnabled?: boolean;
   socialXName?: string;
   socialYoutubeEnabled?: boolean;
   socialYoutubeName?: string;
   socialInstagramEnabled?: boolean;
   socialInstagramName?: string;
+  socialTiktokEnabled?: boolean;
+  socialTiktokName?: string;
   socialRotateInterval?: number;
   socialPosition?: 'top-middle' | 'bottom-left';
   socialTextTheme?: 'default' | 'neon' | 'minimal' | 'bold' | 'retro' | 'glass';
@@ -131,12 +134,15 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   minimapX: 0,
   minimapY: 0,
   minimapPosition: 'left',
+  showSocials: false,
   socialXEnabled: false,
   socialXName: '',
   socialYoutubeEnabled: false,
   socialYoutubeName: '',
   socialInstagramEnabled: false,
   socialInstagramName: '',
+  socialTiktokEnabled: false,
+  socialTiktokName: '',
   socialRotateInterval: 5,
   socialPosition: 'top-middle',
   socialTextTheme: 'default',
@@ -191,12 +197,15 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   minimapX: 'number',
   minimapY: 'number',
   minimapPosition: 'string',
+  showSocials: 'boolean',
   socialXEnabled: 'boolean',
   socialXName: 'string',
   socialYoutubeEnabled: 'boolean',
   socialYoutubeName: 'string',
   socialInstagramEnabled: 'boolean',
   socialInstagramName: 'string',
+  socialTiktokEnabled: 'boolean',
+  socialTiktokName: 'string',
   socialRotateInterval: 'number',
   socialPosition: 'string',
   socialTextTheme: 'string',

@@ -214,6 +214,9 @@ function OverlayPage() {
     if (settings.socialInstagramEnabled && settings.socialInstagramName) {
       list.push({ type: 'instagram', name: settings.socialInstagramName });
     }
+    if (settings.socialTiktokEnabled && settings.socialTiktokName) {
+      list.push({ type: 'tiktok', name: settings.socialTiktokName });
+    }
     return list;
   }, [
     settings.socialXEnabled,
@@ -221,7 +224,9 @@ function OverlayPage() {
     settings.socialYoutubeEnabled,
     settings.socialYoutubeName,
     settings.socialInstagramEnabled,
-    settings.socialInstagramName
+    settings.socialInstagramName,
+    settings.socialTiktokEnabled,
+    settings.socialTiktokName
   ]);
 
   useEffect(() => {
@@ -2723,7 +2728,7 @@ function OverlayPage() {
         </div>
 
         {/* Top Middle Panel (Social Media Rotation) */}
-        {settings.socialPosition !== 'bottom-left' && activeSocials.length > 0 && (
+        {settings.showSocials !== false && settings.socialPosition !== 'bottom-left' && activeSocials.length > 0 && (
           <div className="top-middle">
             <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
               {(() => {
@@ -2757,6 +2762,14 @@ function OverlayPage() {
                         <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
                       </>
                     )}
+                    {social.type === 'tiktok' && (
+                      <>
+                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#00f2fe' }}>
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.17-2.86-.74-3.94-1.74-.22-.2-.42-.43-.61-.67-.02 3.76-.01 7.52-.02 11.28-.19 3.28-2.6 6.08-5.88 6.55-3.71.53-7.26-1.97-7.9-5.62-.64-3.69 1.64-7.46 5.29-8.26.8-.17 1.62-.2 2.43-.07v4.18c-.68-.14-1.39-.14-2.07.03-1.63.39-2.73 2.02-2.52 3.69.21 1.68 1.69 2.92 3.38 2.77 1.73-.15 2.97-1.7 2.82-3.43V.02z"/></svg>
+                        </span>
+                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                      </>
+                    )}
                   </div>
                 );
               })()}
@@ -2765,11 +2778,11 @@ function OverlayPage() {
         )}
 
         {/* Bottom Left Panel (Social Media & URLs) */}
-        {((settings.socialPosition === 'bottom-left' && activeSocials.length > 0) ||
+        {((settings.showSocials !== false && settings.socialPosition === 'bottom-left' && activeSocials.length > 0) ||
           (settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0)) && (
           <div className="bottom-left">
             {/* Social Media Panel */}
-            {settings.socialPosition === 'bottom-left' && activeSocials.length > 0 && (
+            {settings.showSocials !== false && settings.socialPosition === 'bottom-left' && activeSocials.length > 0 && (
               <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
                 {(() => {
                   const social = activeSocials[activeSocialIndex] || activeSocials[0];
@@ -2798,6 +2811,14 @@ function OverlayPage() {
                         <>
                           <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#E1306C' }}>
                             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                          </span>
+                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
+                        </>
+                      )}
+                      {social.type === 'tiktok' && (
+                        <>
+                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#00f2fe' }}>
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.17-2.86-.74-3.94-1.74-.22-.2-.42-.43-.61-.67-.02 3.76-.01 7.52-.02 11.28-.19 3.28-2.6 6.08-5.88 6.55-3.71.53-7.26-1.97-7.9-5.62-.64-3.69 1.64-7.46 5.29-8.26.8-.17 1.62-.2 2.43-.07v4.18c-.68-.14-1.39-.14-2.07.03-1.63.39-2.73 2.02-2.52 3.69.21 1.68 1.69 2.92 3.38 2.77 1.73-.15 2.97-1.7 2.82-3.43V.02z"/></svg>
                           </span>
                           <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
                         </>

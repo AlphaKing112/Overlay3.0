@@ -1664,6 +1664,180 @@ export default function AdminPage() {
             </div>
           </section>
 
+          {/* Social Media Rotator Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>📲 Social Media Rotator</h2>
+              <div className="checkbox-group" style={{ marginTop: '8px' }}>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showSocials ?? false}
+                    onChange={(e) => handleSettingsChange({ showSocials: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Enable Social Media Rotator</span>
+                </label>
+              </div>
+            </div>
+
+            {settings.showSocials && (
+              <>
+                {/* Social Channels */}
+                <div className="setting-group" style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <label className="group-label" style={{ marginBottom: '12px' }}>Social Channels</label>
+                  
+                  {/* YouTube */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.socialYoutubeEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ socialYoutubeEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">YouTube</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="YouTube channel name"
+                      value={settings.socialYoutubeName || ''}
+                      onChange={(e) => handleSettingsChange({ socialYoutubeName: e.target.value })}
+                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
+                      disabled={!settings.socialYoutubeEnabled}
+                    />
+                  </div>
+
+                  {/* Instagram */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.socialInstagramEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ socialInstagramEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Instagram</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Instagram username"
+                      value={settings.socialInstagramName || ''}
+                      onChange={(e) => handleSettingsChange({ socialInstagramName: e.target.value })}
+                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
+                      disabled={!settings.socialInstagramEnabled}
+                    />
+                  </div>
+
+                  {/* TikTok */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.socialTiktokEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ socialTiktokEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">TikTok</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="TikTok username"
+                      value={settings.socialTiktokName || ''}
+                      onChange={(e) => handleSettingsChange({ socialTiktokName: e.target.value })}
+                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
+                      disabled={!settings.socialTiktokEnabled}
+                    />
+                  </div>
+
+                  {/* Twitter / X */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.socialXEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ socialXEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">X / Twitter</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="X username"
+                      value={settings.socialXName || ''}
+                      onChange={(e) => handleSettingsChange({ socialXName: e.target.value })}
+                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
+                      disabled={!settings.socialXEnabled}
+                    />
+                  </div>
+                </div>
+
+                {/* Rotator Interval */}
+                <div className="setting-group" style={{ marginTop: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <label className="group-label">Rotation Interval</label>
+                    <span style={{ fontSize: '0.9em', fontWeight: 'bold' }}>{settings.socialRotateInterval || 5} seconds</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value={settings.socialRotateInterval || 5}
+                    onChange={(e) => handleSettingsChange({ socialRotateInterval: parseInt(e.target.value) })}
+                    style={{ width: '100%' }}
+                  />
+                  <p className="setting-description" style={{ marginTop: '4px' }}>
+                    Choose how many seconds each social media handle displays before rotating to the next.
+                  </p>
+                </div>
+
+                {/* Text Theme / Style */}
+                <div className="setting-group" style={{ marginTop: '16px' }}>
+                  <label className="group-label">Rotator Style Theme</label>
+                  <RadioGroup
+                    value={settings.socialTextTheme || 'default'}
+                    onChange={(value) => handleSettingsChange({ socialTextTheme: value as any })}
+                    options={[
+                      { value: 'default', label: 'Default', icon: '📝', description: 'Simple white text with soft shadow' },
+                      { value: 'neon', label: 'Neon Cyan', icon: '💻', description: 'Glowy cyber-cyan theme with magenta icon' },
+                      { value: 'minimal', label: 'Minimalist', icon: '☁️', description: 'Clean soft-grey branding text' },
+                      { value: 'bold', label: 'Heavy Bold', icon: '💥', description: 'Oversized thick-bordered retro letter spacing' },
+                      { value: 'retro', label: 'Arcade Monospace', icon: '🕹️', description: 'Amber Courier retro computer style' },
+                      { value: 'glass', label: 'Glassmorphism', icon: '✨', description: 'Frosted transparent background pill' }
+                    ]}
+                  />
+                </div>
+
+                {/* Position and Background */}
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <label className="group-label">Position</label>
+                    <RadioGroup
+                      value={settings.socialPosition || 'top-middle'}
+                      onChange={(value) => handleSettingsChange({ socialPosition: value as any })}
+                      options={[
+                        { value: 'top-middle', label: 'Top Middle', icon: '⬆️' },
+                        { value: 'bottom-left', label: 'Bottom Left', icon: '↙️' }
+                      ]}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '200px', display: 'flex', alignItems: 'center' }}>
+                    <label className="checkbox-label" style={{ marginTop: '24px' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.socialShowBackground ?? true}
+                        onChange={(e) => handleSettingsChange({ socialShowBackground: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Show Rotator Background Pill</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+
           {/* URL List Section */}
           <section className="settings-section">
             <div className="section-header">

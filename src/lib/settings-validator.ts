@@ -278,6 +278,9 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     socialYoutubeName: cleanSettings.socialYoutubeName ?? DEFAULT_OVERLAY_SETTINGS.socialYoutubeName,
     socialInstagramEnabled: cleanSettings.socialInstagramEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialInstagramEnabled,
     socialInstagramName: cleanSettings.socialInstagramName ?? DEFAULT_OVERLAY_SETTINGS.socialInstagramName,
+    socialTiktokEnabled: cleanSettings.socialTiktokEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialTiktokEnabled,
+    socialTiktokName: cleanSettings.socialTiktokName ?? DEFAULT_OVERLAY_SETTINGS.socialTiktokName,
+    showSocials: cleanSettings.showSocials ?? DEFAULT_OVERLAY_SETTINGS.showSocials,
     socialRotateInterval: typeof cleanSettings.socialRotateInterval === 'number'
       ? Math.min(Math.max(cleanSettings.socialRotateInterval, 1), 60)
       : DEFAULT_OVERLAY_SETTINGS.socialRotateInterval,
