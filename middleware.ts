@@ -31,7 +31,8 @@ export function middleware(request: NextRequest) {
     '/api/get-settings',
     '/api/settings-stream',
     '/api/health',
-    '/api/record-donation'
+    '/api/record-donation',
+    '/api/bitrate'
   ];
   
   if (publicRoutes.includes(pathname)) {
