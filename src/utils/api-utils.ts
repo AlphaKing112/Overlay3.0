@@ -350,22 +350,22 @@ export async function fetchWeatherAndTimezoneFromOpenWeatherMap(
     let sunriseSunset: SunriseSunsetData | null = null;
 
     // Extract weather data
-    // Use "feels like" temperature as it's more accurate for IRL streaming (accounts for wind, humidity, etc.)
-    if (data.main && typeof data.main.feels_like === 'number' && data.weather && data.weather[0]) {
+    // Use actual temperature as primary, fallback to feels_like if missing
+    if (data.main && typeof data.main.temp === 'number' && data.weather && data.weather[0]) {
       weather = {
-        temp: Math.round(data.main.feels_like), // Use "feels like" temperature
+        temp: Math.round(data.main.temp), // Use actual temperature
         desc: data.weather[0].description || 'unknown',
       };
 
       ApiLogger.info('openweathermap', 'Weather data received', weather);
-    } else if (data.main && typeof data.main.temp === 'number' && data.weather && data.weather[0]) {
-      // Fallback to regular temp if feels_like is not available
+    } else if (data.main && typeof data.main.feels_like === 'number' && data.weather && data.weather[0]) {
+      // Fallback to feels_like if regular temp is not available
       weather = {
-        temp: Math.round(data.main.temp),
+        temp: Math.round(data.main.feels_like),
         desc: data.weather[0].description || 'unknown',
       };
 
-      ApiLogger.info('openweathermap', 'Weather data received (using regular temp as feels_like unavailable)', weather);
+      ApiLogger.info('openweathermap', 'Weather data received (using feels_like as regular temp unavailable)', weather);
     }
 
     // Extract timezone data
