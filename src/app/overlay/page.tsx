@@ -837,7 +837,7 @@ function OverlayPage() {
 
     return (
       <div
-        className={`overlay-box donation-goals-box ${!settings.showBackground ? 'no-background' : ''}`}
+        className={`overlay-box donation-goals-box ${(!settings.showBackground || settings.donoShowBackground === false) ? 'no-background' : ''}`}
         style={{
           marginTop: '12px',
           display: 'flex',

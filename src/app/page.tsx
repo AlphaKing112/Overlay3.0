@@ -948,6 +948,20 @@ export default function AdminPage() {
 
             {settings.showDonationGoals && (
               <>
+                <div className="setting-group" style={{ marginBottom: '16px' }}>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={settings.donoShowBackground ?? true}
+                      onChange={(e) => handleSettingsChange({ donoShowBackground: e.target.checked })}
+                    />
+                    <span className="checkbox-text">Show Background Box</span>
+                  </label>
+                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
+                    Display a dark background box behind your donation goals.
+                  </p>
+                </div>
+
                 {/* Scale & Position Controls */}
                 <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
                   <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>

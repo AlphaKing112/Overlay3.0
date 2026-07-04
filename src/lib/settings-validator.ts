@@ -203,7 +203,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -323,15 +323,10 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
       return valid;
     })(),
     showDonationGoals: cleanSettings.showDonationGoals ?? DEFAULT_OVERLAY_SETTINGS.showDonationGoals,
-    donationGoalsX: typeof cleanSettings.donationGoalsX === 'number'
-      ? Math.min(Math.max(cleanSettings.donationGoalsX, -2000), 2000)
-      : DEFAULT_OVERLAY_SETTINGS.donationGoalsX,
-    donationGoalsY: typeof cleanSettings.donationGoalsY === 'number'
-      ? Math.min(Math.max(cleanSettings.donationGoalsY, -2000), 2000)
-      : DEFAULT_OVERLAY_SETTINGS.donationGoalsY,
-    donationGoalsScale: typeof cleanSettings.donationGoalsScale === 'number'
-      ? Math.min(Math.max(cleanSettings.donationGoalsScale, 0.3), 3.0)
-      : DEFAULT_OVERLAY_SETTINGS.donationGoalsScale,
+    donationGoalsX: typeof cleanSettings.donationGoalsX === 'number' ? cleanSettings.donationGoalsX : DEFAULT_OVERLAY_SETTINGS.donationGoalsX,
+    donationGoalsY: typeof cleanSettings.donationGoalsY === 'number' ? cleanSettings.donationGoalsY : DEFAULT_OVERLAY_SETTINGS.donationGoalsY,
+    donationGoalsScale: typeof cleanSettings.donationGoalsScale === 'number' ? cleanSettings.donationGoalsScale : DEFAULT_OVERLAY_SETTINGS.donationGoalsScale,
+    donoShowBackground: cleanSettings.donoShowBackground ?? DEFAULT_OVERLAY_SETTINGS.donoShowBackground,
     streamElementsEnabled: cleanSettings.streamElementsEnabled ?? DEFAULT_OVERLAY_SETTINGS.streamElementsEnabled,
     streamElementsToken: cleanSettings.streamElementsToken ?? DEFAULT_OVERLAY_SETTINGS.streamElementsToken,
     twitchRevenueSplit: typeof cleanSettings.twitchRevenueSplit === 'number'

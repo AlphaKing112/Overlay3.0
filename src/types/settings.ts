@@ -92,6 +92,7 @@ export interface OverlaySettings {
   donationGoalsX?: number;
   donationGoalsY?: number;
   donationGoalsScale?: number;
+  donoShowBackground?: boolean;
   streamElementsEnabled?: boolean;
   streamElementsToken?: string;
   twitchRevenueSplit?: number;
@@ -160,11 +161,12 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   donationGoalsX: 0,
   donationGoalsY: 0,
   donationGoalsScale: 1,
-  timeWeatherLocationScale: 1.0,
+  donoShowBackground: true,
   streamElementsEnabled: false,
   streamElementsToken: '',
   twitchRevenueSplit: 50,
   donationGoalsDuration: 0,
+  timeWeatherLocationScale: 1.0,
 };
 
 // Valid settings schema for validation
@@ -226,11 +228,12 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   donationGoalsX: 'number',
   donationGoalsY: 'number',
   donationGoalsScale: 'number',
-  timeWeatherLocationScale: 'number',
+  donoShowBackground: 'boolean',
   streamElementsEnabled: 'boolean',
   streamElementsToken: 'string',
   twitchRevenueSplit: 'number',
   donationGoalsDuration: 'number',
+  timeWeatherLocationScale: 'number',
 };
 
 // SSE message types
