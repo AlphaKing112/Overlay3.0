@@ -957,8 +957,23 @@ export default function AdminPage() {
                     />
                     <span className="checkbox-text">Show Background Box</span>
                   </label>
-                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
+                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7, marginBottom: '12px' }}>
                     Display a dark background box behind your donation goals.
+                  </p>
+                  
+                  <label className="input-label" style={{ fontSize: '0.85em', marginLeft: '28px', display: 'block', marginTop: '12px' }}>Custom Goal Prefix Text</label>
+                  <div style={{ marginLeft: '28px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={settings.donoGoalText ?? 'DONO GOAL:'}
+                      onChange={(e) => handleSettingsChange({ donoGoalText: e.target.value })}
+                      placeholder="e.g. DONO GOAL: or leave empty to hide"
+                      style={{ flex: 1, padding: '8px', fontSize: '0.9em' }}
+                    />
+                  </div>
+                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.8em', opacity: 0.6, marginTop: '4px' }}>
+                    This text appears before the goal name. Clear it to remove the prefix entirely.
                   </p>
                 </div>
 

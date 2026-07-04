@@ -93,6 +93,7 @@ export interface OverlaySettings {
   donationGoalsY?: number;
   donationGoalsScale?: number;
   donoShowBackground?: boolean;
+  donoGoalText?: string;
   streamElementsEnabled?: boolean;
   streamElementsToken?: string;
   twitchRevenueSplit?: number;
@@ -162,6 +163,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   donationGoalsY: 0,
   donationGoalsScale: 1,
   donoShowBackground: true,
+  donoGoalText: 'DONO GOAL:',
   streamElementsEnabled: false,
   streamElementsToken: '',
   twitchRevenueSplit: 50,
@@ -229,6 +231,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   donationGoalsY: 'number',
   donationGoalsScale: 'number',
   donoShowBackground: 'boolean',
+  donoGoalText: 'string',
   streamElementsEnabled: 'boolean',
   streamElementsToken: 'string',
   twitchRevenueSplit: 'number',

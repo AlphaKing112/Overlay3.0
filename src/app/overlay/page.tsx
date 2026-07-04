@@ -878,7 +878,7 @@ function OverlayPage() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
                 <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  DONO GOAL: {g.name}
+                  {settings.donoGoalText !== undefined ? settings.donoGoalText : 'DONO GOAL:'} {g.name}
                 </span>
                 <span style={{ color: done ? '#fbbf24' : 'rgba(255,255,255,0.75)', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
                   ${Number(g.current).toLocaleString(undefined, { minimumFractionDigits: Number(g.current) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${Number(g.goal).toLocaleString(undefined, { minimumFractionDigits: Number(g.goal) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}

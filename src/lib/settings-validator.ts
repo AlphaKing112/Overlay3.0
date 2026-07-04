@@ -18,7 +18,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
   const rejectedKeys: string[] = [];
 
   // Validate specific string fields
-  const stringFields = ['theme', 'timeFormat', 'locationDisplay', 'fontFamily', 'todoTheme', 'donoTheme', 'donoStyle', 'socialTheme', 'globalFont', 'globalTheme'];
+  const stringFields = ['theme', 'timeFormat', 'locationDisplay', 'fontFamily', 'todoTheme', 'donoTheme', 'donoStyle', 'socialTheme', 'globalFont', 'globalTheme', 'donoGoalText'];
   stringFields.forEach(field => {
     if (settings[field as keyof OverlaySettings] !== undefined) {
       if (typeof settings[field as keyof OverlaySettings] === 'string') {
@@ -203,7 +203,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -327,6 +327,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     donationGoalsY: typeof cleanSettings.donationGoalsY === 'number' ? cleanSettings.donationGoalsY : DEFAULT_OVERLAY_SETTINGS.donationGoalsY,
     donationGoalsScale: typeof cleanSettings.donationGoalsScale === 'number' ? cleanSettings.donationGoalsScale : DEFAULT_OVERLAY_SETTINGS.donationGoalsScale,
     donoShowBackground: cleanSettings.donoShowBackground ?? DEFAULT_OVERLAY_SETTINGS.donoShowBackground,
+    donoGoalText: cleanSettings.donoGoalText ?? DEFAULT_OVERLAY_SETTINGS.donoGoalText,
     streamElementsEnabled: cleanSettings.streamElementsEnabled ?? DEFAULT_OVERLAY_SETTINGS.streamElementsEnabled,
     streamElementsToken: cleanSettings.streamElementsToken ?? DEFAULT_OVERLAY_SETTINGS.streamElementsToken,
     twitchRevenueSplit: typeof cleanSettings.twitchRevenueSplit === 'number'
