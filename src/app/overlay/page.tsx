@@ -1040,6 +1040,9 @@ function OverlayPage() {
       
       // Cache recent community gift senders to ignore duplicate individual sub events
       const recentCommunityGifts = new Set<string>();
+      
+      // Buffer individual gifts to catch bulk gifts from SE emulator
+      const giftBuffers = new Map<string, { count: number; tier: string; timer: NodeJS.Timeout }>();
 
       const handleSEEvent = (rawEvent: any) => {
         if (!rawEvent) return;
@@ -1113,6 +1116,46 @@ function OverlayPage() {
                 OverlayLogger.overlay(`Ignoring individual sub from bulk gift for ${gifterName}`);
                 return;
              }
+             
+             // No native community event seen (e.g. SE Emulator). Buffer this to catch bulk gifts!
+             const existingBuffer = giftBuffers.get(gifterName);
+             if (existingBuffer) {
+                existingBuffer.count += 1;
+                clearTimeout(existingBuffer.timer);
+                existingBuffer.timer = setTimeout(() => {
+                   const finalCount = giftBuffers.get(gifterName)?.count || 1;
+                   giftBuffers.delete(gifterName);
+                   handleSEEvent({
+                      type: 'communityGiftPurchase',
+                      data: {
+                         username: gifterName,
+                         amount: finalCount,
+                         tier: existingBuffer.tier,
+                         bulkGifted: true,
+                         // Generate a unique ID to avoid deduping out our own synthetic event
+                         _id: `synthetic-${Date.now()}-${Math.random()}`
+                      }
+                   });
+                }, 1500);
+                return;
+             } else {
+                const timer = setTimeout(() => {
+                   const finalCount = giftBuffers.get(gifterName)?.count || 1;
+                   giftBuffers.delete(gifterName);
+                   handleSEEvent({
+                      type: 'communityGiftPurchase',
+                      data: {
+                         username: gifterName,
+                         amount: finalCount,
+                         tier: String(data.tier ?? '1000'),
+                         bulkGifted: true,
+                         _id: `synthetic-${Date.now()}-${Math.random()}`
+                      }
+                   });
+                }, 1500);
+                giftBuffers.set(gifterName, { count: 1, tier: String(data.tier ?? '1000'), timer });
+                return;
+             }
           }
 
           // Prevent double-counting individual subs that SE flags natively
@@ -1128,7 +1171,7 @@ function OverlayPage() {
           };
           const tier = String(data.tier ?? '1000');
           const tierPrice = tierPrices[tier] ?? 4.99;
-          const splitPercent = (currentSettings.twitchRevenueSplit ?? 50) / 100;
+          const splitPercent = 0.5; // Forced to 50% revenue split per user request (instead of relying on settings)
           
           let subMultiplier = 1;
 
