@@ -2223,9 +2223,11 @@ function OverlayPage() {
       tempF <= 45 ? `hsl(${Math.min(220, 195 + (45 - tempF) * 0.6)}, 100%, 65%)` :
       '#ffffff';
 
+    const tempEmoji = getWeatherIcon(weather.desc, true, isNightTime) || '';
+    
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
-      ? `${tempF}°F`
-      : `${weather.temp}°C (${tempF}°F)`;
+      ? `${tempEmoji} ${tempF}°F`.trim()
+      : `${tempEmoji} ${weather.temp}°C (${tempF}°F)`.trim();
 
     const display = {
       temperature: temperatureStr,
