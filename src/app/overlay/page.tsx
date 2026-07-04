@@ -835,9 +835,11 @@ function OverlayPage() {
       return null;
     }
 
+    const hideBg = !settings.showBackground || settings.donoShowBackground === false;
+
     return (
       <div
-        className={`overlay-box donation-goals-box ${(!settings.showBackground || settings.donoShowBackground === false) ? 'no-background' : ''}`}
+        className={`overlay-box donation-goals-box ${hideBg ? 'no-background' : ''}`}
         style={{
           marginTop: '12px',
           display: 'flex',
@@ -880,11 +882,18 @@ function OverlayPage() {
                 <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   {settings.donoGoalText !== undefined ? settings.donoGoalText : 'DONO GOAL:'} {g.name}
                 </span>
-                <span style={{ color: done ? '#fbbf24' : 'rgba(255,255,255,0.75)', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                <span style={{ color: done ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
                   ${Number(g.current).toLocaleString(undefined, { minimumFractionDigits: Number(g.current) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${Number(g.goal).toLocaleString(undefined, { minimumFractionDigits: Number(g.goal) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
                 </span>
               </div>
-              <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.15)', overflow: 'hidden', width: '100%' }}>
+              <div style={{ 
+                height: 8, 
+                borderRadius: 4, 
+                background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                overflow: 'hidden', 
+                width: '100%' 
+              }}>
                 <div
                   style={{
                     height: '100%',
