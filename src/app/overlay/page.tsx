@@ -1106,6 +1106,11 @@ function OverlayPage() {
           let subMultiplier = 1;
           const isGift = data.gifted === true || data.isGift === true || data.sender !== undefined;
           
+          let displayUsername = username;
+          if (isGift && data.sender) {
+             displayUsername = data.sender;
+          }
+          
           // For gifted subs, data.amount often contains the number of subs gifted (for bulk gifts)
           if (isGift && data.amount !== undefined) {
              const amt = typeof data.amount === 'number' ? data.amount : parseInt(data.amount);
@@ -1135,8 +1140,8 @@ function OverlayPage() {
             }
           }
 
-          OverlayLogger.overlay(`SE Sub: ${alertText} = $${amount} from ${username}`);
-          showDonoToast(username, alertText, actionText, icon);
+          OverlayLogger.overlay(`SE Sub: ${alertText} = $${amount} from ${displayUsername}`);
+          showDonoToast(displayUsername, alertText, actionText, icon);
         }
 
         if (amount !== null && amount > 0) {
