@@ -394,6 +394,47 @@ export default function AdminPage() {
       <main className="main-content">
         <div className="settings-container">
 
+          {/* Global Styling & Fonts Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>🎨 Global Styling & Fonts</h2>
+            </div>
+            
+            <div className="setting-group">
+              <label className="group-label">Global Font</label>
+              <RadioGroup
+                value={settings.globalFont || 'default'}
+                onChange={(value) => handleSettingsChange({ globalFont: value as string })}
+                options={[
+                  { value: 'default', label: 'Montserrat (Default)', icon: 'Aa' },
+                  { value: 'inter', label: 'Inter (Clean)', icon: 'Aa' },
+                  { value: 'teko', label: 'Teko (Condensed)', icon: 'Aa' },
+                  { value: 'bangers', label: 'Bangers (Comic)', icon: 'Aa' },
+                  { value: 'courier', label: 'Courier New (Retro)', icon: 'Aa' },
+                  { value: 'comic', label: 'Comic Sans', icon: 'Aa' },
+                ]}
+              />
+            </div>
+
+            <div className="setting-group" style={{ marginTop: '20px' }}>
+              <label className="group-label">Global Theme Style (Affects main overlay boxes)</label>
+              <div className="select-container">
+                <select
+                  className="theme-select"
+                  value={settings.globalTheme || 'default'}
+                  onChange={(e) => handleSettingsChange({ globalTheme: e.target.value })}
+                >
+                  <option value="default">Modern Clean (Default)</option>
+                  <option value="neon">Neon Cyberpunk</option>
+                  <option value="retro">Retro Arcade</option>
+                  <option value="bold">Bold Striped</option>
+                  <option value="impact">Comic Impact</option>
+                </select>
+                <div className="select-arrow">▼</div>
+              </div>
+            </div>
+          </section>
+
           {/* Location & Weather Section */}
           <section className="settings-section">
             <div className="section-header">

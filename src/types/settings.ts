@@ -57,6 +57,8 @@ export interface OverlaySettings {
   bitrateAnchor?: 'time' | 'location';
   showLowBitrateAlert?: boolean;
   showBitrateWarnings?: boolean;
+  globalFont?: string;
+  globalTheme?: string;
   lowBitrateThreshold?: number;
   criticalBitrateThreshold?: number;
   lowBitrateAlertScale?: number;
@@ -123,6 +125,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   bitrateAnchor: 'location',
   showLowBitrateAlert: true,
   showBitrateWarnings: true,
+  globalFont: 'default',
+  globalTheme: 'default',
   lowBitrateThreshold: 1300,
   criticalBitrateThreshold: 900,
   lowBitrateAlertScale: 0.6,
@@ -188,6 +192,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   bitrateAnchor: 'string',
   showLowBitrateAlert: 'boolean',
   showBitrateWarnings: 'boolean',
+  globalFont: 'string',
+  globalTheme: 'string',
   lowBitrateThreshold: 'number',
   criticalBitrateThreshold: 'number',
   lowBitrateAlertScale: 'number',

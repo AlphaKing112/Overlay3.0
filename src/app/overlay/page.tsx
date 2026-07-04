@@ -2447,6 +2447,8 @@ function OverlayPage() {
     <ErrorBoundary autoReload={false}>
       <div
         className="overlay-container obs-render"
+        data-font={settings.globalFont || 'default'}
+        data-theme={settings.globalTheme || 'default'}
         style={{
           // Always show overlay - top-left (time/date/heart rate) doesn't depend on GPS or location data
           // Top-right section has its own visibility conditions
