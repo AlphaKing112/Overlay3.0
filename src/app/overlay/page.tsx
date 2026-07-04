@@ -1132,6 +1132,11 @@ function OverlayPage() {
           
           let subMultiplier = 1;
 
+          let displayUsername = username;
+          if (isGift && data.sender) {
+             displayUsername = data.sender;
+          }
+          
           // For gifted subs, check multiple fields where SE might store the total quantity
           if (isGift) {
              const potentialFields = [data.amount, data.quantity, data.count, data.giftedCount, data.bulkAmount];
