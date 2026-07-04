@@ -1131,13 +1131,7 @@ function OverlayPage() {
           const splitPercent = (currentSettings.twitchRevenueSplit ?? 50) / 100;
           
           let subMultiplier = 1;
-          const isGift = data.gifted === true || data.isGift === true || data.sender !== undefined || data.bulkGifted === true || eventType.includes('community');
-          
-          let displayUsername = username;
-          if (isGift && data.sender) {
-             displayUsername = data.sender;
-          }
-          
+
           // For gifted subs, check multiple fields where SE might store the total quantity
           if (isGift) {
              const potentialFields = [data.amount, data.quantity, data.count, data.giftedCount, data.bulkAmount];
