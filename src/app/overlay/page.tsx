@@ -1037,6 +1037,9 @@ function OverlayPage() {
       // Global dedup set — one set shared across event + event:test listeners
       // Prevents double-counting when SE fires both for the same replay
       const recentEventIds = new Set<string>();
+      
+      // Cache recent community gift senders to ignore duplicate individual sub events
+      const recentCommunityGifts = new Set<string>();
 
       const handleSEEvent = (rawEvent: any) => {
         if (!rawEvent) return;
@@ -1094,8 +1097,26 @@ function OverlayPage() {
         // ── Subscriber ───────────────────────────────────────────────────
         // Twitch keeps 50% by default — configurable via twitchRevenueSplit
         else if (eventType === 'subscriber' || eventType.includes('sub') || eventType.includes('community') || eventType.includes('gift')) {
-          // Prevent double-counting individual subs that are part of a community gift
-          if ((data.isCommunityGift || data.playedAsCommunityGift) && !data.bulkGifted && !eventType.includes('community')) {
+          const isCommunityEvent = eventType.includes('community') || data.bulkGifted === true;
+          
+          // Identify the gifter early to check for duplicates
+          const isGift = data.gifted === true || data.isGift === true || data.sender !== undefined || isCommunityEvent;
+          const gifterName = (data.sender || username).toLowerCase();
+
+          // If this is a community gift summary event, register the gifter in our cache for 10 seconds
+          if (isCommunityEvent) {
+             recentCommunityGifts.add(gifterName);
+             setTimeout(() => recentCommunityGifts.delete(gifterName), 10000);
+          } else if (isGift && data.sender) {
+             // If this is an individual gift event, and we recently saw a community gift from this sender, IGNORE it!
+             if (recentCommunityGifts.has(gifterName)) {
+                OverlayLogger.overlay(`Ignoring individual sub from bulk gift for ${gifterName}`);
+                return;
+             }
+          }
+
+          // Prevent double-counting individual subs that SE flags natively
+          if ((data.isCommunityGift || data.playedAsCommunityGift) && !isCommunityEvent) {
              OverlayLogger.overlay(`Ignoring individual community gift event for ${username}`);
              return;
           }
