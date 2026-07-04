@@ -58,6 +58,7 @@ export interface OverlaySettings {
   lowBitrateAlertScale?: number;
   lowBitrateAlertX?: number;
   lowBitrateAlertY?: number;
+  lowBitrateAlertFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   todoListPosition?: 'left' | 'right';
   showCalorieTracker?: boolean;
   calorieGoal?: number;
@@ -118,6 +119,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   lowBitrateAlertScale: 0.6,
   lowBitrateAlertX: 0,
   lowBitrateAlertY: 0,
+  lowBitrateAlertFont: 'default',
   todoListPosition: 'left',
   showCalorieTracker: false,
   calorieGoal: 500,
@@ -177,6 +179,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   lowBitrateAlertScale: 'number',
   lowBitrateAlertX: 'number',
   lowBitrateAlertY: 'number',
+  lowBitrateAlertFont: 'string',
   todoListPosition: 'string',
   showCalorieTracker: 'boolean',
   calorieGoal: 'number',

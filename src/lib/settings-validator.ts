@@ -239,6 +239,13 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     lowBitrateAlertY: typeof cleanSettings.lowBitrateAlertY === 'number'
       ? Math.min(Math.max(cleanSettings.lowBitrateAlertY, -1000), 1000)
       : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertY,
+    lowBitrateAlertFont: (cleanSettings.lowBitrateAlertFont === 'default' ||
+                          cleanSettings.lowBitrateAlertFont === 'neon' ||
+                          cleanSettings.lowBitrateAlertFont === 'retro' ||
+                          cleanSettings.lowBitrateAlertFont === 'bold' ||
+                          cleanSettings.lowBitrateAlertFont === 'impact')
+      ? cleanSettings.lowBitrateAlertFont
+      : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertFont,
     todoListPosition: cleanSettings.todoListPosition ?? DEFAULT_OVERLAY_SETTINGS.todoListPosition,
     showCalorieTracker: cleanSettings.showCalorieTracker ?? DEFAULT_OVERLAY_SETTINGS.showCalorieTracker,
     calorieGoal: cleanSettings.calorieGoal ?? DEFAULT_OVERLAY_SETTINGS.calorieGoal,

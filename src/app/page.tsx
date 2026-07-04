@@ -1263,12 +1263,30 @@ export default function AdminPage() {
                     onChange={(e) => handleSettingsChange({ showLowBitrateAlert: e.target.checked })}
                     className="checkbox-input"
                   />
-                  <span className="checkbox-text">Enable Low Bitrate Image Alert</span>
+                  <span className="checkbox-text">Enable Low Bitrate Text Alert</span>
                 </label>
                 <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
-                  Shows a visual warning image when bitrate drops below 1300 Kbps.
+                  Shows a flashing text alert when bitrate drops below 1300 Kbps.
                 </p>
               </div>
+
+              {/* Font Choice Select */}
+              {settings.showLowBitrateAlert && (
+                <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+                  <label className="group-label">Low Bitrate Text Style / Font</label>
+                  <RadioGroup
+                    value={settings.lowBitrateAlertFont || 'default'}
+                    onChange={(value) => handleSettingsChange({ lowBitrateAlertFont: value as any })}
+                    options={[
+                      { value: 'default', label: 'Default', icon: '📝', description: 'Bold sans-serif red/yellow warning pill' },
+                      { value: 'neon', label: 'Neon Cyberpunk', icon: '💻', description: 'Glowy cyan cyberpunk theme' },
+                      { value: 'retro', label: 'Retro Arcade', icon: '🕹️', description: '1980s monospaced double-bordered pixel style' },
+                      { value: 'bold', label: 'Bold Striped', icon: '🚧', description: 'Heavy warning stripes style' },
+                      { value: 'impact', label: 'Comic Impact', icon: '💥', description: 'Playful comic impact style' }
+                    ]}
+                  />
+                </div>
+              )}
 
               {/* Scale and Position Controls (only show when alert is enabled) */}
               {settings.showLowBitrateAlert && (

@@ -2816,7 +2816,7 @@ function OverlayPage() {
         }
 
 
-        {/* Low Bitrate Alert Image (Slide up) */}
+        {/* Low Bitrate Alert Text (Slide up) */}
         {
           settings.showBitrateWarnings && settings.showLowBitrateAlert && (
             <div
@@ -2827,11 +2827,10 @@ function OverlayPage() {
                 bottom: bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `${40 + (settings.lowBitrateAlertY || 0)}px` : `${-300 + (settings.lowBitrateAlertY || 0)}px`
               }}
             >
-              <img
-                src="/images/low-bitrate-alert.png"
-                alt="LOW BITRATE"
-                className="low-bitrate-alert-image"
-              />
+              <div className={`low-bitrate-alert-text-box font-theme-${settings.lowBitrateAlertFont || 'default'}`}>
+                <span className="low-bitrate-warning-icon">⚠️</span>
+                <span className="low-bitrate-warning-text">LOW BITRATE - PLEASE WAIT!</span>
+              </div>
             </div>
           )
         }

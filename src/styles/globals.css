@@ -683,19 +683,123 @@ body.overlay-page {
   pointer-events: none;
 }
 
-.low-bitrate-alert-image {
-  max-width: 400px;
-  height: auto;
-  filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.5));
+.low-bitrate-alert-text-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 28px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-family: inherit;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  transition: all 0.3s ease;
 }
 
-/* Hovering Animation like the bitrate text */
-.low-bitrate-alert-container.alert-yellow .low-bitrate-alert-image {
-  animation: low-bitrate-hover 2s infinite ease-in-out;
+/* Warning Level Colors (applied via parent container) */
+.low-bitrate-alert-container.alert-yellow .low-bitrate-alert-text-box {
+  background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #000000;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
+  animation: low-bitrate-hover 2s infinite ease-in-out, low-bitrate-flash-yellow 1.5s infinite alternate;
 }
 
-.low-bitrate-alert-container.alert-red .low-bitrate-alert-image {
-  animation: low-bitrate-hover 1s infinite ease-in-out;
+.low-bitrate-alert-container.alert-red .low-bitrate-alert-text-box {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  animation: low-bitrate-hover 1.2s infinite ease-in-out, low-bitrate-flash-red 0.8s infinite alternate;
+}
+
+/* --- FONT THEMES --- */
+
+/* 1. Neon / Cyberpunk */
+.low-bitrate-alert-text-box.font-theme-neon {
+  background: rgba(0, 0, 0, 0.85) !important;
+  border: 2px solid #00f5ff !important;
+  border-radius: 4px;
+  box-shadow: 0 0 15px rgba(0, 245, 255, 0.4), inset 0 0 15px rgba(0, 245, 255, 0.2);
+}
+.low-bitrate-alert-text-box.font-theme-neon .low-bitrate-warning-text {
+  color: #00f5ff;
+  font-family: inherit;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-shadow: 0 0 8px #00f5ff, 0 0 18px rgba(0, 245, 255, 0.6);
+}
+.low-bitrate-alert-text-box.font-theme-neon .low-bitrate-warning-icon {
+  color: #f700ff;
+  text-shadow: 0 0 8px #f700ff;
+}
+
+/* 2. Retro Arcade (Pixel Monospace) */
+.low-bitrate-alert-text-box.font-theme-retro {
+  background: #000000 !important;
+  border: 4px double #ffe44d !important;
+  border-radius: 0;
+  box-shadow: 0 4px 0 #000000;
+}
+.low-bitrate-alert-text-box.font-theme-retro .low-bitrate-warning-text {
+  color: #ffe44d;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-shadow: none;
+}
+.low-bitrate-alert-text-box.font-theme-retro .low-bitrate-warning-icon {
+  color: #ffe44d;
+}
+
+/* 3. Bold Block / Heavy Warning Stripes */
+.low-bitrate-alert-text-box.font-theme-bold {
+  background: repeating-linear-gradient(
+    45deg,
+    #ef4444,
+    #ef4444 10px,
+    #b91c1c 10px,
+    #b91c1c 20px
+  ) !important;
+  border: 4px solid #ffffff !important;
+  border-radius: 8px;
+}
+.low-bitrate-alert-text-box.font-theme-bold .low-bitrate-warning-text {
+  font-size: 1.15em;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 2px 2px 0px #000000, 4px 4px 8px rgba(0,0,0,0.6);
+}
+
+/* 4. Impact / Playful Comic */
+.low-bitrate-alert-text-box.font-theme-impact {
+  background: #ffffff !important;
+  border: 4px solid #000000 !important;
+  border-radius: 20px;
+  box-shadow: 6px 6px 0px #000000;
+}
+.low-bitrate-alert-text-box.font-theme-impact .low-bitrate-warning-text {
+  color: #ef4444;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  text-shadow: 2px 2px 0px #ffe44d, 3px 3px 0px #000000;
+}
+.low-bitrate-alert-text-box.font-theme-impact .low-bitrate-warning-icon {
+  color: #000000;
+}
+
+/* Animations */
+@keyframes low-bitrate-flash-yellow {
+  from { box-shadow: 0 0 10px rgba(234, 179, 8, 0.4); }
+  to { box-shadow: 0 0 25px rgba(234, 179, 8, 0.8); }
+}
+
+@keyframes low-bitrate-flash-red {
+  from { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+  to { box-shadow: 0 0 25px rgba(239, 68, 68, 0.8); }
 }
 
 @keyframes low-bitrate-hover {
