@@ -2227,31 +2227,35 @@ function OverlayPage() {
     
     // Add weather warning based on OpenWeatherMap condition ID
     let warningText = '';
+    let warningColor = '#ffffff';
+
     if (weather.id !== undefined) {
-      if (weather.id >= 200 && weather.id <= 232) warningText = ' | THUNDERSTORM WARNING';
-      else if (weather.id === 502 || weather.id === 503 || weather.id === 504) warningText = ' | HEAVY RAIN WARNING';
-      else if (weather.id === 602 || weather.id === 622) warningText = ' | HEAVY SNOW WARNING';
-      else if (weather.id === 711) warningText = ' | SMOKE WARNING';
-      else if (weather.id === 762) warningText = ' | VOLCANIC ASH WARNING';
-      else if (weather.id === 771) warningText = ' | SQUALL WARNING';
-      else if (weather.id === 781) warningText = ' | TORNADO WARNING';
+      if (weather.id >= 200 && weather.id <= 232) { warningText = '| ⚡ THUNDERSTORM WARNING'; warningColor = '#eab308'; } // Yellow
+      else if (weather.id === 502 || weather.id === 503 || weather.id === 504) { warningText = '| 🌧️⚠️ HEAVY RAIN WARNING'; warningColor = '#3b82f6'; } // Blue
+      else if (weather.id === 602 || weather.id === 622) { warningText = '| ❄️⚠️ HEAVY SNOW WARNING'; warningColor = '#e0f2fe'; } // Light Blue
+      else if (weather.id === 711) { warningText = '| 💨⚠️ SMOKE WARNING'; warningColor = '#9ca3af'; } // Gray
+      else if (weather.id === 762) { warningText = '| 🌋⚠️ VOLCANIC ASH WARNING'; warningColor = '#f97316'; } // Orange
+      else if (weather.id === 771) { warningText = '| 💨⚠️ SQUALL WARNING'; warningColor = '#60a5fa'; } // Blue
+      else if (weather.id === 781) { warningText = '| 🌪️⚠️ TORNADO WARNING'; warningColor = '#9333ea'; } // Purple
     }
     
     // Temperature-based warnings (if no severe condition warning exists)
     if (!warningText) {
-      if (tempF >= 95) warningText = ' | HEAT WARNING';
-      else if (tempF <= 32) warningText = ' | FREEZE WARNING';
+      if (tempF >= 95) { warningText = '| 🔥⚠️ HEAT WARNING'; warningColor = '#ef4444'; } // Red
+      else if (tempF <= 32) { warningText = '| 🧊⚠️ FREEZE WARNING'; warningColor = '#60a5fa'; } // Blue
     }
     
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
-      ? `${tempEmoji} ${tempF}°F${warningText}`.trim()
-      : `${tempEmoji} ${weather.temp}°C (${tempF}°F)${warningText}`.trim();
+      ? `${tempEmoji} ${tempF}°F`.trim()
+      : `${tempEmoji} ${weather.temp}°C (${tempF}°F)`.trim();
 
     const display = {
       temperature: temperatureStr,
       icon: icon,
       description: description,
-      tempColor
+      tempColor,
+      warningText,
+      warningColor
     };
     return display;
   }, [weather, settings.weatherConditionDisplay, settings.temperatureUnit, getWeatherIcon, isNotableWeatherCondition, isNightTime]);
@@ -2511,7 +2515,10 @@ function OverlayPage() {
                 {weatherDisplay && settings.showWeather && (
                   <div className="weather weather-line">
                     <div className="weather-text-group">
-                      <div className="weather-temperature" style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</div>
+                      <div className="weather-temperature">
+                        <span style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</span>
+                        {weatherDisplay.warningText && <span style={{ color: weatherDisplay.warningColor, fontWeight: 'bold', marginLeft: '6px' }}>{weatherDisplay.warningText}</span>}
+                      </div>
                       {(weatherDisplay.icon || weatherDisplay.description) && (
                         <div className="weather-condition-group">
                           {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
