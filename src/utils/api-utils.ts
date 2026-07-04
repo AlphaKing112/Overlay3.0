@@ -77,8 +77,9 @@ async function fetchWithRetry(
 
 // === 🌤️ WEATHER TYPES ===
 export interface WeatherData {
-  temp: number; // "feels like" temperature (more accurate for IRL streaming)
+  temp: number; // actual temperature
   desc: string;
+  id?: number; // OpenWeatherMap condition code for warnings
 }
 
 export interface WeatherTimezoneResponse {
@@ -355,6 +356,7 @@ export async function fetchWeatherAndTimezoneFromOpenWeatherMap(
       weather = {
         temp: Math.round(data.main.temp), // Use actual temperature
         desc: data.weather[0].description || 'unknown',
+        id: data.weather[0].id,
       };
 
       ApiLogger.info('openweathermap', 'Weather data received', weather);
@@ -363,6 +365,7 @@ export async function fetchWeatherAndTimezoneFromOpenWeatherMap(
       weather = {
         temp: Math.round(data.main.feels_like),
         desc: data.weather[0].description || 'unknown',
+        id: data.weather[0].id,
       };
 
       ApiLogger.info('openweathermap', 'Weather data received (using feels_like as regular temp unavailable)', weather);

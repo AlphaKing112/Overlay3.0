@@ -123,7 +123,7 @@ function OverlayPage() {
     secondary?: string;
     countryCode?: string;
   } | null>(null);
-  const [weather, setWeather] = useState<{ temp: number; desc: string } | null>(null);
+  const [weather, setWeather] = useState<{ temp: number; desc: string; id?: number } | null>(null);
   const [timezone, setTimezone] = useState<string | null>(null);
   const [sunriseSunset, setSunriseSunset] = useState<SunriseSunsetData | null>(null);
   const [mapCoords, setMapCoords] = useState<[number, number] | null>(null);
@@ -631,7 +631,7 @@ function OverlayPage() {
     lastSuccessfulLocationFetch.current = Date.now();
   }, []);
 
-  const updateWeather = useCallback((weatherData: { temp: number; desc: string }) => {
+  const updateWeather = useCallback((weatherData: { temp: number; desc: string; id?: number }) => {
     setWeather(weatherData);
     lastSuccessfulWeatherFetch.current = Date.now();
   }, []);
@@ -1723,7 +1723,7 @@ function OverlayPage() {
                         lastWeatherTime.current = Date.now();
                         if (weatherResult && typeof weatherResult === 'object' && 'weather' in weatherResult) {
                           const result = weatherResult as {
-                            weather?: { temp: number; desc: string };
+                            weather?: { temp: number; desc: string; id?: number };
                             timezone?: string;
                             sunriseSunset?: SunriseSunsetData;
                           };
@@ -2225,9 +2225,21 @@ function OverlayPage() {
 
     const tempEmoji = getWeatherIcon(weather.desc, true, isNightTime) || '';
     
+    // Add weather warning based on OpenWeatherMap condition ID
+    let warningEmoji = '';
+    if (weather.id !== undefined) {
+      if (weather.id >= 200 && weather.id <= 232) warningEmoji = '⚡'; // Thunderstorm
+      else if (weather.id === 502 || weather.id === 503 || weather.id === 504) warningEmoji = '⚠️'; // Heavy Rain
+      else if (weather.id === 602 || weather.id === 622) warningEmoji = '⚠️'; // Heavy Snow
+      else if (weather.id === 711) warningEmoji = '💨⚠️'; // Smoke
+      else if (weather.id === 762) warningEmoji = '🌋⚠️'; // Volcanic Ash
+      else if (weather.id === 771) warningEmoji = '💨⚠️'; // Squalls
+      else if (weather.id === 781) warningEmoji = '🌪️⚠️'; // Tornado
+    }
+    
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
-      ? `${tempEmoji} ${tempF}°F`.trim()
-      : `${tempEmoji} ${weather.temp}°C (${tempF}°F)`.trim();
+      ? `${tempEmoji} ${tempF}°F ${warningEmoji}`.trim()
+      : `${tempEmoji} ${weather.temp}°C (${tempF}°F) ${warningEmoji}`.trim();
 
     const display = {
       temperature: temperatureStr,
