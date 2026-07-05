@@ -1331,25 +1331,77 @@ export default function AdminPage() {
                     onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
                   />
                 </div>
-                <div className="setting-group">
-                  <label>X Position:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.subGoalsX ?? 0}
-                    onChange={(e) => handleSettingsChange({ subGoalsX: parseInt(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="setting-group">
-                  <label>Y Position:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.subGoalsY ?? 0}
-                    onChange={(e) => handleSettingsChange({ subGoalsY: parseInt(e.target.value) || 0 })}
-                  />
-                </div>
               </div>
+              
+              {/* Scale & Position Controls */}
+              <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                  {/* Scale Control */}
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Overlay Scale</label>
+                      <span style={{ fontSize: '0.85em' }}>{Math.round((settings.subGoalsScale || 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.3"
+                      max="3.0"
+                      step="0.1"
+                      value={settings.subGoalsScale || 1}
+                      onChange={(e) => handleSettingsChange({ subGoalsScale: parseFloat(e.target.value) })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  {/* Position Controls (D-Pad) */}
+                  <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>Position ({settings.subGoalsX || 0}, {settings.subGoalsY || 0})</label>
+                    
+                    {/* Up Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) + 10 })}
+                    >
+                      ▲
+                    </button>
+
+                    {/* Left, Reset, Right */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ subGoalsX: (settings.subGoalsX || 0) - 10 })}
+                      >
+                        ◀
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ subGoalsX: 0, subGoalsY: 0 })}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ subGoalsX: (settings.subGoalsX || 0) + 10 })}
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Down Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) - 10 })}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
             )}
           </section>
 
