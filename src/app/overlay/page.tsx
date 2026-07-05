@@ -1063,6 +1063,7 @@ function OverlayPage() {
         setTimeout(() => recentEventIds.delete(dedupKey), 3000);
 
         let amount: number | null = null;
+        let subCount = 0;
         // Read latest settings from ref — no stale closure risk
         const currentSettings = seSettingsRef.current;
 
@@ -1217,6 +1218,7 @@ function OverlayPage() {
 
           OverlayLogger.overlay(`SE Sub: ${alertText} = $${amount} from ${displayUsername}`);
           showDonoToast(displayUsername, alertText, actionText, icon);
+          subCount = subMultiplier;
         }
 
         if (amount !== null && amount > 0) {
@@ -1247,6 +1249,25 @@ function OverlayPage() {
             }
           }).catch(err => {
             OverlayLogger.error('Failed to reach record-donation API:', err);
+          });
+        }
+
+        if (subCount > 0) {
+          const freshToken = seSettingsRef.current.streamElementsToken || token;
+          const clientDate = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local time
+          fetch('/api/record-sub', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count: subCount, token: freshToken, eventId: dedupKey, clientDate })
+          }).then(async res => {
+            if (!res.ok) {
+              const body = await res.text().catch(() => '(no body)');
+              OverlayLogger.error(`record-sub failed HTTP ${res.status}:`, body);
+            } else {
+              OverlayLogger.overlay(`record-sub OK: ${subCount} sub(s) applied to goals`);
+            }
+          }).catch(err => {
+            OverlayLogger.error('Failed to reach record-sub API:', err);
           });
         }
       };
@@ -3027,6 +3048,43 @@ function OverlayPage() {
           )
         }
         {/* Calorie Tracker */}
+        {/* Twitch Sub Goals */}
+        {settings.showSubGoals && (
+          <div
+            className={`overlay-box theme-${settings.globalTheme || 'default'}`}
+            style={{
+              position: 'absolute',
+              top: '20px',
+              left: '20px',
+              transform: `translate(${settings.subGoalsX || 0}px, ${settings.subGoalsY || 0}px) scale(${settings.subGoalsScale || 1})`,
+              transformOrigin: 'top left',
+              zIndex: 50,
+              padding: '12px 16px',
+              background: settings.donoShowBackground !== false ? 'rgba(0, 0, 0, 0.7)' : 'transparent',
+              backdropFilter: settings.donoShowBackground !== false ? 'blur(10px)' : 'none',
+              border: settings.donoShowBackground !== false ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+              boxShadow: settings.donoShowBackground !== false ? '0 4px 6px rgba(0, 0, 0, 0.3)' : 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '1px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
+              <span style={{ color: 'var(--text-color)' }}>Total Subs:</span>
+              <span style={{ color: 'var(--accent-color, #fff)' }}>{settings.totalSubCurrent || 0} / {settings.totalSubGoal || 100}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
+              <span style={{ color: 'var(--text-color)' }}>Daily Subs:</span>
+              <span style={{ color: 'var(--accent-color, #fff)' }}>
+                {settings.dailySubLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailySubCurrent || 0) : 0} / {settings.dailySubGoal || 10}
+              </span>
+            </div>
+          </div>
+        )}
+
         <CalorieTracker
           calories={(totalDistanceTracked / 1000) * CALORIES_PER_KM}
           goal={settings.calorieGoal || 500}

@@ -339,6 +339,15 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     timeWeatherLocationScale: typeof cleanSettings.timeWeatherLocationScale === 'number'
       ? Math.min(Math.max(cleanSettings.timeWeatherLocationScale, 0.3), 3.0)
       : DEFAULT_OVERLAY_SETTINGS.timeWeatherLocationScale,
+    showSubGoals: cleanSettings.showSubGoals ?? DEFAULT_OVERLAY_SETTINGS.showSubGoals,
+    totalSubGoal: typeof cleanSettings.totalSubGoal === 'number' ? cleanSettings.totalSubGoal : DEFAULT_OVERLAY_SETTINGS.totalSubGoal,
+    totalSubCurrent: typeof cleanSettings.totalSubCurrent === 'number' ? cleanSettings.totalSubCurrent : DEFAULT_OVERLAY_SETTINGS.totalSubCurrent,
+    dailySubGoal: typeof cleanSettings.dailySubGoal === 'number' ? cleanSettings.dailySubGoal : DEFAULT_OVERLAY_SETTINGS.dailySubGoal,
+    dailySubCurrent: typeof cleanSettings.dailySubCurrent === 'number' ? cleanSettings.dailySubCurrent : DEFAULT_OVERLAY_SETTINGS.dailySubCurrent,
+    dailySubLastReset: typeof cleanSettings.dailySubLastReset === 'string' ? cleanSettings.dailySubLastReset : DEFAULT_OVERLAY_SETTINGS.dailySubLastReset,
+    subGoalsX: typeof cleanSettings.subGoalsX === 'number' ? cleanSettings.subGoalsX : DEFAULT_OVERLAY_SETTINGS.subGoalsX,
+    subGoalsY: typeof cleanSettings.subGoalsY === 'number' ? cleanSettings.subGoalsY : DEFAULT_OVERLAY_SETTINGS.subGoalsY,
+    subGoalsScale: typeof cleanSettings.subGoalsScale === 'number' ? cleanSettings.subGoalsScale : DEFAULT_OVERLAY_SETTINGS.subGoalsScale,
   };
 
   return completeSettings;
@@ -356,7 +365,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'showSubGoals' && key !== 'totalSubGoal' && key !== 'totalSubCurrent' && key !== 'dailySubGoal' && key !== 'dailySubCurrent' && key !== 'dailySubLastReset' && key !== 'subGoalsX' && key !== 'subGoalsY' && key !== 'subGoalsScale') { // valid keys
       maliciousKeys.push(key);
     }
   }

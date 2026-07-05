@@ -99,6 +99,15 @@ export interface OverlaySettings {
   twitchRevenueSplit?: number;
   donationGoalsDuration?: number;
   timeWeatherLocationScale?: number;
+  showSubGoals?: boolean;
+  totalSubGoal?: number;
+  totalSubCurrent?: number;
+  dailySubGoal?: number;
+  dailySubCurrent?: number;
+  dailySubLastReset?: string;
+  subGoalsX?: number;
+  subGoalsY?: number;
+  subGoalsScale?: number;
 }
 
 // Default settings (single source of truth)
@@ -169,6 +178,15 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   twitchRevenueSplit: 50,
   donationGoalsDuration: 0,
   timeWeatherLocationScale: 1.0,
+  showSubGoals: false,
+  totalSubGoal: 100,
+  totalSubCurrent: 0,
+  dailySubGoal: 10,
+  dailySubCurrent: 0,
+  dailySubLastReset: '',
+  subGoalsX: 0,
+  subGoalsY: 0,
+  subGoalsScale: 1,
 };
 
 // Valid settings schema for validation
@@ -237,6 +255,15 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   twitchRevenueSplit: 'number',
   donationGoalsDuration: 'number',
   timeWeatherLocationScale: 'number',
+  showSubGoals: 'boolean',
+  totalSubGoal: 'number',
+  totalSubCurrent: 'number',
+  dailySubGoal: 'number',
+  dailySubCurrent: 'number',
+  dailySubLastReset: 'string',
+  subGoalsX: 'number',
+  subGoalsY: 'number',
+  subGoalsScale: 'number',
 };
 
 // SSE message types

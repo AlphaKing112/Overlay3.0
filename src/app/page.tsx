@@ -1276,6 +1276,83 @@ export default function AdminPage() {
             )}
           </section>
 
+          {/* Sub Goals Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>🔔 Twitch Sub Goals</h2>
+              <div className="checkbox-group" style={{ marginTop: '8px' }}>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showSubGoals ?? false}
+                    onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Show Sub Goals on Overlay</span>
+                </label>
+              </div>
+            </div>
+
+            {settings.showSubGoals && (
+              <div className="settings-grid">
+                <div className="setting-group">
+                  <label>Total Sub Goal:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.totalSubGoal ?? 100}
+                    onChange={(e) => handleSettingsChange({ totalSubGoal: Math.max(1, parseInt(e.target.value) || 100) })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>Current Total Subs:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.totalSubCurrent ?? 0}
+                    onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>Daily Sub Goal:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.dailySubGoal ?? 10}
+                    onChange={(e) => handleSettingsChange({ dailySubGoal: Math.max(1, parseInt(e.target.value) || 10) })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>Current Daily Subs:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.dailySubCurrent ?? 0}
+                    onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>X Position:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.subGoalsX ?? 0}
+                    onChange={(e) => handleSettingsChange({ subGoalsX: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>Y Position:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.subGoalsY ?? 0}
+                    onChange={(e) => handleSettingsChange({ subGoalsY: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* Bitrate Section */}
           <section className="settings-section">
             <div className="section-header">
