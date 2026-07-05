@@ -1294,8 +1294,9 @@ export default function AdminPage() {
             </div>
 
             {settings.showSubGoals && (
-              <div className="settings-grid">
-                <div className="setting-group">
+              <>
+                <div className="settings-grid">
+                  <div className="setting-group">
                   <label>Total Sub Goal:</label>
                   <input
                     type="number"
@@ -1402,6 +1403,8 @@ export default function AdminPage() {
                     </button>
                   </div>
                 </div>
+              </div>
+            </>
             )}
           </section>
 
