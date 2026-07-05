@@ -830,8 +830,9 @@ function OverlayPage() {
   }, [settings.todos, completedTodoTimestamps]);
 
   // Donation goals memoized JSX
+  // Unified Goals memoized JSX
   const donationGoalsJSX = useMemo(() => {
-    if (!settings.showDonationGoals || !settings.donationGoals || settings.donationGoals.length === 0) {
+    if (!settings.showDonationGoals && !settings.showSubGoals) {
       return null;
     }
 
@@ -839,12 +840,12 @@ function OverlayPage() {
 
     return (
       <div
-        className={`overlay-box donation-goals-box ${hideBg ? 'no-background' : ''}`}
+        className={`overlay-box donation-goals-box ${hideBg ? 'no-background' : ''} theme-${settings.globalTheme || 'default'}`}
         style={{
           marginTop: '12px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: '12px',
           minWidth: '220px',
           maxWidth: '320px',
           alignSelf: settings.todoListPosition === 'right' ? 'flex-end' : 'flex-start',
@@ -854,64 +855,165 @@ function OverlayPage() {
           padding: '12px 16px',
         }}
       >
-        {(settings.donationGoals ?? []).map((g) => {
-          const pct = g.goal > 0 ? Math.min(100, (g.current / g.goal) * 100) : 0;
-          const done = pct >= 100;
-          
-          // Expiry and visibility check
-          const duration = g.duration || 0;
-          const expiry = goalExpiryTimestamps[g.id] || 0;
-          const isVisible = duration > 0 ? expiry > timeTick : true;
-          
+        {/* StreamElements Tip Goals */}
+        {settings.showDonationGoals && (() => {
+          const totalTipGoal = settings.totalTipGoal || 100;
+          const totalTipCurrent = settings.totalTipCurrent || 0;
+          const totalTipPct = totalTipGoal > 0 ? Math.min(100, (totalTipCurrent / totalTipGoal) * 100) : 0;
+          const totalTipDone = totalTipPct >= 100;
+
+          const dailyTipGoal = settings.dailyTipGoal || 10;
+          const dailyTipCurrent = settings.dailyTipLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailyTipCurrent || 0) : 0;
+          const dailyTipPct = dailyTipGoal > 0 ? Math.min(100, (dailyTipCurrent / dailyTipGoal) * 100) : 0;
+          const dailyTipDone = dailyTipPct >= 100;
+
           return (
-            <div
-              key={g.id}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                width: '100%',
-                opacity: isVisible ? 1 : 0,
-                maxHeight: isVisible ? '100px' : '0px',
-                margin: isVisible ? '0 0' : '-4px 0',
-                overflow: 'hidden',
-                transition: 'opacity 0.5s ease-in-out, max-height 0.5s ease-in-out, margin 0.5s ease-in-out'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
-                <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  {settings.donoGoalText !== undefined ? settings.donoGoalText : 'DONO GOAL:'} {g.name}
-                </span>
-                <span style={{ color: done ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                  ${Number(g.current).toLocaleString(undefined, { minimumFractionDigits: Number(g.current) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${Number(g.goal).toLocaleString(undefined, { minimumFractionDigits: Number(g.goal) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div style={{ 
-                height: 8, 
-                borderRadius: 4, 
-                background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                overflow: 'hidden', 
-                width: '100%' 
-              }}>
-                <div
-                  style={{
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Total Tips */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                    TOTAL TIPS
+                  </span>
+                  <span style={{ color: totalTipDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                    ${totalTipCurrent.toLocaleString(undefined, { minimumFractionDigits: totalTipCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${totalTipGoal.toLocaleString(undefined, { minimumFractionDigits: totalTipGoal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: 8, 
+                  borderRadius: 4, 
+                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                  overflow: 'hidden', 
+                  width: '100%' 
+                }}>
+                  <div style={{
                     height: '100%',
-                    width: `${pct}%`,
-                    background: done
-                      ? 'linear-gradient(90deg, #fbbf24, #f59e0b)'
-                      : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    width: `${totalTipPct}%`,
+                    background: totalTipDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
                     borderRadius: 4,
                     transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }}
-                />
+                  }} />
+                </div>
+              </div>
+
+              {/* Daily Tips */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                    DAILY TIPS
+                  </span>
+                  <span style={{ color: dailyTipDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                    ${dailyTipCurrent.toLocaleString(undefined, { minimumFractionDigits: dailyTipCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${dailyTipGoal.toLocaleString(undefined, { minimumFractionDigits: dailyTipGoal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: 8, 
+                  borderRadius: 4, 
+                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                  overflow: 'hidden', 
+                  width: '100%' 
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${dailyTipPct}%`,
+                    background: dailyTipDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    borderRadius: 4,
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
               </div>
             </div>
           );
-        })}
+        })()}
+
+        {/* Separator if both are shown */}
+        {settings.showDonationGoals && settings.showSubGoals && (
+          <div style={{ height: 1, width: '100%', background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+        )}
+
+        {/* Twitch Sub Goals */}
+        {settings.showSubGoals && (() => {
+          const totalSubGoal = settings.totalSubGoal || 100;
+          const totalSubCurrent = settings.totalSubCurrent || 0;
+          const totalSubPct = totalSubGoal > 0 ? Math.min(100, (totalSubCurrent / totalSubGoal) * 100) : 0;
+          const totalSubDone = totalSubPct >= 100;
+
+          const dailySubGoal = settings.dailySubGoal || 10;
+          const dailySubCurrent = settings.dailySubLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailySubCurrent || 0) : 0;
+          const dailySubPct = dailySubGoal > 0 ? Math.min(100, (dailySubCurrent / dailySubGoal) * 100) : 0;
+          const dailySubDone = dailySubPct >= 100;
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Total Subs */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                    TOTAL SUBS
+                  </span>
+                  <span style={{ color: totalSubDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                    {totalSubCurrent} / {totalSubGoal}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: 8, 
+                  borderRadius: 4, 
+                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                  overflow: 'hidden', 
+                  width: '100%' 
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${totalSubPct}%`,
+                    background: totalSubDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    borderRadius: 4,
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
+              </div>
+
+              {/* Daily Subs */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                    DAILY SUBS
+                  </span>
+                  <span style={{ color: dailySubDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                    {dailySubCurrent} / {dailySubGoal}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: 8, 
+                  borderRadius: 4, 
+                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                  overflow: 'hidden', 
+                  width: '100%' 
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${dailySubPct}%`,
+                    background: dailySubDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    borderRadius: 4,
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
-  }, [settings.showDonationGoals, settings.donationGoals, settings.todoListPosition, settings.donationGoalsX, settings.donationGoalsY, settings.donationGoalsScale, settings.showBackground, goalExpiryTimestamps, timeTick]);
+  }, [
+    settings.showDonationGoals, settings.showSubGoals, settings.todoListPosition, 
+    settings.donationGoalsX, settings.donationGoalsY, settings.donationGoalsScale, 
+    settings.showBackground, settings.donoShowBackground, settings.globalTheme,
+    settings.totalTipGoal, settings.totalTipCurrent, settings.dailyTipGoal, settings.dailyTipCurrent, settings.dailyTipLastReset,
+    settings.totalSubGoal, settings.totalSubCurrent, settings.dailySubGoal, settings.dailySubCurrent, settings.dailySubLastReset
+  ]);
 
 
   // Load completed todo timestamps from localStorage on mount and set up timers
@@ -1029,15 +1131,23 @@ function OverlayPage() {
            .then(res => res.json())
            .then(sessionData => {
               const subTotal = sessionData?.data?.['subscriber-total']?.count;
-              if (typeof subTotal === 'number') {
-                 if (seSettingsRef.current.totalSubCurrent !== subTotal) {
-                    OverlayLogger.overlay(`Syncing Total Subs from StreamElements: ${subTotal}`);
-                    fetch('/api/save-settings', {
-                       method: 'POST',
-                       headers: { 'Content-Type': 'application/json' },
-                       body: JSON.stringify({ settings: { totalSubCurrent: subTotal } })
-                    }).catch(err => OverlayLogger.error('Failed to sync total subs to KV:', err));
-                 }
+              const tipTotal = sessionData?.data?.['tip-total']?.amount;
+              const updates: any = {};
+              
+              if (typeof subTotal === 'number' && seSettingsRef.current.totalSubCurrent !== subTotal) {
+                 updates.totalSubCurrent = subTotal;
+              }
+              if (typeof tipTotal === 'number' && seSettingsRef.current.totalTipCurrent !== tipTotal) {
+                 updates.totalTipCurrent = tipTotal;
+              }
+              
+              if (Object.keys(updates).length > 0) {
+                 OverlayLogger.overlay(`Syncing Totals from StreamElements: Subs=${subTotal ?? 'N/A'}, Tips=${tipTotal ?? 'N/A'}`);
+                 fetch('/api/save-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ settings: updates })
+                 }).catch(err => OverlayLogger.error('Failed to sync totals to KV:', err));
               }
            })
            .catch(err => OverlayLogger.error('Failed to fetch SE session data:', err));

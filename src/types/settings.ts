@@ -105,6 +105,11 @@ export interface OverlaySettings {
   dailySubGoal?: number;
   dailySubCurrent?: number;
   dailySubLastReset?: string;
+  totalTipGoal?: number;
+  totalTipCurrent?: number;
+  dailyTipGoal?: number;
+  dailyTipCurrent?: number;
+  dailyTipLastReset?: string;
   subGoalsX?: number;
   subGoalsY?: number;
   subGoalsScale?: number;
@@ -184,6 +189,11 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   dailySubGoal: 10,
   dailySubCurrent: 0,
   dailySubLastReset: '',
+  totalTipGoal: 100,
+  totalTipCurrent: 0,
+  dailyTipGoal: 10,
+  dailyTipCurrent: 0,
+  dailyTipLastReset: '',
   subGoalsX: 0,
   subGoalsY: 0,
   subGoalsScale: 1,
@@ -261,6 +271,11 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   dailySubGoal: 'number',
   dailySubCurrent: 'number',
   dailySubLastReset: 'string',
+  totalTipGoal: 'number',
+  totalTipCurrent: 'number',
+  dailyTipGoal: 'number',
+  dailyTipCurrent: 'number',
+  dailyTipLastReset: 'string',
   subGoalsX: 'number',
   subGoalsY: 'number',
   subGoalsScale: 'number',

@@ -929,10 +929,10 @@ export default function AdminPage() {
             )}
           </section>
 
-          {/* Donation Goals & StreamElements Section */}
+          {/* Unified Goals & StreamElements Section */}
           <section className="settings-section">
             <div className="section-header">
-              <h2>💰 Donation Goals & StreamElements</h2>
+              <h2>🎯 Stream Goals & Alerts</h2>
               <div className="checkbox-group" style={{ marginTop: '8px' }}>
                 <label className="checkbox-label">
                   <input
@@ -941,7 +941,7 @@ export default function AdminPage() {
                     onChange={(e) => handleSettingsChange({ showDonationGoals: e.target.checked })}
                     className="checkbox-input"
                   />
-                  <span className="checkbox-text">Show Donation Goals on Overlay</span>
+                  <span className="checkbox-text">Show Goals Widget on Overlay</span>
                 </label>
               </div>
             </div>
@@ -958,28 +958,149 @@ export default function AdminPage() {
                     <span className="checkbox-text">Show Background Box</span>
                   </label>
                   <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7, marginBottom: '12px' }}>
-                    Display a dark background box behind your donation goals.
-                  </p>
-                  
-                  <label className="input-label" style={{ fontSize: '0.85em', marginLeft: '28px', display: 'block', marginTop: '12px' }}>Custom Goal Prefix Text</label>
-                  <div style={{ marginLeft: '28px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      className="text-input"
-                      value={settings.donoGoalText ?? 'DONO GOAL:'}
-                      onChange={(e) => handleSettingsChange({ donoGoalText: e.target.value })}
-                      placeholder="e.g. DONO GOAL: or leave empty to hide"
-                      style={{ flex: 1, padding: '8px', fontSize: '0.9em' }}
-                    />
-                  </div>
-                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.8em', opacity: 0.6, marginTop: '4px' }}>
-                    This text appears before the goal name. Clear it to remove the prefix entirely.
+                    Display a glass-morphic dark background box behind your goals.
                   </p>
                 </div>
 
-                {/* Scale & Position Controls */}
+                {/* Sub Goals Settings */}
                 <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Twitch Sub Goals</h3>
+                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={settings.showSubGoals ?? false}
+                        onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Enable Sub Goals</span>
+                    </label>
+                  </div>
+                  
+                  {settings.showSubGoals && (
+                    <div className="settings-grid">
+                      <div className="setting-group">
+                        <label>Total Sub Goal:</label>
+                        <input
+                          type="number"
+                          className="text-input"
+                          value={settings.totalSubGoal ?? 100}
+                          onChange={(e) => handleSettingsChange({ totalSubGoal: Math.max(1, parseInt(e.target.value) || 100) })}
+                        />
+                      </div>
+                      <div className="setting-group">
+                        <label>Current Total Subs (Auto-Syncs via SE):</label>
+                        <input
+                          type="number"
+                          className="text-input"
+                          value={settings.totalSubCurrent ?? 0}
+                          onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                        />
+                      </div>
+                      <div className="setting-group">
+                        <label>Daily Sub Goal:</label>
+                        <input
+                          type="number"
+                          className="text-input"
+                          value={settings.dailySubGoal ?? 10}
+                          onChange={(e) => handleSettingsChange({ dailySubGoal: Math.max(1, parseInt(e.target.value) || 10) })}
+                        />
+                      </div>
+                      <div className="setting-group">
+                        <label>Current Daily Subs:</label>
+                        <input
+                          type="number"
+                          className="text-input"
+                          value={settings.dailySubCurrent ?? 0}
+                          onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tip Goals Settings */}
+                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Tip Goals</h3>
+                  
+                  <div className="settings-grid">
+                    <div className="setting-group">
+                      <label>Total Tip Goal ($):</label>
+                      <input
+                        type="number"
+                        className="text-input"
+                        value={settings.totalTipGoal ?? 100}
+                        onChange={(e) => handleSettingsChange({ totalTipGoal: Math.max(1, parseInt(e.target.value) || 100) })}
+                      />
+                    </div>
+                    <div className="setting-group">
+                      <label>Current Total Tips (Auto-Syncs via SE):</label>
+                      <input
+                        type="number"
+                        className="text-input"
+                        value={settings.totalTipCurrent ?? 0}
+                        onChange={(e) => handleSettingsChange({ totalTipCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                      />
+                    </div>
+                    <div className="setting-group">
+                      <label>Daily Tip Goal ($):</label>
+                      <input
+                        type="number"
+                        className="text-input"
+                        value={settings.dailyTipGoal ?? 10}
+                        onChange={(e) => handleSettingsChange({ dailyTipGoal: Math.max(1, parseInt(e.target.value) || 10) })}
+                      />
+                    </div>
+                    <div className="setting-group">
+                      <label>Current Daily Tips ($):</label>
+                      <input
+                        type="number"
+                        className="text-input"
+                        value={settings.dailyTipCurrent ?? 0}
+                        onChange={(e) => handleSettingsChange({ dailyTipCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* StreamElements Integration */}
+                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Integration</h3>
+                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={settings.streamElementsEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Enable StreamElements Webhook / Tips</span>
+                    </label>
+                  </div>
+
+                  {settings.streamElementsEnabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label className="input-label" style={{ fontSize: '0.85em' }}>StreamElements JWT Token</label>
+                        <input
+                          type="password"
+                          placeholder="Paste StreamElements JWT token..."
+                          className="text-input"
+                          value={settings.streamElementsToken || ''}
+                          onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
+                          style={{ width: '100%', fontFamily: 'monospace' }}
+                        />
+                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
+                          Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Scale & Position Controls */}
+                <div className="setting-group" style={{ marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Widget Layout & Scale</h3>
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                     {/* Scale Control */}
                     <div style={{ flex: 1, minWidth: '150px' }}>
@@ -1047,367 +1168,9 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
-
-                {/* StreamElements Integration */}
-                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Integration</h3>
-                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={settings.streamElementsEnabled ?? false}
-                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
-                        className="checkbox-input"
-                      />
-                      <span className="checkbox-text">Enable StreamElements Webhook / Tips</span>
-                    </label>
-                  </div>
-
-                  {settings.streamElementsEnabled && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <label className="input-label" style={{ fontSize: '0.85em' }}>StreamElements JWT Token</label>
-                        <input
-                          type="password"
-                          placeholder="Paste StreamElements JWT token..."
-                          className="text-input"
-                          value={settings.streamElementsToken || ''}
-                          onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
-                          style={{ width: '100%', fontFamily: 'monospace' }}
-                        />
-                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
-                          Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <label className="input-label" style={{ fontSize: '0.85em', marginBottom: 0 }}>Twitch Revenue Split (Streamer Cut)</label>
-                          <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
-                            {settings.twitchRevenueSplit ?? 50}%
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="5"
-                          value={settings.twitchRevenueSplit ?? 50}
-                          onChange={(e) => handleSettingsChange({ twitchRevenueSplit: parseInt(e.target.value) })}
-                          style={{ width: '100%' }}
-                        />
-                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
-                          Percentage of Twitch subscription revenue that goes to the streamer (typically 50% for standard affiliates, higher for partner status or special contracts). Bits are always calculated at 100% split ($0.01 per bit).
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Goals List & Creator */}
-                <div className="setting-group">
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Goals List</h3>
-                  
-                  {/* Create Goal Input Form */}
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 2, minWidth: '150px' }}>
-                      <label className="input-label" style={{ fontSize: '0.8em' }}>Goal Name</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Sub Goal, New Mic"
-                        className="text-input"
-                        value={newGoalName}
-                        onChange={(e) => setNewGoalName(e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '80px' }}>
-                      <label className="input-label" style={{ fontSize: '0.8em' }}>Target ($)</label>
-                      <input
-                        type="number"
-                        placeholder="100"
-                        className="text-input"
-                        value={newGoalTarget}
-                        onChange={(e) => setNewGoalTarget(e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '80px' }}>
-                      <label className="input-label" style={{ fontSize: '0.8em' }}>Starting ($)</label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        className="text-input"
-                        value={newGoalCurrent}
-                        onChange={(e) => setNewGoalCurrent(e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
-                      <label className="input-label" style={{ fontSize: '0.8em' }}>Disappear (mins)</label>
-                      <input
-                        type="number"
-                        placeholder="0 = Always Show"
-                        className="text-input"
-                        value={newGoalDuration}
-                        onChange={(e) => setNewGoalDuration(e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <button
-                      className="btn btn-primary btn-small"
-                      style={{ marginTop: '23px' }}
-                      onClick={() => {
-                        const targetVal = parseFloat(newGoalTarget);
-                        const currentVal = parseFloat(newGoalCurrent);
-                        const durationVal = parseInt(newGoalDuration);
-                        if (newGoalName.trim() && !isNaN(targetVal) && targetVal > 0) {
-                          const newGoal = {
-                            id: Date.now().toString(),
-                            name: newGoalName.trim(),
-                            goal: targetVal,
-                            current: isNaN(currentVal) ? 0 : currentVal,
-                            duration: isNaN(durationVal) || durationVal < 0 ? 0 : durationVal,
-                            lastTriggered: Date.now()
-                          };
-                          const updatedGoals = [...(settings.donationGoals || []), newGoal];
-                          handleSettingsChange({ donationGoals: updatedGoals });
-                          setNewGoalName('');
-                          setNewGoalTarget('');
-                          setNewGoalCurrent('0');
-                          setNewGoalDuration('0');
-                        }
-                      }}
-                      disabled={!newGoalName.trim() || !newGoalTarget.trim() || parseFloat(newGoalTarget) <= 0}
-                    >
-                      Add Goal
-                    </button>
-                  </div>
-
-                  {/* Goal Listing */}
-                  {settings.donationGoals && settings.donationGoals.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {settings.donationGoals.map((g) => (
-                        <div
-                          key={g.id}
-                          className="todo-item-admin"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '10px 12px',
-                            background: 'rgba(255,255,255,0.02)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '6px'
-                          }}
-                        >
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <span style={{ fontWeight: 'bold' }}>{g.name}</span>
-                            <span style={{ fontSize: '0.85em', opacity: 0.7 }}>
-                              Progress: ${g.current.toLocaleString(undefined, { minimumFractionDigits: g.current % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${g.goal.toLocaleString(undefined, { minimumFractionDigits: g.goal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
-                            </span>
-                            <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
-                              Auto-hide: {g.duration && g.duration > 0 ? (() => {
-                                const lastTriggered = g.lastTriggered || 0;
-                                const durationMs = g.duration * 60 * 1000;
-                                const elapsed = timeTick - lastTriggered;
-                                const remaining = Math.max(0, durationMs - elapsed);
-                                if (remaining > 0) {
-                                  const totalSecs = Math.ceil(remaining / 1000);
-                                  const mins = Math.floor(totalSecs / 60);
-                                  const secs = totalSecs % 60;
-                                  return `${g.duration} min${g.duration > 1 ? 's' : ''} (⏱️ ${mins}:${secs.toString().padStart(2, '0')} left)`;
-                                }
-                                return `${g.duration} min${g.duration > 1 ? 's' : ''} (Hidden)`;
-                              })() : 'Always Show'}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <button
-                              className="btn btn-secondary btn-small"
-                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
-                              onClick={() => {
-                                const newAmountStr = prompt(`Update current progress for "${g.name}":`, g.current.toString());
-                                if (newAmountStr !== null) {
-                                  const newAmount = parseFloat(newAmountStr);
-                                  if (!isNaN(newAmount) && newAmount >= 0) {
-                                    const newDurationStr = prompt(`Update auto-hide timer in minutes for "${g.name}" (0 = Always Show):`, (g.duration || 0).toString());
-                                    const newDuration = newDurationStr !== null ? parseInt(newDurationStr) : (g.duration || 0);
-                                    
-                                    const updatedGoals = settings.donationGoals!.map(item =>
-                                      item.id === g.id ? { 
-                                        ...item, 
-                                        current: newAmount,
-                                        duration: isNaN(newDuration) || newDuration < 0 ? 0 : newDuration,
-                                        lastTriggered: Date.now()
-                                      } : item
-                                    );
-                                    handleSettingsChange({ donationGoals: updatedGoals });
-                                  }
-                                }
-                              }}
-                            >
-                              ✏️ Edit Goal
-                            </button>
-                            <button
-                              className="todo-delete-btn"
-                              onClick={() => {
-                                if (confirm(`Are you sure you want to delete the goal "${g.name}"?`)) {
-                                  const updatedGoals = settings.donationGoals!.filter(item => item.id !== g.id);
-                                  handleSettingsChange({ donationGoals: updatedGoals });
-                                }
-                              }}
-                              style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1.1em' }}
-                              aria-label="Delete Goal"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', opacity: 0.5, fontSize: '0.9em', padding: '16px' }}>
-                      No active donation goals. Create one above!
-                    </div>
-                  )}
-                </div>
               </>
             )}
           </section>
-
-          {/* Sub Goals Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🔔 Twitch Sub Goals</h2>
-              <div className="checkbox-group" style={{ marginTop: '8px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showSubGoals ?? false}
-                    onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Show Sub Goals on Overlay</span>
-                </label>
-              </div>
-            </div>
-
-            {settings.showSubGoals && (
-              <>
-                <div className="settings-grid">
-                  <div className="setting-group">
-                  <label>Total Sub Goal:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.totalSubGoal ?? 100}
-                    onChange={(e) => handleSettingsChange({ totalSubGoal: Math.max(1, parseInt(e.target.value) || 100) })}
-                  />
-                </div>
-                <div className="setting-group">
-                  <label>Current Total Subs:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.totalSubCurrent ?? 0}
-                    onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                  />
-                </div>
-                <div className="setting-group">
-                  <label>Daily Sub Goal:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.dailySubGoal ?? 10}
-                    onChange={(e) => handleSettingsChange({ dailySubGoal: Math.max(1, parseInt(e.target.value) || 10) })}
-                  />
-                </div>
-                <div className="setting-group">
-                  <label>Current Daily Subs:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.dailySubCurrent ?? 0}
-                    onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                  />
-                </div>
-              </div>
-              
-              {/* Scale & Position Controls */}
-              <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                  {/* Scale Control */}
-                  <div style={{ flex: 1, minWidth: '150px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Overlay Scale</label>
-                      <span style={{ fontSize: '0.85em' }}>{Math.round((settings.subGoalsScale || 1) * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.3"
-                      max="3.0"
-                      step="0.1"
-                      value={settings.subGoalsScale || 1}
-                      onChange={(e) => handleSettingsChange({ subGoalsScale: parseFloat(e.target.value) })}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-
-                  {/* Position Controls (D-Pad) */}
-                  <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                    <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>Position ({settings.subGoalsX || 0}, {settings.subGoalsY || 0})</label>
-                    
-                    {/* Up Button */}
-                    <button
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) - 10 })}
-                    >
-                      ▲
-                    </button>
-
-                    {/* Left, Reset, Right */}
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button
-                        className="btn btn-secondary btn-small"
-                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ subGoalsX: (settings.subGoalsX || 0) - 10 })}
-                      >
-                        ◀
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-small"
-                        style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ subGoalsX: 0, subGoalsY: 0 })}
-                      >
-                        Reset
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-small"
-                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ subGoalsX: (settings.subGoalsX || 0) + 10 })}
-                      >
-                        ▶
-                      </button>
-                    </div>
-
-                    {/* Down Button */}
-                    <button
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) + 10 })}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
-            )}
-          </section>
-
           {/* Bitrate Section */}
           <section className="settings-section">
             <div className="section-header">

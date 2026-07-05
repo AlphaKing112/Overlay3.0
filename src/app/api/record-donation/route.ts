@@ -43,16 +43,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Increment current amount for all active donation goals
-    const updatedGoals = (currentSettings.donationGoals ?? []).map(g => ({
-      ...g,
-      current: g.current + amount,
-      lastTriggered: Date.now()
-    }));
+    // Daily reset check
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    let newDailyCurrent = (currentSettings.dailyTipCurrent ?? 0) + amount;
+    let newDailyLastReset = currentSettings.dailyTipLastReset ?? '';
+    
+    if (newDailyLastReset !== todayStr) {
+      newDailyCurrent = amount;
+      newDailyLastReset = todayStr;
+    }
 
     const updatedSettings = {
       ...currentSettings,
-      donationGoals: updatedGoals
+      totalTipCurrent: (currentSettings.totalTipCurrent ?? 0) + amount,
+      dailyTipCurrent: newDailyCurrent,
+      dailyTipLastReset: newDailyLastReset
     };
 
     // Save and broadcast
@@ -69,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     OverlayLogger.overlay(`Successfully recorded $${amount} donation from StreamElements`);
 
-    return NextResponse.json({ success: true, donationGoals: updatedGoals });
+    return NextResponse.json({ success: true, totalTipCurrent: updatedSettings.totalTipCurrent, dailyTipCurrent: updatedSettings.dailyTipCurrent });
   } catch (error) {
     OverlayLogger.error(`Error recording donation (Status: 500):`, error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

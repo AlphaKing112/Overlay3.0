@@ -348,6 +348,11 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     subGoalsX: typeof cleanSettings.subGoalsX === 'number' ? cleanSettings.subGoalsX : DEFAULT_OVERLAY_SETTINGS.subGoalsX,
     subGoalsY: typeof cleanSettings.subGoalsY === 'number' ? cleanSettings.subGoalsY : DEFAULT_OVERLAY_SETTINGS.subGoalsY,
     subGoalsScale: typeof cleanSettings.subGoalsScale === 'number' ? cleanSettings.subGoalsScale : DEFAULT_OVERLAY_SETTINGS.subGoalsScale,
+    totalTipGoal: typeof cleanSettings.totalTipGoal === 'number' ? cleanSettings.totalTipGoal : DEFAULT_OVERLAY_SETTINGS.totalTipGoal,
+    totalTipCurrent: typeof cleanSettings.totalTipCurrent === 'number' ? cleanSettings.totalTipCurrent : DEFAULT_OVERLAY_SETTINGS.totalTipCurrent,
+    dailyTipGoal: typeof cleanSettings.dailyTipGoal === 'number' ? cleanSettings.dailyTipGoal : DEFAULT_OVERLAY_SETTINGS.dailyTipGoal,
+    dailyTipCurrent: typeof cleanSettings.dailyTipCurrent === 'number' ? cleanSettings.dailyTipCurrent : DEFAULT_OVERLAY_SETTINGS.dailyTipCurrent,
+    dailyTipLastReset: typeof cleanSettings.dailyTipLastReset === 'string' ? cleanSettings.dailyTipLastReset : DEFAULT_OVERLAY_SETTINGS.dailyTipLastReset,
   };
 
   return completeSettings;
