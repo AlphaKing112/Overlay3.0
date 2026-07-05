@@ -1006,7 +1006,7 @@ export default function AdminPage() {
                       <button
                         className="btn btn-secondary btn-small"
                         style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ donationGoalsY: (settings.donationGoalsY || 0) + 10 })}
+                        onClick={() => handleSettingsChange({ donationGoalsY: (settings.donationGoalsY || 0) - 10 })}
                       >
                         ▲
                       </button>
@@ -1040,7 +1040,7 @@ export default function AdminPage() {
                       <button
                         className="btn btn-secondary btn-small"
                         style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ donationGoalsY: (settings.donationGoalsY || 0) - 10 })}
+                        onClick={() => handleSettingsChange({ donationGoalsY: (settings.donationGoalsY || 0) + 10 })}
                       >
                         ▼
                       </button>
@@ -1363,7 +1363,7 @@ export default function AdminPage() {
                     <button
                       className="btn btn-secondary btn-small"
                       style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) + 10 })}
+                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) - 10 })}
                     >
                       ▲
                     </button>
@@ -1397,7 +1397,7 @@ export default function AdminPage() {
                     <button
                       className="btn btn-secondary btn-small"
                       style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) - 10 })}
+                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) + 10 })}
                     >
                       ▼
                     </button>

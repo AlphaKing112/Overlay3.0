@@ -1017,8 +1017,31 @@ function OverlayPage() {
         socket.emit('authenticate', { method: 'jwt', token });
       });
 
-      socket.on('authenticated', () => {
+      socket.on('authenticated', (data: any) => {
         OverlayLogger.overlay('Successfully authenticated with StreamElements');
+        // Fetch total subs from SE API on connect
+        const channelId = data?.channelId;
+        const currentToken = seSettingsRef.current.streamElementsToken;
+        if (channelId && currentToken) {
+           fetch(`https://api.streamelements.com/kappa/v2/sessions/${channelId}`, {
+              headers: { Authorization: `Bearer ${currentToken}` }
+           })
+           .then(res => res.json())
+           .then(sessionData => {
+              const subTotal = sessionData?.data?.['subscriber-total']?.count;
+              if (typeof subTotal === 'number') {
+                 if (seSettingsRef.current.totalSubCurrent !== subTotal) {
+                    OverlayLogger.overlay(`Syncing Total Subs from StreamElements: ${subTotal}`);
+                    fetch('/api/save-settings', {
+                       method: 'POST',
+                       headers: { 'Content-Type': 'application/json' },
+                       body: JSON.stringify({ settings: { totalSubCurrent: subTotal } })
+                    }).catch(err => OverlayLogger.error('Failed to sync total subs to KV:', err));
+                 }
+              }
+           })
+           .catch(err => OverlayLogger.error('Failed to fetch SE session data:', err));
+        }
       });
 
       socket.on('unauthorized', (err: any) => {
@@ -3049,41 +3072,96 @@ function OverlayPage() {
         }
         {/* Calorie Tracker */}
         {/* Twitch Sub Goals */}
-        {settings.showSubGoals && (
-          <div
-            className={`overlay-box theme-${settings.globalTheme || 'default'}`}
-            style={{
-              position: 'absolute',
-              top: '20px',
-              left: '20px',
-              transform: `translate(${settings.subGoalsX || 0}px, ${settings.subGoalsY || 0}px) scale(${settings.subGoalsScale || 1})`,
-              transformOrigin: 'top left',
-              zIndex: 50,
-              padding: '12px 16px',
-              background: settings.donoShowBackground !== false ? 'rgba(0, 0, 0, 0.7)' : 'transparent',
-              backdropFilter: settings.donoShowBackground !== false ? 'blur(10px)' : 'none',
-              border: settings.donoShowBackground !== false ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
-              boxShadow: settings.donoShowBackground !== false ? '0 4px 6px rgba(0, 0, 0, 0.3)' : 'none',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: '1px'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-              <span style={{ color: 'var(--text-color)' }}>Total Subs:</span>
-              <span style={{ color: 'var(--accent-color, #fff)' }}>{settings.totalSubCurrent || 0} / {settings.totalSubGoal || 100}</span>
+        {settings.showSubGoals && (() => {
+          const hideBg = !settings.showBackground || settings.donoShowBackground === false;
+          
+          const totalGoal = settings.totalSubGoal || 100;
+          const totalCurrent = settings.totalSubCurrent || 0;
+          const totalPct = totalGoal > 0 ? Math.min(100, (totalCurrent / totalGoal) * 100) : 0;
+          const totalDone = totalPct >= 100;
+
+          const dailyGoal = settings.dailySubGoal || 10;
+          const dailyCurrent = settings.dailySubLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailySubCurrent || 0) : 0;
+          const dailyPct = dailyGoal > 0 ? Math.min(100, (dailyCurrent / dailyGoal) * 100) : 0;
+          const dailyDone = dailyPct >= 100;
+
+          return (
+            <div
+              className={`overlay-box donation-goals-box theme-${settings.globalTheme || 'default'} ${hideBg ? 'no-background' : ''}`}
+              style={{
+                position: 'absolute',
+                top: '20px',
+                left: '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                minWidth: '220px',
+                maxWidth: '320px',
+                transform: `translate(${settings.subGoalsX || 0}px, ${settings.subGoalsY || 0}px) scale(${settings.subGoalsScale || 1})`,
+                transformOrigin: 'top left',
+                zIndex: 50,
+                padding: '12px 16px',
+                pointerEvents: 'none'
+              }}
+            >
+              {/* Total Subs */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                    TOTAL SUBS
+                  </span>
+                  <span style={{ color: totalDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                    {totalCurrent} / {totalGoal}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: 8, 
+                  borderRadius: 4, 
+                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                  overflow: 'hidden', 
+                  width: '100%' 
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${totalPct}%`,
+                    background: totalDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    borderRadius: 4,
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
+              </div>
+
+              {/* Daily Subs */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                    DAILY SUBS
+                  </span>
+                  <span style={{ color: dailyDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                    {dailyCurrent} / {dailyGoal}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: 8, 
+                  borderRadius: 4, 
+                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                  overflow: 'hidden', 
+                  width: '100%' 
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${dailyPct}%`,
+                    background: dailyDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                    borderRadius: 4,
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-              <span style={{ color: 'var(--text-color)' }}>Daily Subs:</span>
-              <span style={{ color: 'var(--accent-color, #fff)' }}>
-                {settings.dailySubLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailySubCurrent || 0) : 0} / {settings.dailySubGoal || 10}
-              </span>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         <CalorieTracker
           calories={(totalDistanceTracked / 1000) * CALORIES_PER_KM}
