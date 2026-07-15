@@ -203,7 +203,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -226,6 +226,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     customLocation: cleanSettings.customLocation ?? DEFAULT_OVERLAY_SETTINGS.customLocation,
     showCountryName: cleanSettings.showCountryName ?? DEFAULT_OVERLAY_SETTINGS.showCountryName,
     showWeather: cleanSettings.showWeather ?? DEFAULT_OVERLAY_SETTINGS.showWeather,
+    showWeatherWarnings: cleanSettings.showWeatherWarnings ?? DEFAULT_OVERLAY_SETTINGS.showWeatherWarnings,
+    showTimeWeatherLocation: cleanSettings.showTimeWeatherLocation ?? DEFAULT_OVERLAY_SETTINGS.showTimeWeatherLocation,
     weatherConditionDisplay: cleanSettings.weatherConditionDisplay ?? DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
     temperatureUnit: (cleanSettings.temperatureUnit === 'F' || cleanSettings.temperatureUnit === 'both')
       ? cleanSettings.temperatureUnit
@@ -260,11 +262,13 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     lowBitrateAlertY: typeof cleanSettings.lowBitrateAlertY === 'number'
       ? Math.min(Math.max(cleanSettings.lowBitrateAlertY, -1000), 1000)
       : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertY,
-    lowBitrateAlertFont: (cleanSettings.lowBitrateAlertFont === 'default' ||
+    lowBitrateAlertFont: (cleanSettings.lowBitrateAlertFont === 'disabled' ||
+                          cleanSettings.lowBitrateAlertFont === 'default' ||
                           cleanSettings.lowBitrateAlertFont === 'neon' ||
                           cleanSettings.lowBitrateAlertFont === 'retro' ||
                           cleanSettings.lowBitrateAlertFont === 'bold' ||
-                          cleanSettings.lowBitrateAlertFont === 'impact')
+                          cleanSettings.lowBitrateAlertFont === 'impact' ||
+                          cleanSettings.lowBitrateAlertFont === 'basic')
       ? cleanSettings.lowBitrateAlertFont
       : DEFAULT_OVERLAY_SETTINGS.lowBitrateAlertFont,
     todoListPosition: cleanSettings.todoListPosition ?? DEFAULT_OVERLAY_SETTINGS.todoListPosition,
@@ -340,6 +344,11 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
       ? Math.min(Math.max(cleanSettings.timeWeatherLocationScale, 0.3), 3.0)
       : DEFAULT_OVERLAY_SETTINGS.timeWeatherLocationScale,
     showSubGoals: cleanSettings.showSubGoals ?? DEFAULT_OVERLAY_SETTINGS.showSubGoals,
+    totalTipGoal: typeof cleanSettings.totalTipGoal === 'number' ? cleanSettings.totalTipGoal : DEFAULT_OVERLAY_SETTINGS.totalTipGoal,
+    totalTipCurrent: typeof cleanSettings.totalTipCurrent === 'number' ? cleanSettings.totalTipCurrent : DEFAULT_OVERLAY_SETTINGS.totalTipCurrent,
+    dailyTipGoal: typeof cleanSettings.dailyTipGoal === 'number' ? cleanSettings.dailyTipGoal : DEFAULT_OVERLAY_SETTINGS.dailyTipGoal,
+    dailyTipCurrent: typeof cleanSettings.dailyTipCurrent === 'number' ? cleanSettings.dailyTipCurrent : DEFAULT_OVERLAY_SETTINGS.dailyTipCurrent,
+    dailyTipLastReset: typeof cleanSettings.dailyTipLastReset === 'string' ? cleanSettings.dailyTipLastReset : DEFAULT_OVERLAY_SETTINGS.dailyTipLastReset,
     totalSubGoal: typeof cleanSettings.totalSubGoal === 'number' ? cleanSettings.totalSubGoal : DEFAULT_OVERLAY_SETTINGS.totalSubGoal,
     totalSubCurrent: typeof cleanSettings.totalSubCurrent === 'number' ? cleanSettings.totalSubCurrent : DEFAULT_OVERLAY_SETTINGS.totalSubCurrent,
     dailySubGoal: typeof cleanSettings.dailySubGoal === 'number' ? cleanSettings.dailySubGoal : DEFAULT_OVERLAY_SETTINGS.dailySubGoal,
@@ -348,11 +357,20 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     subGoalsX: typeof cleanSettings.subGoalsX === 'number' ? cleanSettings.subGoalsX : DEFAULT_OVERLAY_SETTINGS.subGoalsX,
     subGoalsY: typeof cleanSettings.subGoalsY === 'number' ? cleanSettings.subGoalsY : DEFAULT_OVERLAY_SETTINGS.subGoalsY,
     subGoalsScale: typeof cleanSettings.subGoalsScale === 'number' ? cleanSettings.subGoalsScale : DEFAULT_OVERLAY_SETTINGS.subGoalsScale,
-    totalTipGoal: typeof cleanSettings.totalTipGoal === 'number' ? cleanSettings.totalTipGoal : DEFAULT_OVERLAY_SETTINGS.totalTipGoal,
-    totalTipCurrent: typeof cleanSettings.totalTipCurrent === 'number' ? cleanSettings.totalTipCurrent : DEFAULT_OVERLAY_SETTINGS.totalTipCurrent,
-    dailyTipGoal: typeof cleanSettings.dailyTipGoal === 'number' ? cleanSettings.dailyTipGoal : DEFAULT_OVERLAY_SETTINGS.dailyTipGoal,
-    dailyTipCurrent: typeof cleanSettings.dailyTipCurrent === 'number' ? cleanSettings.dailyTipCurrent : DEFAULT_OVERLAY_SETTINGS.dailyTipCurrent,
-    dailyTipLastReset: typeof cleanSettings.dailyTipLastReset === 'string' ? cleanSettings.dailyTipLastReset : DEFAULT_OVERLAY_SETTINGS.dailyTipLastReset,
+    subGoalsStyle: (cleanSettings.subGoalsStyle === 'default' || cleanSettings.subGoalsStyle === 'no-bars' || cleanSettings.subGoalsStyle === 'no-background' || cleanSettings.subGoalsStyle === 'text-only') ? cleanSettings.subGoalsStyle : DEFAULT_OVERLAY_SETTINGS.subGoalsStyle,
+    subGoalsFont: (cleanSettings.subGoalsFont === 'default' || cleanSettings.subGoalsFont === 'neon' || cleanSettings.subGoalsFont === 'retro' || cleanSettings.subGoalsFont === 'bold' || cleanSettings.subGoalsFont === 'impact') ? cleanSettings.subGoalsFont : DEFAULT_OVERLAY_SETTINGS.subGoalsFont,
+    subGoalsShowStroke: cleanSettings.subGoalsShowStroke ?? DEFAULT_OVERLAY_SETTINGS.subGoalsShowStroke,
+    seAutoSyncTotals: cleanSettings.seAutoSyncTotals ?? DEFAULT_OVERLAY_SETTINGS.seAutoSyncTotals,
+    twitchClientId: cleanSettings.twitchClientId ?? DEFAULT_OVERLAY_SETTINGS.twitchClientId,
+    twitchToken: cleanSettings.twitchToken ?? DEFAULT_OVERLAY_SETTINGS.twitchToken,
+    twitchBroadcasterId: cleanSettings.twitchBroadcasterId ?? DEFAULT_OVERLAY_SETTINGS.twitchBroadcasterId,
+    twitchUsername: cleanSettings.twitchUsername ?? DEFAULT_OVERLAY_SETTINGS.twitchUsername,
+    combineDateTimeWithLocation: cleanSettings.combineDateTimeWithLocation ?? DEFAULT_OVERLAY_SETTINGS.combineDateTimeWithLocation,
+    obsWebsocketUrl: cleanSettings.obsWebsocketUrl ?? DEFAULT_OVERLAY_SETTINGS.obsWebsocketUrl,
+    obsWebsocketPassword: cleanSettings.obsWebsocketPassword ?? DEFAULT_OVERLAY_SETTINGS.obsWebsocketPassword,
+    obsAutoSwitchSceneToggle: cleanSettings.obsAutoSwitchSceneToggle ?? DEFAULT_OVERLAY_SETTINGS.obsAutoSwitchSceneToggle,
+    obsOfflineSceneName: cleanSettings.obsOfflineSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsOfflineSceneName,
+    obsLiveSceneName: cleanSettings.obsLiveSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsLiveSceneName,
   };
 
   return completeSettings;
@@ -370,7 +388,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'showSubGoals' && key !== 'totalSubGoal' && key !== 'totalSubCurrent' && key !== 'dailySubGoal' && key !== 'dailySubCurrent' && key !== 'dailySubLastReset' && key !== 'subGoalsX' && key !== 'subGoalsY' && key !== 'subGoalsScale') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'showSubGoals' && key !== 'totalSubGoal' && key !== 'totalSubCurrent' && key !== 'dailySubGoal' && key !== 'dailySubCurrent' && key !== 'dailySubLastReset' && key !== 'subGoalsX' && key !== 'subGoalsY' && key !== 'subGoalsScale' && key !== 'totalTipGoal' && key !== 'totalTipCurrent' && key !== 'dailyTipGoal' && key !== 'dailyTipCurrent' && key !== 'dailyTipLastReset' && key !== 'subGoalsStyle' && key !== 'subGoalsFont' && key !== 'subGoalsShowStroke' && key !== 'seAutoSyncTotals' && key !== 'twitchClientId' && key !== 'twitchToken' && key !== 'twitchBroadcasterId' && key !== 'twitchUsername' && key !== 'combineDateTimeWithLocation' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword') { // valid keys
       maliciousKeys.push(key);
     }
   }

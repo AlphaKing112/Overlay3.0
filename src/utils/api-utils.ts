@@ -56,7 +56,7 @@ async function fetchWithRetry(
     if (isAbort) {
       console.warn(`[fetchWithRetry] Request timed out: ${url}`);
     } else {
-      console.error(`[fetchWithRetry] Network error: ${url}`, error);
+      console.warn(`[fetchWithRetry] Network error: ${url}`, error);
     }
 
     if (retries > 0 && isAbort) {

@@ -9,6 +9,7 @@ import { useRenderPerformance } from '@/lib/performance';
 import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
+import OBSWebSocket from 'obs-websocket-js';
 
 // Extract constants for cleaner code
 const {
@@ -136,6 +137,14 @@ function OverlayPage() {
   const [overlayVisible, setOverlayVisible] = useState(false); // Track if overlay should be visible (fade-in delay)
   const [currentBitrate, setCurrentBitrate] = useState<number | null>(null);
   const [currentRtt, setCurrentRtt] = useState<number | null>(null);
+
+  // OBS WebSocket for Overlay
+  const obsRef = useRef<OBSWebSocket | null>(null);
+  const [obsConnected, setObsConnected] = useState(false);
+  const [lastSwitchLog, setLastSwitchLog] = useState<string>('No action yet');
+  const previousBitrateRef = useRef<number | null>(null);
+  const lastBitrateStateRef = useRef<'live' | 'offline' | null>(null);
+
   const [totalDistanceTracked, setTotalDistanceTracked] = useState(0); // In meters
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
 
@@ -172,10 +181,38 @@ function OverlayPage() {
   const seSettingsRef = useRef(settings);
   useEffect(() => { seSettingsRef.current = settings; }, [settings]);
 
-  // Set up second tick for countdown timers
+  // Set up second tick for countdown timers and auto-delete expired goals
   useEffect(() => {
     const interval = setInterval(() => {
-      setTimeTick(Date.now());
+      const now = Date.now();
+      setTimeTick(now);
+
+      // Check for expired donation goals and auto-delete them
+      const currentGoals = seSettingsRef.current.donationGoals;
+      if (currentGoals && currentGoals.length > 0) {
+        let hasDeletions = false;
+        const validGoals = currentGoals.filter(g => {
+          if (g.duration && g.duration > 0) {
+            const lastTriggered = g.lastTriggered || 0;
+            const durationMs = g.duration * 60 * 1000;
+            const elapsed = now - lastTriggered;
+            if (elapsed >= durationMs) {
+              hasDeletions = true;
+              return false; // Remove expired goal
+            }
+          }
+          return true; // Keep active goals
+        });
+
+        if (hasDeletions) {
+          OverlayLogger.overlay('Auto-deleting expired donation goals');
+          fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { donationGoals: validGoals } })
+          }).catch(err => OverlayLogger.error('Failed to auto-delete expired goals:', err));
+        }
+      }
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -829,14 +866,20 @@ function OverlayPage() {
     });
   }, [settings.todos, completedTodoTimestamps]);
 
-  // Donation goals memoized JSX
-  // Unified Goals memoized JSX
+  // Donation goals memoized JSX — only custom goals list (no Total Tips / Daily Tips)
   const donationGoalsJSX = useMemo(() => {
     if (!settings.showDonationGoals && !settings.showSubGoals) {
       return null;
     }
 
     const hideBg = !settings.showBackground || settings.donoShowBackground === false;
+
+    const goals = settings.donationGoals ?? [];
+    const visibleGoals = goals;
+
+    if (!settings.showDonationGoals || visibleGoals.length === 0) {
+      return null;
+    }
 
     return (
       <div
@@ -845,7 +888,7 @@ function OverlayPage() {
           marginTop: '12px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '12px',
+          gap: '8px',
           minWidth: '220px',
           maxWidth: '320px',
           alignSelf: settings.todoListPosition === 'right' ? 'flex-end' : 'flex-start',
@@ -853,166 +896,74 @@ function OverlayPage() {
           transformOrigin: settings.todoListPosition === 'right' ? 'top right' : 'top left',
           pointerEvents: 'none',
           padding: '12px 16px',
+          filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4))',
         }}
       >
-        {/* StreamElements Tip Goals */}
-        {settings.showDonationGoals && (() => {
-          const totalTipGoal = settings.totalTipGoal || 100;
-          const totalTipCurrent = settings.totalTipCurrent || 0;
-          const totalTipPct = totalTipGoal > 0 ? Math.min(100, (totalTipCurrent / totalTipGoal) * 100) : 0;
-          const totalTipDone = totalTipPct >= 100;
-
-          const dailyTipGoal = settings.dailyTipGoal || 10;
-          const dailyTipCurrent = settings.dailyTipLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailyTipCurrent || 0) : 0;
-          const dailyTipPct = dailyTipGoal > 0 ? Math.min(100, (dailyTipCurrent / dailyTipGoal) * 100) : 0;
-          const dailyTipDone = dailyTipPct >= 100;
+        {visibleGoals.map(goal => {
+          const goalTarget = goal.goal || 100;
+          const goalCurrent = goal.current || 0;
+          const pct = goalTarget > 0 ? Math.min(100, (goalCurrent / goalTarget) * 100) : 0;
+          const done = pct >= 100;
 
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* Total Tips */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    TOTAL TIPS
-                  </span>
-                  <span style={{ color: totalTipDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                    ${totalTipCurrent.toLocaleString(undefined, { minimumFractionDigits: totalTipCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${totalTipGoal.toLocaleString(undefined, { minimumFractionDigits: totalTipGoal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: 8, 
-                  borderRadius: 4, 
-                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                  overflow: 'hidden', 
-                  width: '100%' 
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${totalTipPct}%`,
-                    background: totalTipDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }} />
-                </div>
+            <div key={goal.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+              {/* Label + number inline, left-aligned — matches sub goal style */}
+              <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
+                <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                  {goal.name}
+                </span>
+                <span style={{ color: done ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
+                  ${goalCurrent.toLocaleString(undefined, { minimumFractionDigits: goalCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${goalTarget.toLocaleString(undefined, { minimumFractionDigits: goalTarget % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                </span>
               </div>
-
-              {/* Daily Tips */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    DAILY TIPS
-                  </span>
-                  <span style={{ color: dailyTipDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                    ${dailyTipCurrent.toLocaleString(undefined, { minimumFractionDigits: dailyTipCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${dailyTipGoal.toLocaleString(undefined, { minimumFractionDigits: dailyTipGoal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: 8, 
-                  borderRadius: 4, 
-                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                  overflow: 'hidden', 
-                  width: '100%' 
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${dailyTipPct}%`,
-                    background: dailyTipDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }} />
-                </div>
+              {/* Progress bar */}
+              <div style={{
+                height: 8,
+                borderRadius: 4,
+                background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)',
+                boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                overflow: 'hidden',
+                width: '100%'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${pct}%`,
+                  background: done ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                  borderRadius: 4,
+                  transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                }} />
               </div>
+              
+              {/* Countdown Timer */}
+              {goal.duration && goal.duration > 0 ? (() => {
+                const lastTriggered = goal.lastTriggered || 0;
+                const durationMs = goal.duration * 60 * 1000;
+                const elapsed = timeTick - lastTriggered;
+                const remaining = Math.max(0, durationMs - elapsed);
+                if (remaining > 0) {
+                  const totalSecs = Math.ceil(remaining / 1000);
+                  const mins = Math.floor(totalSecs / 60);
+                  const secs = totalSecs % 60;
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>
+                      <span style={{ color: '#fff', fontSize: '0.7em', fontWeight: 600, opacity: 0.8, textShadow: 'var(--text-shadow)' }}>
+                        ⏱️ {mins}:{secs.toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })() : null}
             </div>
           );
-        })()}
-
-        {/* Separator if both are shown */}
-        {settings.showDonationGoals && settings.showSubGoals && (
-          <div style={{ height: 1, width: '100%', background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
-        )}
-
-        {/* Twitch Sub Goals */}
-        {settings.showSubGoals && (() => {
-          const totalSubGoal = settings.totalSubGoal || 100;
-          const totalSubCurrent = settings.totalSubCurrent || 0;
-          const totalSubPct = totalSubGoal > 0 ? Math.min(100, (totalSubCurrent / totalSubGoal) * 100) : 0;
-          const totalSubDone = totalSubPct >= 100;
-
-          const dailySubGoal = settings.dailySubGoal || 10;
-          const dailySubCurrent = settings.dailySubLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailySubCurrent || 0) : 0;
-          const dailySubPct = dailySubGoal > 0 ? Math.min(100, (dailySubCurrent / dailySubGoal) * 100) : 0;
-          const dailySubDone = dailySubPct >= 100;
-
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* Total Subs */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    TOTAL SUBS
-                  </span>
-                  <span style={{ color: totalSubDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                    {totalSubCurrent} / {totalSubGoal}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: 8, 
-                  borderRadius: 4, 
-                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                  overflow: 'hidden', 
-                  width: '100%' 
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${totalSubPct}%`,
-                    background: totalSubDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }} />
-                </div>
-              </div>
-
-              {/* Daily Subs */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    DAILY SUBS
-                  </span>
-                  <span style={{ color: dailySubDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                    {dailySubCurrent} / {dailySubGoal}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: 8, 
-                  borderRadius: 4, 
-                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                  overflow: 'hidden', 
-                  width: '100%' 
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${dailySubPct}%`,
-                    background: dailySubDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }} />
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        })}
       </div>
     );
   }, [
-    settings.showDonationGoals, settings.showSubGoals, settings.todoListPosition, 
-    settings.donationGoalsX, settings.donationGoalsY, settings.donationGoalsScale, 
+    settings.showDonationGoals, settings.showSubGoals, settings.todoListPosition,
+    settings.donationGoalsX, settings.donationGoalsY, settings.donationGoalsScale,
     settings.showBackground, settings.donoShowBackground, settings.globalTheme,
-    settings.totalTipGoal, settings.totalTipCurrent, settings.dailyTipGoal, settings.dailyTipCurrent, settings.dailyTipLastReset,
-    settings.totalSubGoal, settings.totalSubCurrent, settings.dailySubGoal, settings.dailySubCurrent, settings.dailySubLastReset
+    settings.donationGoals, timeTick,
   ]);
 
 
@@ -1617,6 +1568,10 @@ function OverlayPage() {
       }
     };
 
+    // Track whether SSE is currently delivering updates.
+    // When SSE is active, the poll is skipped to avoid redundant KV reads and function invocations.
+    const sseActiveRef = { current: false };
+
     // Set up Server-Sent Events for real-time updates
     const setupSSE = () => {
       const eventSource = new EventSource('/api/settings-stream');
@@ -1624,6 +1579,9 @@ function OverlayPage() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // Mark SSE as active as soon as we get any message (including the connect handshake)
+          sseActiveRef.current = true;
 
           if (data.type === 'settings_update') {
             // Extract only settings properties, exclude SSE metadata (type, timestamp)
@@ -1653,22 +1611,21 @@ function OverlayPage() {
       };
 
       eventSource.onerror = () => {
-        // Don't log SSE errors as they're common during development and not critical
-        // Close the current connection before reconnecting
+        // SSE dropped — allow the fallback poll to kick in
+        sseActiveRef.current = false;
         try {
           eventSource.close();
         } catch {
           // Ignore close errors
         }
-        // Reconnect after 1 second delay
-        const reconnectDelay = 1000;
+        // Reconnect after 5 seconds (was 1s — no need to hammer the server on transient errors)
         setTimeout(() => {
           try {
             setupSSE();
           } catch {
             // Ignore reconnection errors
           }
-        }, reconnectDelay);
+        }, 5000);
       };
 
       return eventSource;
@@ -1680,16 +1637,14 @@ function OverlayPage() {
     // Set up real-time updates
     const eventSource = setupSSE();
 
-    // Fallback polling mechanism - check for settings changes every 2 seconds for faster updates
+    // Fallback polling — only runs when SSE is down.
+    // At 30s intervals this is a true fallback, not a primary update mechanism.
     const pollingInterval = setInterval(async () => {
+      // Skip poll entirely while SSE is delivering updates
+      if (sseActiveRef.current) return;
+
       try {
-        const res = await fetch(`/api/get-settings?_t=${Date.now()}`, {
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache'
-          }
-        });
+        const res = await fetch(`/api/get-settings?_t=${Date.now()}`);
         if (res.ok) {
           const data = await res.json();
           if (data) {
@@ -1704,7 +1659,7 @@ function OverlayPage() {
             const newHash = createSettingsHash(mergedData);
             if (newHash !== lastSettingsHash.current) {
               lastSettingsHash.current = newHash;
-              OverlayLogger.settings('Settings updated via polling', {
+              OverlayLogger.settings('Settings updated via polling (SSE fallback)', {
                 locationDisplay: mergedData.locationDisplay,
                 showWeather: mergedData.showWeather,
                 showMinimap: mergedData.showMinimap,
@@ -1728,6 +1683,89 @@ function OverlayPage() {
       clearInterval(pollingInterval);
     };
   }, []); // Empty dependency array - we want this to run once on mount
+
+  // OBS Auto-Switch: Use server-side API to avoid dual-connection conflict.
+  // The Admin Panel holds the persistent WebSocket. The overlay calls a local
+  // API route that connects to OBS briefly, switches the scene, then disconnects.
+  useEffect(() => {
+    // Mark as "connected" (API-based) if toggle is on and settings exist
+    if (settings.obsAutoSwitchSceneToggle && settings.obsWebsocketUrl) {
+      setObsConnected(true);
+    } else {
+      setObsConnected(false);
+    }
+  }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsWebsocketPassword]);
+
+
+  // Reset scene state tracking when toggle is disabled so it evaluates immediately when re-enabled
+  useEffect(() => {
+    if (!settings.obsAutoSwitchSceneToggle) {
+      lastBitrateStateRef.current = null;
+    }
+  }, [settings.obsAutoSwitchSceneToggle]);
+
+  useEffect(() => {
+    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
+    const isOffline = currentBitrate === null || currentBitrate <= 0 || isStale;
+    const hasFetchedStats = bitrateUpdateTimestamp > 0 || consecutiveBitrateFailuresRef.current > 0;
+
+    // DIAGNOSTIC LOG - always runs so we can see what's happening
+    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} offline=${isOffline} fetched=${hasFetchedStats} lastState=${lastBitrateStateRef.current}`;
+    console.log('[AUTO-SWITCH] State check:', logMsg);
+    setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
+
+    if (!obsConnected) {
+      console.log('[AUTO-SWITCH] Skipping - OBS not connected');
+      return;
+    }
+    
+    // Call the server-side API to switch scene
+    const switchSceneViaApi = async (sceneName: string) => {
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔄 Calling API for: ${sceneName}`);
+      try {
+        console.log(`📡 Calling /api/obs-switch-scene for: ${sceneName}`);
+        const res = await fetch('/api/obs-switch-scene', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sceneName,
+            obsUrl: settings.obsWebsocketUrl,
+            obsPassword: settings.obsWebsocketPassword
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Switched to: ${sceneName}`);
+          console.log(`📡 Scene switched to: ${sceneName}`);
+        } else {
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ❌ Failed: ${data.error}`);
+          console.warn(`📡 Scene switch failed: ${data.error}`);
+        }
+      } catch (err) {
+        setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ❌ API Error: ${String(err)}`);
+        console.warn(`📡 Scene switch API error:`, err);
+      }
+    };
+
+    // Auto-switch to offline scene
+    if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
+      if (isOffline && lastBitrateStateRef.current !== 'offline') {
+        console.log(`📡 Stream is offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
+        switchSceneViaApi(settings.obsOfflineSceneName);
+        lastBitrateStateRef.current = 'offline';
+      }
+    }
+
+    // Auto-switch to live scene
+    if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
+      if (!isOffline && lastBitrateStateRef.current !== 'live') {
+        console.log(`📡 Stream is live (bitrate=${currentBitrate}), switching to: ${settings.obsLiveSceneName}`);
+        switchSceneViaApi(settings.obsLiveSceneName);
+        lastBitrateStateRef.current = 'live';
+      }
+    }
+    
+  }, [currentBitrate, bitrateUpdateTimestamp, settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLiveSceneName, obsConnected]);
 
   // RTIRL connection - use refs to avoid re-running on timezone/settings changes
   const timezoneRef = useRef(timezone);
@@ -2503,22 +2541,24 @@ function OverlayPage() {
     let warningText = '';
     let warningColor = '#ffffff';
 
-    if (weather.id !== undefined) {
-      if (weather.id >= 200 && weather.id <= 232) { warningText = '| ⚡ THUNDERSTORM WARNING'; warningColor = '#eab308'; } // Yellow
-      else if (weather.id === 502 || weather.id === 503 || weather.id === 504) { warningText = '| 🌧️⚠️ HEAVY RAIN WARNING'; warningColor = '#3b82f6'; } // Blue
-      else if (weather.id === 602 || weather.id === 622) { warningText = '| ❄️⚠️ HEAVY SNOW WARNING'; warningColor = '#e0f2fe'; } // Light Blue
-      else if (weather.id === 711) { warningText = '| 💨⚠️ SMOKE WARNING'; warningColor = '#9ca3af'; } // Gray
-      else if (weather.id === 762) { warningText = '| 🌋⚠️ VOLCANIC ASH WARNING'; warningColor = '#f97316'; } // Orange
-      else if (weather.id === 771) { warningText = '| 💨⚠️ SQUALL WARNING'; warningColor = '#60a5fa'; } // Blue
-      else if (weather.id === 781) { warningText = '| 🌪️⚠️ TORNADO WARNING'; warningColor = '#9333ea'; } // Purple
-    }
-    
-    // Temperature-based warnings (if no severe condition warning exists)
-    if (!warningText) {
-      // Use feelsLike temperature for heat warning if available, otherwise use actual temp
-      const effectiveTempF = weather.feelsLike !== undefined ? celsiusToFahrenheit(weather.feelsLike) : tempF;
-      if (effectiveTempF >= 90) { warningText = '| 🔥⚠️ HEAT WARNING'; warningColor = '#ef4444'; } // Red
-      else if (effectiveTempF <= 32) { warningText = '| 🧊⚠️ FREEZE WARNING'; warningColor = '#60a5fa'; } // Blue
+    if (settings.showWeatherWarnings !== false) {
+      if (weather.id !== undefined) {
+        if (weather.id >= 200 && weather.id <= 232) { warningText = '| ⚡ THUNDERSTORM WARNING'; warningColor = '#eab308'; } // Yellow
+        else if (weather.id === 502 || weather.id === 503 || weather.id === 504) { warningText = '| 🌧️⚠️ HEAVY RAIN WARNING'; warningColor = '#3b82f6'; } // Blue
+        else if (weather.id === 602 || weather.id === 622) { warningText = '| ❄️⚠️ HEAVY SNOW WARNING'; warningColor = '#e0f2fe'; } // Light Blue
+        else if (weather.id === 711) { warningText = '| 💨⚠️ SMOKE WARNING'; warningColor = '#9ca3af'; } // Gray
+        else if (weather.id === 762) { warningText = '| 🌋⚠️ VOLCANIC ASH WARNING'; warningColor = '#f97316'; } // Orange
+        else if (weather.id === 771) { warningText = '| 💨⚠️ SQUALL WARNING'; warningColor = '#60a5fa'; } // Blue
+        else if (weather.id === 781) { warningText = '| 🌪️⚠️ TORNADO WARNING'; warningColor = '#9333ea'; } // Purple
+      }
+
+      // Temperature-based warnings (if no severe condition warning exists)
+      if (!warningText) {
+        // Use feelsLike temperature for heat warning if available, otherwise use actual temp
+        const effectiveTempF = weather.feelsLike !== undefined ? celsiusToFahrenheit(weather.feelsLike) : tempF;
+        if (effectiveTempF >= 90) { warningText = '| 🔥⚠️ HEAT WARNING'; warningColor = '#ef4444'; } // Red
+        else if (effectiveTempF <= 32) { warningText = '| 🧊⚠️ FREEZE WARNING'; warningColor = '#60a5fa'; } // Blue
+      }
     }
     
     const temperatureStr = (settings.temperatureUnit ?? 'both') === 'F'
@@ -2534,7 +2574,7 @@ function OverlayPage() {
       warningColor
     };
     return display;
-  }, [weather, settings.weatherConditionDisplay, settings.temperatureUnit, getWeatherIcon, isNotableWeatherCondition, isNightTime]);
+  }, [weather, settings.weatherConditionDisplay, settings.temperatureUnit, settings.showWeatherWarnings, getWeatherIcon, isNotableWeatherCondition, isNightTime]);
 
   // Animated speed value - counts through each integer (50, 51, 52...) - faster for responsiveness
   const displayedSpeed = useAnimatedValue(currentSpeed, {
@@ -2663,7 +2703,7 @@ function OverlayPage() {
     return {
       value: bitrate,
       formatted,
-      warningLevel: (!settings.showBitrateWarnings || bitrate <= 0) ? 'none' : (bitrate < criticalThreshold ? 'red' : (bitrate < lowThreshold ? 'yellow' : 'none'))
+      warningLevel: (bitrate <= 0) ? 'none' : (bitrate < criticalThreshold ? 'red' : (bitrate < lowThreshold ? 'yellow' : 'none'))
     };
   }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp, settings.lowBitrateThreshold, settings.criticalBitrateThreshold, settings.showBitrateWarnings]);
 
@@ -2707,6 +2747,11 @@ function OverlayPage() {
             setCurrentRtt(null);
           }
 
+          // Important: Even on failure, update the timestamp so the component re-renders.
+          // This ensures the scene-switcher instantly knows we failed our first fetch
+          // and can switch to the offline scene immediately.
+          setBitrateUpdateTimestamp(Date.now());
+
           console.warn('📡 Bitrate debugger: Fetch attempted but returned no data. Check if your stream is LIVE and the stats URL is reachable.');
         }
 
@@ -2741,6 +2786,92 @@ function OverlayPage() {
     </div>
   );
 
+  // Shared rendering logic for time and date
+  const renderTimeDateContent = (isRightAligned: boolean) => (
+    <>
+      {isValidTimezone(timezone) && timeDisplay.time && (
+        <div className={`time time-line ${!isRightAligned ? 'time-left' : ''}`} style={isRightAligned ? { justifyContent: 'flex-end', width: '100%' } : { width: '100%' }}>
+          <div className="time-display" style={isRightAligned ? { justifyContent: 'flex-end' } : {}}>
+            <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
+            <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
+          </div>
+        </div>
+      )}
+      {isValidTimezone(timezone) && timeDisplay.date && (settings.showDate ?? true) && (
+        <div className={`date date-line ${!isRightAligned ? 'date-left' : ''}`} style={isRightAligned ? { textAlign: 'right', width: '100%' } : { width: '100%' }}>{timeDisplay.date}</div>
+      )}
+      {API_KEYS.PULSOID && (
+        <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
+          <HeartRateMonitor pulsoidToken={API_KEYS.PULSOID} />
+        </ErrorBoundary>
+      )}
+      {settings.bitrateAnchor === 'time' && bitrateJSX}
+    </>
+  );
+
+  // Shared rendering logic for location and weather
+  const renderLocationWeatherContent = () => (
+    <>
+      {/* Location section */}
+      {locationDisplay && (
+        <>
+          {locationDisplay.primary && (
+            <div className="location location-line">
+              <div className="location-main">{locationDisplay.primary}</div>
+            </div>
+          )}
+          {locationDisplay.secondary && settings.locationDisplay !== 'city' && (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
+            <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
+              <div className="location-sub">
+                {locationDisplay.secondary}
+                {locationDisplay.countryCode && <LocationFlag countryCode={locationDisplay.countryCode} />}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Weather section */}
+      {weatherDisplay && settings.showWeather && (
+        <div className="weather weather-line">
+          <div className="weather-text-group">
+            <div className="weather-temperature">
+              <span style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</span>
+              {weatherDisplay.warningText && <span style={{ color: weatherDisplay.warningColor, fontWeight: 'bold', marginLeft: '6px' }}>{weatherDisplay.warningText}</span>}
+            </div>
+            {(weatherDisplay.icon || weatherDisplay.description) && (
+              <div className="weather-condition-group">
+                {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
+                {weatherDisplay.icon && <span className="weather-icon-inline">{weatherDisplay.icon}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Movement Data section */}
+      {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) && (
+        <div className="movement-data-group">
+          {altitudeDisplay && (
+            <div className="weather weather-line movement-data-line">
+              <div className="weather-temperature">{altitudeDisplay.formatted}</div>
+            </div>
+          )}
+          {speedDisplay && (
+            <div className="weather weather-line movement-data-line">
+              <div className="weather-temperature">{speedDisplay.formatted}</div>
+            </div>
+          )}
+          {settings.bitrateAnchor !== 'time' && bitrateJSX}
+        </div>
+      )}
+    </>
+  );
+
+  const showTimeWeatherLocation = settings.showTimeWeatherLocation !== false;
+  const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && !!bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always')));
+  const showTimeDate = showTimeWeatherLocation && ((isValidTimezone(timezone) && (!!timeDisplay.time || !!timeDisplay.date)) || !!API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && !!bitrateJSX));
+
   return (
     <ErrorBoundary autoReload={false}>
       <div
@@ -2748,10 +2879,6 @@ function OverlayPage() {
         data-font={settings.globalFont || 'default'}
         data-theme={settings.globalTheme || 'default'}
         style={{
-          // Always show overlay - top-left (time/date/heart rate) doesn't depend on GPS or location data
-          // Top-right section has its own visibility conditions
-          // This ensures elements stay visible even if location/weather data is cleared due to errors
-          // Start hidden and fade in after delay to prevent flashing on initial load
           opacity: overlayVisible ? 1 : 0,
           transition: overlayVisible ? 'opacity 0.8s ease-in-out' : 'none'
         }}
@@ -2759,7 +2886,7 @@ function OverlayPage() {
         <div className="top-left">
           {settings.swapLocationTimePositions ? (
             /* Swapped: Show Location/Weather on Left */
-            settings.locationDisplay !== 'hidden' && (locationDisplay || weatherDisplay || altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) ? (
+            (showLocationWeather || (settings.combineDateTimeWithLocation && showTimeDate)) ? (
               <div
                 className={`overlay-box align-left ${!settings.showBackground ? 'no-background' : ''}`}
                 style={{
@@ -2768,64 +2895,13 @@ function OverlayPage() {
                   transformOrigin: 'top left'
                 }}
               >
-                {/* Location section */}
-                {locationDisplay && (
-                  <>
-                    {locationDisplay.primary && (
-                      <div className="location location-line">
-                        <div className="location-main">{locationDisplay.primary}</div>
-                      </div>
-                    )}
-                    {locationDisplay.secondary && (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
-                      <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
-                        <div className="location-sub">
-                          {locationDisplay.secondary}
-                          {locationDisplay.countryCode && <LocationFlag countryCode={locationDisplay.countryCode} />}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Weather section */}
-                {weatherDisplay && settings.showWeather && (
-                  <div className="weather weather-line">
-                    <div className="weather-text-group">
-                      <div className="weather-temperature">
-                        <span style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</span>
-                        {weatherDisplay.warningText && <span style={{ color: weatherDisplay.warningColor, fontWeight: 'bold', marginLeft: '6px' }}>{weatherDisplay.warningText}</span>}
-                      </div>
-                      {(weatherDisplay.icon || weatherDisplay.description) && (
-                        <div className="weather-condition-group">
-                          {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
-                          {weatherDisplay.icon && <span className="weather-icon-inline">{weatherDisplay.icon}</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Movement Data section */}
-                {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) && (
-                  <div className="movement-data-group">
-                    {altitudeDisplay && (
-                      <div className="weather weather-line movement-data-line">
-                        <div className="weather-temperature">{altitudeDisplay.formatted}</div>
-                      </div>
-                    )}
-                    {speedDisplay && (
-                      <div className="weather weather-line movement-data-line">
-                        <div className="weather-temperature">{speedDisplay.formatted}</div>
-                      </div>
-                    )}
-                    {settings.bitrateAnchor !== 'time' && bitrateJSX}
-                  </div>
-                )}
+                {settings.combineDateTimeWithLocation && renderTimeDateContent(false)}
+                {showLocationWeather && renderLocationWeatherContent()}
               </div>
             ) : null
           ) : (
             /* Normal: Show Time/Date on Left */
-            (isValidTimezone(timezone) && (timeDisplay.time || timeDisplay.date) || API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && bitrateJSX)) ? (
+            (!settings.combineDateTimeWithLocation && showTimeDate) ? (
               <div
                 className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}
                 style={{
@@ -2833,23 +2909,7 @@ function OverlayPage() {
                   transformOrigin: 'top left'
                 }}
               >
-                {isValidTimezone(timezone) && timeDisplay.time && (
-                  <div className="time time-left time-line">
-                    <div className="time-display">
-                      <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
-                      <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
-                    </div>
-                  </div>
-                )}
-                {isValidTimezone(timezone) && timeDisplay.date && (settings.showDate ?? true) && (
-                  <div className="date date-left date-line">{timeDisplay.date}</div>
-                )}
-                {API_KEYS.PULSOID && (
-                  <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
-                    <HeartRateMonitor pulsoidToken={API_KEYS.PULSOID} />
-                  </ErrorBoundary>
-                )}
-                {settings.bitrateAnchor === 'time' && bitrateJSX}
+                {renderTimeDateContent(false)}
               </div>
             ) : null
           )}
@@ -2897,7 +2957,7 @@ function OverlayPage() {
         <div className="top-right">
           {settings.swapLocationTimePositions ? (
             /* Swapped: Show Time/Date on Right */
-            (isValidTimezone(timezone) && (timeDisplay.time || timeDisplay.date) || API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && bitrateJSX)) ? (
+            (!settings.combineDateTimeWithLocation && showTimeDate) ? (
               <div
                 className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}
                 style={{
@@ -2906,89 +2966,23 @@ function OverlayPage() {
                   transformOrigin: 'top right'
                 }}
               >
-                {isValidTimezone(timezone) && timeDisplay.time && (
-                  <div className="time time-left time-line" style={{ textAlign: 'right' }}>
-                    <div className="time-display" style={{ justifyContent: 'flex-end' }}>
-                      <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
-                      <span className="time-period">{timeDisplay.time.split(' ')[1]}</span>
-                    </div>
-                  </div>
-                )}
-                {isValidTimezone(timezone) && timeDisplay.date && (settings.showDate ?? true) && (
-                  <div className="date date-left date-line" style={{ textAlign: 'right' }}>{timeDisplay.date}</div>
-                )}
-                {API_KEYS.PULSOID && (
-                  <ErrorBoundary fallback={<div className="heart-rate-line">Heart rate unavailable</div>}>
-                    <HeartRateMonitor pulsoidToken={API_KEYS.PULSOID} />
-                  </ErrorBoundary>
-                )}
-                {settings.bitrateAnchor === 'time' && bitrateJSX}
+                {renderTimeDateContent(true)}
               </div>
             ) : null
           ) : (
             /* Normal: Show Location/Weather on Right */
-            settings.locationDisplay !== 'hidden' && (locationDisplay || weatherDisplay || altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) ? (
+            (showLocationWeather || (settings.combineDateTimeWithLocation && showTimeDate)) ? (
               <div
                 className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}
                 style={{
+                  alignItems: 'flex-end',
                   alignSelf: 'flex-end',
                   transform: `scale(${settings.timeWeatherLocationScale ?? 1.0})`,
                   transformOrigin: 'top right'
                 }}
               >
-                {/* Location section */}
-                {locationDisplay && (
-                  <>
-                    {locationDisplay.primary && (
-                      <div className="location location-line">
-                        <div className="location-main">{locationDisplay.primary}</div>
-                      </div>
-                    )}
-                    {locationDisplay.secondary && (settings.locationDisplay !== 'custom' || settings.showCountryName) && (
-                      <div className={`location location-line location-sub-line ${!locationDisplay.primary ? 'country-only' : ''}`}>
-                        <div className="location-sub">
-                          {locationDisplay.secondary}
-                          {locationDisplay.countryCode && <LocationFlag countryCode={locationDisplay.countryCode} />}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Weather section */}
-                {weatherDisplay && settings.showWeather && (
-                  <div className="weather weather-line">
-                    <div className="weather-text-group">
-                      <div className="weather-temperature">
-                        <span style={{ color: weatherDisplay.tempColor }}>{weatherDisplay.temperature}</span>
-                        {weatherDisplay.warningText && <span style={{ color: weatherDisplay.warningColor, fontWeight: 'bold', marginLeft: '6px' }}>{weatherDisplay.warningText}</span>}
-                      </div>
-                      {(weatherDisplay.icon || weatherDisplay.description) && (
-                        <div className="weather-condition-group">
-                          {weatherDisplay.description && <span className="weather-description-text">{weatherDisplay.description}</span>}
-                          {weatherDisplay.icon && <span className="weather-icon-inline">{weatherDisplay.icon}</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Movement Data section */}
-                {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) && (
-                  <div className="movement-data-group">
-                    {altitudeDisplay && (
-                      <div className="weather weather-line movement-data-line">
-                        <div className="weather-temperature">{altitudeDisplay.formatted}</div>
-                      </div>
-                    )}
-                    {speedDisplay && (
-                      <div className="weather weather-line movement-data-line">
-                        <div className="weather-temperature">{speedDisplay.formatted}</div>
-                      </div>
-                    )}
-                    {settings.bitrateAnchor !== 'time' && bitrateJSX}
-                  </div>
-                )}
+                {settings.combineDateTimeWithLocation && renderTimeDateContent(true)}
+                {showLocationWeather && renderLocationWeatherContent()}
               </div>
             ) : null
           )}
@@ -3164,7 +3158,7 @@ function OverlayPage() {
 
         {/* Low Bitrate Alert Text (Slide up) */}
         {
-          settings.showBitrateWarnings && settings.showLowBitrateAlert && (
+          settings.lowBitrateAlertFont !== 'disabled' && (
             <div
               className={`low-bitrate-alert-container ${bitrateDisplay && bitrateDisplay.warningLevel !== 'none' ? `active alert-${bitrateDisplay.warningLevel}` : ''}`}
               style={{
@@ -3174,8 +3168,10 @@ function OverlayPage() {
               }}
             >
               <div className={`low-bitrate-alert-text-box font-theme-${settings.lowBitrateAlertFont || 'default'}`}>
-                <span className="low-bitrate-warning-icon">⚠️</span>
-                <span className="low-bitrate-warning-text">LOW BITRATE - PLEASE WAIT!</span>
+                {settings.lowBitrateAlertFont !== 'basic' && <span className="low-bitrate-warning-icon">⚠️</span>}
+                <span className="low-bitrate-warning-text">
+                  {settings.lowBitrateAlertFont === 'basic' ? 'Connection has low bitrate, please hold on...' : 'LOW BITRATE - PLEASE WAIT!'}
+                </span>
               </div>
             </div>
           )
@@ -3183,8 +3179,9 @@ function OverlayPage() {
         {/* Calorie Tracker */}
         {/* Twitch Sub Goals */}
         {settings.showSubGoals && (() => {
-          const hideBg = !settings.showBackground || settings.donoShowBackground === false;
-          
+          const hideBg = !settings.showBackground || settings.donoShowBackground === false || settings.subGoalsStyle === 'no-background';
+          const hideBars = settings.subGoalsStyle === 'text-only' || settings.subGoalsStyle === 'no-bars';
+
           const totalGoal = settings.totalSubGoal || 100;
           const totalCurrent = settings.totalSubCurrent || 0;
           const totalPct = totalGoal > 0 ? Math.min(100, (totalCurrent / totalGoal) * 100) : 0;
@@ -3211,12 +3208,13 @@ function OverlayPage() {
                 transformOrigin: 'top left',
                 zIndex: 50,
                 padding: '12px 16px',
-                pointerEvents: 'none'
+                pointerEvents: 'none',
+                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4))',
               }}
             >
               {/* Total Subs */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
                   <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     TOTAL SUBS
                   </span>
@@ -3224,27 +3222,29 @@ function OverlayPage() {
                     {totalCurrent} / {totalGoal}
                   </span>
                 </div>
-                <div style={{ 
-                  height: 8, 
-                  borderRadius: 4, 
-                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                  overflow: 'hidden', 
-                  width: '100%' 
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${totalPct}%`,
-                    background: totalDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }} />
-                </div>
+                {!hideBars && (
+                  <div style={{ 
+                    height: 8, 
+                    borderRadius: 4, 
+                    background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                    boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                    overflow: 'hidden', 
+                    width: '100%' 
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${totalPct}%`,
+                      background: totalDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                      borderRadius: 4,
+                      transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                    }} />
+                  </div>
+                )}
               </div>
 
               {/* Daily Subs */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
                   <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     DAILY SUBS
                   </span>
@@ -3252,22 +3252,24 @@ function OverlayPage() {
                     {dailyCurrent} / {dailyGoal}
                   </span>
                 </div>
-                <div style={{ 
-                  height: 8, 
-                  borderRadius: 4, 
-                  background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                  boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                  overflow: 'hidden', 
-                  width: '100%' 
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${dailyPct}%`,
-                    background: dailyDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                  }} />
-                </div>
+                {!hideBars && (
+                  <div style={{ 
+                    height: 8, 
+                    borderRadius: 4, 
+                    background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                    boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                    overflow: 'hidden', 
+                    width: '100%' 
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${dailyPct}%`,
+                      background: dailyDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                      borderRadius: 4,
+                      transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                    }} />
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -3324,6 +3326,59 @@ function OverlayPage() {
             </div>
           )
         }
+        {/* OBS AUTO-SWITCHER DEBUG PANEL */}
+        {settings.obsAutoSwitchDebugger && settings.obsAutoSwitchSceneToggle && (() => {
+          const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
+          const isOffline = currentBitrate === null || currentBitrate <= 0 || isStale;
+          const hasFetched = bitrateUpdateTimestamp > 0 || consecutiveBitrateFailuresRef.current > 0;
+          return (
+            <div style={{
+              position: 'absolute',
+              top: '20px',
+              left: '20px',
+              background: 'rgba(0,0,0,0.9)',
+              color: '#0f0',
+              padding: '15px',
+              borderRadius: '8px',
+              border: '1px solid #0f0',
+              zIndex: 999999,
+              fontFamily: 'monospace',
+              fontSize: '13px',
+              lineHeight: '1.6',
+              boxShadow: '0 0 10px rgba(0,255,0,0.3)',
+              maxWidth: '460px',
+              pointerEvents: 'auto'
+            }}>
+              <h3 style={{ margin: '0 0 8px 0', borderBottom: '1px solid #0f0', paddingBottom: '5px', color: '#fff', fontSize: '14px' }}>📡 OBS Auto-Switch Debugger</h3>
+              <div><strong style={{color:'#fff'}}>Ready:</strong> {(settings.obsAutoSwitchSceneToggle && settings.obsWebsocketUrl) ? '✅ YES' : '❌ NO'}</div>
+              <div><strong style={{color:'#fff'}}>Bitrate:</strong> <span style={{color: currentBitrate && currentBitrate > 0 ? '#0f0' : '#f44'}}>{currentBitrate === null ? 'null' : `${currentBitrate} kbps`}</span></div>
+              <div><strong style={{color:'#fff'}}>Is Offline:</strong> <span style={{color: isOffline ? '#f44' : '#0f0'}}>{String(isOffline)}</span></div>
+              <div><strong style={{color:'#fff'}}>Has Fetched:</strong> {String(hasFetched)}</div>
+              <div><strong style={{color:'#fff'}}>Failures:</strong> {consecutiveBitrateFailuresRef.current}</div>
+              <div><strong style={{color:'#fff'}}>Last State:</strong> <span style={{color:'#ff0'}}>{lastBitrateStateRef.current || 'null'}</span></div>
+              <div><strong style={{color:'#fff'}}>Offline Scene:</strong> {settings.obsOfflineSceneName || 'NOT SET'}</div>
+              <div><strong style={{color:'#fff'}}>Live Scene:</strong> {settings.obsLiveSceneName || 'NOT SET'}</div>
+              <div style={{borderTop:'1px solid #0f0', marginTop:'8px', paddingTop:'8px', color:'#ff0', fontSize:'12px', wordBreak:'break-all'}}>
+                <strong>Log:</strong> {lastSwitchLog}
+              </div>
+              <button
+                onClick={async () => {
+                  const scene = isOffline ? settings.obsOfflineSceneName : settings.obsLiveSceneName;
+                  if (!scene) { setLastSwitchLog('❌ No scene name set!'); return; }
+                  setLastSwitchLog(`Manually calling for: ${scene}...`);
+                  try {
+                    const res = await fetch('/api/obs-switch-scene', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sceneName: scene, obsUrl: settings.obsWebsocketUrl, obsPassword: settings.obsWebsocketPassword }) });
+                    const d = await res.json();
+                    setLastSwitchLog(d.success ? `✅ Manual switch OK: ${scene}` : `❌ ${d.error}`);
+                  } catch(e) { setLastSwitchLog(`❌ Error: ${String(e)}`); }
+                }}
+                style={{ marginTop:'10px', padding:'6px 12px', background:'#0f0', color:'#000', border:'none', borderRadius:'4px', cursor:'pointer', fontWeight:'bold', width:'100%' }}
+              >
+                🔧 Force Switch to {isOffline ? `Offline (${settings.obsOfflineSceneName || '?'})` : `Live (${settings.obsLiveSceneName || '?'})`} Now
+              </button>
+            </div>
+          );
+        })()}
       </div >
     </ErrorBoundary >
   );

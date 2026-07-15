@@ -5,6 +5,7 @@ import { validateEnvironment } from '@/lib/env-validator';
 import { OverlayLogger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 30; // CDN cache: serve stale for up to 30s, revalidate in background
 
 async function handleGET() {
   try {
@@ -31,9 +32,10 @@ async function handleGET() {
     
     return NextResponse.json(combinedSettings, {
       headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
+        // Allow CDN/edge to cache for 30s, serve stale while revalidating.
+        // This means repeated polls within 30s are served from edge cache — zero function invocations.
+        // A fresh save-settings naturally busts this via SSE; the poll is a fallback only.
+        'Cache-Control': 's-maxage=30, stale-while-revalidate=60',
       }
     });
   } catch {

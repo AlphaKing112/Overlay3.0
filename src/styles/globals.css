@@ -837,6 +837,28 @@ body.overlay-page {
   color: #000000;
 }
 
+/* 5. Basic Text Style (No Background) */
+.low-bitrate-alert-text-box.font-theme-basic {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0;
+}
+.low-bitrate-alert-text-box.font-theme-basic .low-bitrate-warning-text {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #ffffff;
+  text-transform: none;
+  letter-spacing: normal;
+  text-shadow: 
+    -2px -2px 0 #000,  
+     2px -2px 0 #000,
+    -2px  2px 0 #000,
+     2px  2px 0 #000,
+     0px  4px 12px rgba(0,0,0,0.8);
+}
+
 /* Animations */
 @keyframes low-bitrate-flash-yellow {
   from { box-shadow: 0 0 10px rgba(234, 179, 8, 0.4); }

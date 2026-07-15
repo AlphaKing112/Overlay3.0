@@ -24,11 +24,11 @@ export const TIMERS = {
   // Minimap and speed thresholds
   MINIMAP_FADE_DURATION: 1000, // 1 second
   WALKING_PACE_THRESHOLD: 5, // km/h
-  SETTINGS_POLLING_INTERVAL: 2000, // 2 seconds
+  SETTINGS_POLLING_INTERVAL: 30000, // 30 seconds — SSE handles real-time; poll is fallback only
   MINIMAP_STALENESS_CHECK_INTERVAL: 1000, // 1 second
   MINIMAP_SPEED_GRACE_PERIOD: 60 * 1000, // 1 minute - grace period before hiding when speed drops below threshold
   MINIMAP_GPS_STALE_GRACE_PERIOD: 60 * 1000, // 1 minute - grace period before hiding when GPS becomes stale
-  BITRATE_UPDATE_INTERVAL: 2000, // 2 seconds
+  BITRATE_UPDATE_INTERVAL: 10000, // 10 seconds — live/offline detection doesn't need sub-second precision
 } as const;
 
 // Animation configurations for integer counting - different speeds for different metrics

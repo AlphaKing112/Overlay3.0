@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { amount, token, eventId } = body;
+    const { amount, token, eventId, clientDate } = body;
 
     if (typeof amount !== 'number' || amount <= 0 || typeof token !== 'string' || !token) {
       return NextResponse.json({ error: 'Invalid input parameters' }, { status: 400 });
@@ -43,21 +43,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Daily reset check
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    let newDailyCurrent = (currentSettings.dailyTipCurrent ?? 0) + amount;
-    let newDailyLastReset = currentSettings.dailyTipLastReset ?? '';
+    // Increment current amount for all active donation goals
+    const updatedGoals = (currentSettings.donationGoals ?? []).map(g => ({
+      ...g,
+      current: g.current + amount,
+      lastTriggered: Date.now()
+    }));
+
+    // Reset daily tip count if it's a new day
+    let newDailyTipCurrent = currentSettings.dailyTipCurrent || 0;
+    let newDailyTipLastReset = currentSettings.dailyTipLastReset || '';
     
-    if (newDailyLastReset !== todayStr) {
-      newDailyCurrent = amount;
-      newDailyLastReset = todayStr;
+    if (clientDate && typeof clientDate === 'string') {
+       if (newDailyTipLastReset !== clientDate) {
+          // New day detected! Reset daily tips.
+          newDailyTipCurrent = 0;
+          newDailyTipLastReset = clientDate;
+          OverlayLogger.overlay(`Daily tip goal reset for new day: ${clientDate}`);
+       }
     }
 
     const updatedSettings = {
       ...currentSettings,
-      totalTipCurrent: (currentSettings.totalTipCurrent ?? 0) + amount,
-      dailyTipCurrent: newDailyCurrent,
-      dailyTipLastReset: newDailyLastReset
+      donationGoals: updatedGoals,
+      totalTipCurrent: (currentSettings.totalTipCurrent || 0) + amount,
+      dailyTipCurrent: newDailyTipCurrent + amount,
+      dailyTipLastReset: newDailyTipLastReset
     };
 
     // Save and broadcast
@@ -74,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     OverlayLogger.overlay(`Successfully recorded $${amount} donation from StreamElements`);
 
-    return NextResponse.json({ success: true, totalTipCurrent: updatedSettings.totalTipCurrent, dailyTipCurrent: updatedSettings.dailyTipCurrent });
+    return NextResponse.json({ success: true, donationGoals: updatedGoals });
   } catch (error) {
     OverlayLogger.error(`Error recording donation (Status: 500):`, error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

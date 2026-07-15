@@ -21,39 +21,49 @@ function invalidateSSECache() {
 
 async function handlePOST(request: NextRequest) {
   try {
-    const rawSettings = await request.json();
+    const body = await request.json();
     
+    // Support both flat settings and nested { settings: ... } formats
+    let updates = body;
+    if (body && typeof body === 'object' && 'settings' in body) {
+      updates = body.settings;
+    }
+
+    // Retrieve existing settings from KV to merge updates and prevent resetting fields to defaults
+    let existingSettings: any = null;
+    try {
+      existingSettings = await kv.get('overlay_settings');
+    } catch (err) {
+      OverlayLogger.error('Failed to get existing settings from KV:', err);
+    }
+
+    const mergedRawSettings = existingSettings ? { ...existingSettings, ...updates } : updates;
+
     // Detect and log any malicious keys
-    const maliciousKeys = detectMaliciousKeys(rawSettings);
+    const maliciousKeys = detectMaliciousKeys(mergedRawSettings);
     if (maliciousKeys.length > 0) {
       OverlayLogger.warn('SECURITY ALERT: Malicious settings keys detected', maliciousKeys);
-      // Continue processing but only save validated settings
     }
     
-    // Validate and sanitize the settings
-    const settings = validateAndSanitizeSettings(rawSettings);
+    // Validate and sanitize the merged settings
+    const settings = validateAndSanitizeSettings(mergedRawSettings);
     
     // Merge/preserve real-time updates from StreamElements (prevent resetting raised amount)
-    try {
-      const existingSettings = await kv.get('overlay_settings') as any;
-      if (existingSettings) {
-        if (existingSettings.donationGoals && settings.donationGoals) {
-          settings.donationGoals = settings.donationGoals.map((newGoal: any) => {
-            const existingGoal = existingSettings.donationGoals.find((eg: any) => eg.id === newGoal.id);
-            if (existingGoal) {
-              return {
-                ...newGoal,
-                current: Math.max(existingGoal.current || 0, newGoal.current || 0)
-              };
-            }
-            return newGoal;
-          });
-        } else if (existingSettings.donationGoals && !settings.donationGoals) {
-          settings.donationGoals = existingSettings.donationGoals;
-        }
+    if (existingSettings) {
+      if (existingSettings.donationGoals && settings.donationGoals) {
+        settings.donationGoals = settings.donationGoals.map((newGoal: any) => {
+          const existingGoal = existingSettings.donationGoals.find((eg: any) => eg.id === newGoal.id);
+          if (existingGoal) {
+            return {
+              ...newGoal,
+              current: newGoal.current !== undefined ? newGoal.current : existingGoal.current || 0
+            };
+          }
+          return newGoal;
+        });
+      } else if (existingSettings.donationGoals && !settings.donationGoals) {
+        settings.donationGoals = existingSettings.donationGoals;
       }
-    } catch (err) {
-      OverlayLogger.error('Failed to merge existing settings for donation progress', err);
     }
     
     const startTime = Date.now();

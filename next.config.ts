@@ -27,6 +27,9 @@ const nextConfig: NextConfig = {
     // optimizePackageImports: ['@vercel/kv', 'maplibre-gl'],
   },
   
+  // Allow accessing the dev server from local network
+  allowedDevOrigins: ['192.168.1.143', 'obscontrol2.ddns.net'],
+  
   // Compression
   compress: true,
   

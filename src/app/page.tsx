@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { authenticatedFetch } from '@/lib/client-auth';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoomLevel, DisplayMode, TodoItem, UrlItem } from '@/types/settings';
+import OBSWebSocket from 'obs-websocket-js';
+import { fetchBitrateStats } from '@/utils/api-utils';
 import '@/styles/admin.css';
 
 declare global {
@@ -23,6 +25,18 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [toast, setToast] = useState<{ type: 'saving' | 'saved' | 'error'; message: string } | null>(null);
   const [syncStatus, setSyncStatus] = useState<'connected' | 'disconnected' | 'syncing'>('disconnected');
+  const lastSyncedToken = useRef<string | null>(null);
+
+  // OBS State
+  const obsRef = useRef<OBSWebSocket | null>(null);
+  const [obsStatus, setObsStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected');
+  const [obsUrlInput, setObsUrlInput] = useState('ws://127.0.0.1:4455');
+  const [obsPasswordInput, setObsPasswordInput] = useState('');
+  const [obsScenes, setObsScenes] = useState<{ sceneName: string }[]>([]);
+  const [obsCurrentScene, setObsCurrentScene] = useState<string>('');
+  const [obsErrorLog, setObsErrorLog] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreamingToggling, setIsStreamingToggling] = useState(false);
 
   // Custom location input state (for debouncing)
   const [customLocationInput, setCustomLocationInput] = useState('');
@@ -239,6 +253,12 @@ export default function AdminPage() {
       });
 
       if (!res.ok) {
+        // Session expired — redirect to login so they can re-authenticate
+        if (res.status === 401) {
+          setToast({ type: 'error', message: 'Session expired. Redirecting to login...' });
+          setTimeout(() => router.push('/login'), 1500);
+          return;
+        }
         const errorText = await res.text();
         console.error('Save settings failed:', res.status, errorText);
         throw new Error(`HTTP ${res.status}: ${errorText}`);
@@ -285,9 +305,301 @@ export default function AdminPage() {
   }, [settings.customLocation]);
 
 
+  const syncFromTwitch = useCallback(async () => {
+    const clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw'; // Hardcoded client ID for Lazesk Overlay
+    if (!settings.twitchToken || !settings.twitchBroadcasterId) {
+      setToast({ type: 'error', message: 'Please connect to Twitch first.' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    
+    setToast({ type: 'saving', message: 'Syncing from Twitch...' });
+    
+    try {
+      const res = await fetch(`/api/twitch-subs?broadcasterId=${settings.twitchBroadcasterId}&token=${settings.twitchToken}&clientId=${clientId}`);
+      
+      if (!res.ok) {
+        let errorMsg = `HTTP ${res.status}`;
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch (e) {
+          // fallback to status text
+        }
+        throw new Error(errorMsg);
+      }
+      
+      const result = await res.json();
+      const subTotal = result.total ?? 0;
+      
+      handleSettingsChange({
+        totalSubCurrent: subTotal
+      });
+      
+      setToast({ type: 'saved', message: `Synced successfully! Found ${subTotal} subscribers.` });
+      setTimeout(() => setToast(null), 3000);
+    } catch (error) {
+      console.error('Twitch sync error:', error);
+      setToast({ type: 'error', message: `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
+      setTimeout(() => setToast(null), 5000);
+    }
+  }, [settings.twitchToken, settings.twitchBroadcasterId, handleSettingsChange]);
+
+  // Auto-sync Twitch when token changes (safely)
+  useEffect(() => {
+    if (settings.twitchToken && settings.twitchBroadcasterId) {
+      if (lastSyncedToken.current !== settings.twitchToken) {
+        lastSyncedToken.current = settings.twitchToken;
+        syncFromTwitch();
+      }
+    }
+  }, [settings.twitchToken, settings.twitchBroadcasterId, syncFromTwitch]);
+
   const openPreview = () => {
     window.open('/overlay', '_blank');
   };
+
+  // Sync OBS settings on load
+  useEffect(() => {
+    if (settings.obsWebsocketUrl) {
+      setObsUrlInput(settings.obsWebsocketUrl);
+    }
+    if (settings.obsWebsocketPassword) {
+      setObsPasswordInput(settings.obsWebsocketPassword);
+    }
+  }, [settings.obsWebsocketUrl, settings.obsWebsocketPassword]);
+
+  // OBS Connect Function
+  const connectToOBS = async () => {
+    // Always tear down the old instance before creating a fresh one.
+    // Reusing a stale OBSWebSocket whose socket already closed triggers
+    // the internal onclose handler on the dead socket — call stack error.
+    if (obsRef.current) {
+      try { obsRef.current.removeAllListeners(); } catch { /* ignore */ }
+      try { await obsRef.current.disconnect(); } catch { /* ignore */ }
+      obsRef.current = null;
+    }
+
+    const obs = new OBSWebSocket();
+    // Register listeners BEFORE connecting so onclose is always handled.
+    obs.on('ConnectionClosed', () => { setObsStatus('disconnected'); setIsStreaming(false); });
+    obs.on('ConnectionError', () => { setObsStatus('disconnected'); setIsStreaming(false); });
+    obs.on('CurrentProgramSceneChanged', (data) => {
+      setObsCurrentScene(data.sceneName);
+    });
+    obs.on('SceneListChanged', (data) => {
+      setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
+    });
+    obs.on('StreamStateChanged' as any, (data: any) => {
+      setIsStreaming(data.outputActive ?? false);
+    });
+    obsRef.current = obs;
+
+    setObsStatus('connecting');
+    try {
+      const connectPromise = obs.connect(obsUrlInput, obsPasswordInput || undefined);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Connection timed out after 5 seconds. Check your IP/DDNS, port forwarding, and firewall.")), 5000)
+      );
+      await Promise.race([connectPromise, timeoutPromise]);
+      setObsStatus('connected');
+      setObsErrorLog(null);
+      try {
+        const data = await obs.call('GetSceneList');
+        setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
+        setObsCurrentScene(data.currentProgramSceneName);
+      } catch (err: any) {
+        console.warn("Failed to fetch scenes", err?.message || err);
+      }
+      // Fetch initial stream status
+      try {
+        const streamStatus = await obs.call('GetStreamStatus' as any) as any;
+        setIsStreaming(streamStatus?.outputActive ?? false);
+      } catch (err) {
+        // Older OBS versions may not support this
+      }
+      // Save the settings if connection is successful
+      handleSettingsChange({
+        obsWebsocketUrl: obsUrlInput,
+        obsWebsocketPassword: obsPasswordInput
+      });
+      setToast({ type: 'saved', message: 'Connected to OBS successfully!' });
+      setTimeout(() => setToast(null), 2000);
+    } catch (error: any) {
+      console.warn('OBS Connection Error:', error?.message || error);
+      setObsStatus('disconnected');
+      setObsErrorLog(error?.message || String(error) || 'Unknown connection error');
+      setToast({ type: 'error', message: 'Failed to connect to OBS.' });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  // OBS Disconnect Function
+  const disconnectFromOBS = async () => {
+    if (obsRef.current) {
+      try { obsRef.current.removeAllListeners(); } catch { /* ignore */ }
+      try { await obsRef.current.disconnect(); } catch { /* ignore */ }
+      obsRef.current = null;
+    }
+    setObsStatus('disconnected');
+    setIsStreaming(false);
+    setObsScenes([]);
+    setObsCurrentScene('');
+  };
+
+  // Auto-connect to OBS on initial load if settings are present.
+  // IMPORTANT: obsStatus is intentionally NOT in the dependency array.
+  // Adding it caused a reconnect loop: ConnectionClosed → obsStatus='disconnected'
+  // → effect re-fires → connect() on a stale socket → onclose call stack error.
+  // This effect fires only when the URL/password/syncStatus change (i.e. initial load).
+  useEffect(() => {
+    if (!settings.obsWebsocketUrl || syncStatus !== 'connected') return;
+
+    const autoConnect = async () => {
+      // Always tear down the old instance before creating a fresh one.
+      // Reusing a stale OBSWebSocket whose socket already closed triggers the
+      // internal onclose handler on the dead socket → call stack error in OBS.
+      if (obsRef.current) {
+        try { obsRef.current.removeAllListeners(); } catch { /* ignore */ }
+        try { await obsRef.current.disconnect(); } catch { /* ignore */ }
+        obsRef.current = null;
+      }
+
+      const obs = new OBSWebSocket();
+      // Register listeners BEFORE connecting so onclose is always handled.
+      obs.on('ConnectionClosed', () => setObsStatus('disconnected'));
+      obs.on('ConnectionError', () => setObsStatus('disconnected'));
+      obs.on('CurrentProgramSceneChanged', (data) => {
+        setObsCurrentScene(data.sceneName);
+      });
+      obs.on('SceneListChanged', (data) => {
+        setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
+      });
+      obsRef.current = obs;
+
+      try {
+        const connectPromise = obs.connect(settings.obsWebsocketUrl, settings.obsWebsocketPassword || undefined);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out.")), 5000));
+        await Promise.race([connectPromise, timeoutPromise]);
+        setObsStatus('connected');
+        setObsErrorLog(null);
+        try {
+          const data = await obs.call('GetSceneList');
+          setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
+          setObsCurrentScene(data.currentProgramSceneName);
+        } catch (err: any) {
+          console.warn("Failed to fetch initial scenes", err?.message || err);
+        }
+      } catch (error: any) {
+        // Silent fail on auto-connect — surface error for debugging only
+        setObsErrorLog(error?.message || String(error) || 'Unknown connection error');
+        setObsStatus('disconnected');
+      }
+    };
+
+    autoConnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.obsWebsocketUrl, settings.obsWebsocketPassword, syncStatus]);
+
+  // ===== OBS AUTO-SWITCH SCENE LOGIC (runs in Admin Panel, not overlay) =====
+  // This runs in your real Chrome browser which:
+  // 1. Already has a stable OBS WebSocket connection
+  // 2. Is never throttled by OBS's internal browser source
+  // 3. Can reliably poll bitrate and switch scenes
+  const autoSwitchLastStateRef = useRef<'live' | 'offline' | null>(null);
+  const autoSwitchFailuresRef = useRef<number>(0);
+  const [autoSwitchStatus, setAutoSwitchStatus] = useState<string>('Idle');
+
+  useEffect(() => {
+    if (!settings.obsAutoSwitchSceneToggle) {
+      autoSwitchLastStateRef.current = null;
+      setAutoSwitchStatus('Toggle is OFF');
+      return;
+    }
+    if (!settings.obsOfflineSceneName && !settings.obsLiveSceneName) {
+      setAutoSwitchStatus('No scenes configured');
+      return;
+    }
+
+    const BITRATE_URL = process.env.NEXT_PUBLIC_NOALBS_STATS_URL;
+    const PUBLISHER_KEY = process.env.NEXT_PUBLIC_SRT_PUBLISHER_KEY;
+
+    if (!BITRATE_URL) {
+      setAutoSwitchStatus('No bitrate URL configured');
+      return;
+    }
+
+    let isActive = true;
+
+    const switchScene = async (sceneName: string) => {
+      if (!obsRef.current || obsStatus !== 'connected') {
+        console.warn('[AUTO-SWITCH] OBS not connected, cannot switch scene');
+        setAutoSwitchStatus(`❌ OBS not connected`);
+        return;
+      }
+      try {
+        await obsRef.current.call('SetCurrentProgramScene', { sceneName });
+        console.log(`[AUTO-SWITCH] ✅ Switched to: ${sceneName}`);
+        setAutoSwitchStatus(`✅ Switched to: ${sceneName} at ${new Date().toLocaleTimeString()}`);
+        setObsCurrentScene(sceneName);
+      } catch {
+        try {
+          const v4Method = 'SetCurrentScene' as any;
+          await obsRef.current.call(v4Method, { 'scene-name': sceneName });
+          setAutoSwitchStatus(`✅ Switched to: ${sceneName} (v4) at ${new Date().toLocaleTimeString()}`);
+          setObsCurrentScene(sceneName);
+        } catch (v4Err: any) {
+          console.warn(`[AUTO-SWITCH] ❌ Failed to switch scene:`, v4Err?.message || v4Err);
+          setAutoSwitchStatus(`❌ Switch failed: ${v4Err?.message}`);
+        }
+      }
+    };
+
+    const poll = async () => {
+      if (!isActive) return;
+
+      try {
+        // fetchBitrateStats handles fetching, CORS proxying, and parsing automatically
+        const stats = await fetchBitrateStats(BITRATE_URL, PUBLISHER_KEY);
+        const bitrateKbps = stats ? stats.bitrateKbps : 0;
+
+        const isLive = bitrateKbps > 0;
+        autoSwitchFailuresRef.current = isLive ? 0 : autoSwitchFailuresRef.current + 1;
+
+        setAutoSwitchStatus(`Polling: ${bitrateKbps} kbps, state=${autoSwitchLastStateRef.current || 'null'}`);
+
+        if (isLive && autoSwitchLastStateRef.current !== 'live') {
+          if (settings.obsLiveSceneName) {
+            autoSwitchLastStateRef.current = 'live';
+            await switchScene(settings.obsLiveSceneName);
+          }
+        } else if (!isLive && autoSwitchLastStateRef.current !== 'offline') {
+          if (settings.obsOfflineSceneName) {
+            autoSwitchLastStateRef.current = 'offline';
+            await switchScene(settings.obsOfflineSceneName);
+          }
+        }
+      } catch (err: any) {
+        autoSwitchFailuresRef.current++;
+        if (autoSwitchFailuresRef.current >= 3 && autoSwitchLastStateRef.current !== 'offline') {
+          if (settings.obsOfflineSceneName) {
+            autoSwitchLastStateRef.current = 'offline';
+            await switchScene(settings.obsOfflineSceneName);
+          }
+        }
+        setAutoSwitchStatus(`⚠️ Error (${autoSwitchFailuresRef.current}): ${err?.message}`);
+      }
+
+      if (isActive) {
+        setTimeout(poll, 3000); // Poll every 3 seconds
+      }
+    };
+
+    poll();
+
+    return () => { isActive = false; };
+  }, [settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLiveSceneName, obsStatus]);
+  // ===== END AUTO-SWITCH =====
 
 
 
@@ -348,10 +660,15 @@ export default function AdminPage() {
           <div className="header-title">
             <span className="title-icon">🎮</span>
             <h1>Overlay Admin</h1>
-            <div className={`sync-status ${syncStatus}`}>
+            <div className={`sync-status ${syncStatus}`} title={`Database: ${syncStatus}`}>
               {syncStatus === 'connected' && '🟢'}
               {syncStatus === 'syncing' && '🟡'}
               {syncStatus === 'disconnected' && '🔴'}
+            </div>
+            <div className={`sync-status ${obsStatus}`} title={`OBS: ${obsStatus}`} style={{ marginLeft: '10px' }}>
+              OBS: {obsStatus === 'connected' && '🟢'}
+              {obsStatus === 'connecting' && '🟡'}
+              {obsStatus === 'disconnected' && '🔴'}
             </div>
           </div>
           <div className="header-actions">
@@ -393,6 +710,235 @@ export default function AdminPage() {
       {/* Main Content */}
       <main className="main-content">
         <div className="settings-container">
+
+          {/* OBS Connection Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>🎥 OBS Websocket</h2>
+            </div>
+            <div className="setting-group">
+              <label className="group-label">Connection URL</label>
+              <input
+                type="text"
+                value={obsUrlInput}
+                onChange={(e) => setObsUrlInput(e.target.value)}
+                placeholder="ws://127.0.0.1:4455"
+                className="text-input"
+              />
+            </div>
+            <div className="setting-group" style={{ marginTop: '12px' }}>
+              <label className="group-label">Password</label>
+              <input
+                type="password"
+                value={obsPasswordInput}
+                onChange={(e) => setObsPasswordInput(e.target.value)}
+                placeholder="Leave blank if no password"
+                className="text-input"
+              />
+            </div>
+            <div className="setting-group" style={{ marginTop: '12px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {obsStatus === 'connected' ? (
+                <button className="btn" style={{ background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.4)', color: '#ff6b6b' }} onClick={disconnectFromOBS}>
+                  Disconnect
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={connectToOBS} disabled={obsStatus === 'connecting'}>
+                  {obsStatus === 'connecting' ? 'Connecting...' : 'Connect to OBS'}
+                </button>
+              )}
+              {obsStatus === 'connected' && (
+                <button
+                  className="btn"
+                  disabled={isStreamingToggling}
+                  onClick={async () => {
+                    if (!obsRef.current) return;
+                    setIsStreamingToggling(true);
+                    const wasStreaming = isStreaming;
+                    try {
+                      if (wasStreaming) {
+                        await obsRef.current.call('StopStream' as any);
+                      } else {
+                        await obsRef.current.call('StartStream' as any);
+                      }
+                      // Optimistically flip immediately — OBS takes several seconds to
+                      // fully connect so polling GetStreamStatus too soon returns false
+                      setIsStreaming(!wasStreaming);
+                    } catch (err: any) {
+                      console.warn('Stream toggle error:', err);
+                      setToast({ type: 'error', message: `Stream error: ${err?.message || 'Unknown error'}` });
+                      setTimeout(() => setToast(null), 4000);
+                    } finally {
+                      setIsStreamingToggling(false);
+                    }
+                  }}
+                  style={{
+                    background: isStreamingToggling
+                      ? 'rgba(100,100,100,0.5)'
+                      : isStreaming
+                        ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
+                        : 'linear-gradient(135deg, #16a34a, #15803d)',
+                    color: '#fff',
+                    border: isStreaming ? '1px solid rgba(248,113,113,0.4)' : '1px solid rgba(74,222,128,0.4)',
+                    fontWeight: 700,
+                    letterSpacing: '0.03em',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    minWidth: '160px',
+                    justifyContent: 'center',
+                    transition: 'background 0.3s ease',
+                  }}
+                >
+                  {isStreamingToggling ? (
+                    <>
+                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#facc15', boxShadow: '0 0 6px #facc15', animation: 'pulse 1s infinite' }} />
+                      {isStreaming ? 'Stopping...' : 'Starting...'}
+                    </>
+                  ) : isStreaming ? (
+                    <>
+                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 8px #f87171' }} />
+                      🔴 Stop Stream
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 8px #4ade80' }} />
+                      ▶ Start Stream
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {obsErrorLog && (
+              <div className="setting-group" style={{ marginTop: '12px', padding: '12px', backgroundColor: 'rgba(255, 0, 0, 0.1)', border: '1px solid rgba(255, 0, 0, 0.3)', borderRadius: '8px' }}>
+                <label className="group-label" style={{ color: '#ff6b6b' }}>⚠️ Connection Error</label>
+                <div style={{ fontSize: '0.85em', color: '#ffc9c9', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {obsErrorLog}
+                </div>
+                <div style={{ fontSize: '0.8em', color: '#ff9999', marginTop: '8px' }}>
+                  <strong>Tips:</strong>
+                  <ul style={{ paddingLeft: '20px', marginTop: '4px', marginBottom: 0 }}>
+                    <li>Ensure you are using your PC's local IP (e.g. 192.168.x.x) on your phone.</li>
+                    <li>Ensure OBS is open and WebSocket Server is enabled (Tools &gt; WebSocket Server Settings).</li>
+                    <li>If you deployed to Vercel (https://), mobile browsers block connecting to a local insecure websocket (ws://). Run the Admin panel locally (http://192.168.x.x:3000) from your PC to bypass this.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {obsStatus === 'connected' && obsScenes.length > 0 && (
+              <>
+                <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                  <label className="group-label">OBS Scenes</label>
+                  <RadioGroup
+                    value={obsCurrentScene}
+                    onChange={async (value) => {
+                      try {
+                        await obsRef.current?.call('SetCurrentProgramScene', { sceneName: value });
+                        setObsCurrentScene(value);
+                      } catch (e: any) {
+                        console.warn("Failed to set scene", e?.message || e);
+                      }
+                    }}
+                    options={obsScenes.map(scene => ({
+                      value: scene.sceneName,
+                      label: scene.sceneName,
+                      icon: '🎬'
+                    }))}
+                  />
+                </div>
+                
+                {/* Auto Switch Scene Toggle */}
+                <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                  <div className="toggle-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <label className="group-label" style={{ margin: 0 }}>Auto-switch Scenes</label>
+                      <div className="setting-description" style={{ fontSize: '0.8em', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        Automatically switch to specific scenes when your stream connects or disconnects.
+                      </div>
+                    </div>
+                    <label className="toggle-switch">
+                      <input
+                        type="checkbox"
+                        checked={settings.obsAutoSwitchSceneToggle || false}
+                        onChange={(e) => handleSettingsChange({ obsAutoSwitchSceneToggle: e.target.checked })}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                  </div>
+                  
+                  {settings.obsAutoSwitchSceneToggle && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
+                      <div>
+                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Offline Scene</label>
+                        <select
+                          className="text-input"
+                          value={settings.obsOfflineSceneName || ''}
+                          onChange={(e) => handleSettingsChange({ obsOfflineSceneName: e.target.value })}
+                          style={{ marginTop: '8px' }}
+                        >
+                          <option value="">-- Select a Scene --</option>
+                          {obsScenes.map(scene => (
+                            <option key={scene.sceneName} value={scene.sceneName}>
+                              {scene.sceneName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Live Scene</label>
+                        <select
+                          className="text-input"
+                          value={settings.obsLiveSceneName || ''}
+                          onChange={(e) => handleSettingsChange({ obsLiveSceneName: e.target.value })}
+                          style={{ marginTop: '8px' }}
+                        >
+                          <option value="">-- Select a Scene --</option>
+                          {obsScenes.map(scene => (
+                            <option key={scene.sceneName} value={scene.sceneName}>
+                              {scene.sceneName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Live Status Display */}
+                      <div style={{
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '6px',
+                        padding: '10px 14px',
+                        fontSize: '0.82em',
+                        color: autoSwitchStatus.startsWith('✅') ? '#4ade80' : autoSwitchStatus.startsWith('❌') ? '#f87171' : 'var(--text-secondary)',
+                        fontFamily: 'monospace'
+                      }}>
+                        <strong style={{ color: 'var(--text-primary)' }}>Auto-Switch Status: </strong>{autoSwitchStatus}
+                      </div>
+
+                      {/* Debugger toggle */}
+                      <div className="toggle-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                        <div>
+                          <label className="group-label" style={{ margin: 0, fontSize: '0.9em' }}>Show Debugger on Overlay</label>
+                          <div className="setting-description" style={{ fontSize: '0.78em', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            Displays a real-time debug panel on the overlay screen. Turn off when not needed.
+                          </div>
+                        </div>
+                        <label className="toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={settings.obsAutoSwitchDebugger || false}
+                            onChange={(e) => handleSettingsChange({ obsAutoSwitchDebugger: e.target.checked })}
+                          />
+                          <span className="slider"></span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
 
           {/* Global Styling & Fonts Section */}
           <section className="settings-section">
@@ -509,6 +1055,27 @@ export default function AdminPage() {
               )}
             </div>
 
+            {/* Master Time/Weather/Location toggle */}
+            <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+              <div className="toggle-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <label className="group-label" style={{ margin: 0 }}>🕐 Time, Weather &amp; Location Overlay</label>
+                  <div className="setting-description" style={{ fontSize: '0.8em', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Show or hide the entire time, weather and location block (including its background).
+                  </div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.showTimeWeatherLocation ?? true}
+                    onChange={(e) => handleSettingsChange({ showTimeWeatherLocation: e.target.checked })}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            {(settings.showTimeWeatherLocation ?? true) && (<>
             <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
               <label className="group-label">Weather Display</label>
               <div className="checkbox-group" style={{ marginBottom: '12px' }}>
@@ -525,7 +1092,7 @@ export default function AdminPage() {
 
               {settings.showWeather && (
                 <>
-                  <label className="group-label">Condition Icon & Text</label>
+                  <label className="group-label">Condition Icon &amp; Text</label>
                   <RadioGroup
                     value={settings.weatherConditionDisplay || 'auto'}
                     onChange={(value) => handleSettingsChange({ weatherConditionDisplay: value as DisplayMode })}
@@ -546,6 +1113,17 @@ export default function AdminPage() {
                       <span className="checkbox-text">🌡️ Show °F Only (hide °C)</span>
                     </label>
                   </div>
+                  <div className="checkbox-group" style={{ marginTop: '10px' }}>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={settings.showWeatherWarnings ?? true}
+                        onChange={(e) => handleSettingsChange({ showWeatherWarnings: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">⚠️ Show Weather Warnings</span>
+                    </label>
+                  </div>
                 </>
               )}
               <div className="checkbox-group" style={{ marginTop: '10px' }}>
@@ -563,7 +1141,7 @@ export default function AdminPage() {
 
             <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <label className="group-label" style={{ marginBottom: 0 }}>Time, Weather & Location Overlay Scale</label>
+                <label className="group-label" style={{ marginBottom: 0 }}>Time, Weather &amp; Location Overlay Scale</label>
                 <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
                   {Math.round((settings.timeWeatherLocationScale || 1.0) * 100)}%
                 </span>
@@ -595,7 +1173,19 @@ export default function AdminPage() {
                     onChange={(e) => handleSettingsChange({ swapLocationTimePositions: e.target.checked })}
                     className="checkbox-input"
                   />
-                  <span className="checkbox-text">🔄 Swap Time (Left) & Location (Right)</span>
+                  <span className="checkbox-text">🔄 Swap Time (Left) &amp; Location (Right)</span>
+                </label>
+              </div>
+
+              <div className="checkbox-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.combineDateTimeWithLocation ?? false}
+                    onChange={(e) => handleSettingsChange({ combineDateTimeWithLocation: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">🧩 Combine Time/Date into Location/Weather Box</span>
                 </label>
               </div>
 
@@ -616,6 +1206,7 @@ export default function AdminPage() {
                 When enabled, Location/Weather will appear on the Left, and Time/Date will appear on the Right.
               </p>
             </div>
+            </>)}
           </section>
 
           {/* Map Section */}
@@ -929,10 +1520,10 @@ export default function AdminPage() {
             )}
           </section>
 
-          {/* Unified Goals & StreamElements Section */}
+          {/* Donation Goals & StreamElements Section */}
           <section className="settings-section">
             <div className="section-header">
-              <h2>🎯 Stream Goals & Alerts</h2>
+              <h2>💰 Donation Goals & StreamElements</h2>
               <div className="checkbox-group" style={{ marginTop: '8px' }}>
                 <label className="checkbox-label">
                   <input
@@ -941,7 +1532,7 @@ export default function AdminPage() {
                     onChange={(e) => handleSettingsChange({ showDonationGoals: e.target.checked })}
                     className="checkbox-input"
                   />
-                  <span className="checkbox-text">Show Goals Widget on Overlay</span>
+                  <span className="checkbox-text">Show Donation Goals on Overlay</span>
                 </label>
               </div>
             </div>
@@ -958,149 +1549,28 @@ export default function AdminPage() {
                     <span className="checkbox-text">Show Background Box</span>
                   </label>
                   <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7, marginBottom: '12px' }}>
-                    Display a glass-morphic dark background box behind your goals.
+                    Display a dark background box behind your donation goals.
+                  </p>
+                  
+                  <label className="input-label" style={{ fontSize: '0.85em', marginLeft: '28px', display: 'block', marginTop: '12px' }}>Custom Goal Prefix Text</label>
+                  <div style={{ marginLeft: '28px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={settings.donoGoalText ?? 'DONO GOAL:'}
+                      onChange={(e) => handleSettingsChange({ donoGoalText: e.target.value })}
+                      placeholder="e.g. DONO GOAL: or leave empty to hide"
+                      style={{ flex: 1, padding: '8px', fontSize: '0.9em' }}
+                    />
+                  </div>
+                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.8em', opacity: 0.6, marginTop: '4px' }}>
+                    This text appears before the goal name. Clear it to remove the prefix entirely.
                   </p>
                 </div>
 
-                {/* Sub Goals Settings */}
-                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Twitch Sub Goals</h3>
-                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={settings.showSubGoals ?? false}
-                        onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
-                        className="checkbox-input"
-                      />
-                      <span className="checkbox-text">Enable Sub Goals</span>
-                    </label>
-                  </div>
-                  
-                  {settings.showSubGoals && (
-                    <div className="settings-grid">
-                      <div className="setting-group">
-                        <label>Total Sub Goal:</label>
-                        <input
-                          type="number"
-                          className="text-input"
-                          value={settings.totalSubGoal ?? 100}
-                          onChange={(e) => handleSettingsChange({ totalSubGoal: Math.max(1, parseInt(e.target.value) || 100) })}
-                        />
-                      </div>
-                      <div className="setting-group">
-                        <label>Current Total Subs (Auto-Syncs via SE):</label>
-                        <input
-                          type="number"
-                          className="text-input"
-                          value={settings.totalSubCurrent ?? 0}
-                          onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                        />
-                      </div>
-                      <div className="setting-group">
-                        <label>Daily Sub Goal:</label>
-                        <input
-                          type="number"
-                          className="text-input"
-                          value={settings.dailySubGoal ?? 10}
-                          onChange={(e) => handleSettingsChange({ dailySubGoal: Math.max(1, parseInt(e.target.value) || 10) })}
-                        />
-                      </div>
-                      <div className="setting-group">
-                        <label>Current Daily Subs:</label>
-                        <input
-                          type="number"
-                          className="text-input"
-                          value={settings.dailySubCurrent ?? 0}
-                          onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Tip Goals Settings */}
-                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Tip Goals</h3>
-                  
-                  <div className="settings-grid">
-                    <div className="setting-group">
-                      <label>Total Tip Goal ($):</label>
-                      <input
-                        type="number"
-                        className="text-input"
-                        value={settings.totalTipGoal ?? 100}
-                        onChange={(e) => handleSettingsChange({ totalTipGoal: Math.max(1, parseInt(e.target.value) || 100) })}
-                      />
-                    </div>
-                    <div className="setting-group">
-                      <label>Current Total Tips (Auto-Syncs via SE):</label>
-                      <input
-                        type="number"
-                        className="text-input"
-                        value={settings.totalTipCurrent ?? 0}
-                        onChange={(e) => handleSettingsChange({ totalTipCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                      />
-                    </div>
-                    <div className="setting-group">
-                      <label>Daily Tip Goal ($):</label>
-                      <input
-                        type="number"
-                        className="text-input"
-                        value={settings.dailyTipGoal ?? 10}
-                        onChange={(e) => handleSettingsChange({ dailyTipGoal: Math.max(1, parseInt(e.target.value) || 10) })}
-                      />
-                    </div>
-                    <div className="setting-group">
-                      <label>Current Daily Tips ($):</label>
-                      <input
-                        type="number"
-                        className="text-input"
-                        value={settings.dailyTipCurrent ?? 0}
-                        onChange={(e) => handleSettingsChange({ dailyTipCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* StreamElements Integration */}
-                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Integration</h3>
-                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={settings.streamElementsEnabled ?? false}
-                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
-                        className="checkbox-input"
-                      />
-                      <span className="checkbox-text">Enable StreamElements Webhook / Tips</span>
-                    </label>
-                  </div>
-
-                  {settings.streamElementsEnabled && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <label className="input-label" style={{ fontSize: '0.85em' }}>StreamElements JWT Token</label>
-                        <input
-                          type="password"
-                          placeholder="Paste StreamElements JWT token..."
-                          className="text-input"
-                          value={settings.streamElementsToken || ''}
-                          onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
-                          style={{ width: '100%', fontFamily: 'monospace' }}
-                        />
-                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
-                          Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
                 {/* Scale & Position Controls */}
-                <div className="setting-group" style={{ marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Widget Layout & Scale</h3>
+                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                     {/* Scale Control */}
                     <div style={{ flex: 1, minWidth: '150px' }}>
@@ -1168,31 +1638,546 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* StreamElements Integration */}
+                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Integration</h3>
+                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={settings.streamElementsEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Enable StreamElements Webhook / Tips</span>
+                    </label>
+                  </div>
+
+                  {settings.streamElementsEnabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label className="input-label" style={{ fontSize: '0.85em' }}>StreamElements JWT Token</label>
+                        <input
+                          type="password"
+                          placeholder="Paste StreamElements JWT token..."
+                          className="text-input"
+                          value={settings.streamElementsToken || ''}
+                          onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
+                          style={{ width: '100%', fontFamily: 'monospace' }}
+                        />
+                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
+                          Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <label className="input-label" style={{ fontSize: '0.85em', marginBottom: 0 }}>Twitch Revenue Split (Streamer Cut)</label>
+                          <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
+                            {settings.twitchRevenueSplit ?? 50}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="5"
+                          value={settings.twitchRevenueSplit ?? 50}
+                          onChange={(e) => handleSettingsChange({ twitchRevenueSplit: parseInt(e.target.value) })}
+                          style={{ width: '100%' }}
+                        />
+                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
+                          Percentage of Twitch subscription revenue that goes to the streamer (typically 50% for standard affiliates, higher for partner status or special contracts). Bits are always calculated at 100% split ($0.01 per bit).
+                        </span>
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+
+
+
+                {/* Goals List & Creator */}
+                <div className="setting-group">
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Goals List</h3>
+                  
+                  {/* Create Goal Input Form */}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 2, minWidth: '150px' }}>
+                      <label className="input-label" style={{ fontSize: '0.8em' }}>Goal Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sub Goal, New Mic"
+                        className="text-input"
+                        value={newGoalName}
+                        onChange={(e) => setNewGoalName(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '80px' }}>
+                      <label className="input-label" style={{ fontSize: '0.8em' }}>Target ($)</label>
+                      <input
+                        type="number"
+                        placeholder="100"
+                        className="text-input"
+                        value={newGoalTarget}
+                        onChange={(e) => setNewGoalTarget(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '80px' }}>
+                      <label className="input-label" style={{ fontSize: '0.8em' }}>Starting ($)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        className="text-input"
+                        value={newGoalCurrent}
+                        onChange={(e) => setNewGoalCurrent(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
+                      <label className="input-label" style={{ fontSize: '0.8em' }}>Disappear (mins)</label>
+                      <input
+                        type="number"
+                        placeholder="0 = Always Show"
+                        className="text-input"
+                        value={newGoalDuration}
+                        onChange={(e) => setNewGoalDuration(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <button
+                      className="btn btn-primary btn-small"
+                      style={{ marginTop: '23px' }}
+                      onClick={() => {
+                        const targetVal = parseFloat(newGoalTarget);
+                        const currentVal = parseFloat(newGoalCurrent);
+                        const durationVal = parseInt(newGoalDuration);
+                        if (newGoalName.trim() && !isNaN(targetVal) && targetVal > 0) {
+                          const newGoal = {
+                            id: Date.now().toString(),
+                            name: newGoalName.trim(),
+                            goal: targetVal,
+                            current: isNaN(currentVal) ? 0 : currentVal,
+                            duration: isNaN(durationVal) || durationVal < 0 ? 0 : durationVal,
+                            lastTriggered: Date.now()
+                          };
+                          const updatedGoals = [...(settings.donationGoals || []), newGoal];
+                          handleSettingsChange({ donationGoals: updatedGoals });
+                          setNewGoalName('');
+                          setNewGoalTarget('');
+                          setNewGoalCurrent('0');
+                          setNewGoalDuration('0');
+                        }
+                      }}
+                      disabled={!newGoalName.trim() || !newGoalTarget.trim() || parseFloat(newGoalTarget) <= 0}
+                    >
+                      Add Goal
+                    </button>
+                  </div>
+
+                  {/* Goal Listing */}
+                  {settings.donationGoals && settings.donationGoals.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {settings.donationGoals.map((g) => (
+                        <div
+                          key={g.id}
+                          className="todo-item-admin"
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '12px',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '12px',
+                            background: 'rgba(255,255,255,0.02)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '6px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{ fontWeight: 'bold' }}>{g.name}</span>
+                            <span style={{ fontSize: '0.85em', opacity: 0.7 }}>
+                              Progress: ${g.current.toLocaleString(undefined, { minimumFractionDigits: g.current % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${g.goal.toLocaleString(undefined, { minimumFractionDigits: g.goal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                            </span>
+                            <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
+                              Auto-hide: {g.duration && g.duration > 0 ? (() => {
+                                const lastTriggered = g.lastTriggered || 0;
+                                const durationMs = g.duration * 60 * 1000;
+                                const elapsed = timeTick - lastTriggered;
+                                const remaining = Math.max(0, durationMs - elapsed);
+                                if (remaining > 0) {
+                                  const totalSecs = Math.ceil(remaining / 1000);
+                                  const mins = Math.floor(totalSecs / 60);
+                                  const secs = totalSecs % 60;
+                                  return `${g.duration} min${g.duration > 1 ? 's' : ''} (⏱️ ${mins}:${secs.toString().padStart(2, '0')} left)`;
+                                }
+                                return `${g.duration} min${g.duration > 1 ? 's' : ''} (Hidden)`;
+                              })() : 'Always Show'}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to reset the progress for "${g.name}" to 0?`)) {
+                                  const updatedGoals = settings.donationGoals!.map(item =>
+                                    item.id === g.id ? { ...item, current: 0 } : item
+                                  );
+                                  handleSettingsChange({ donationGoals: updatedGoals });
+                                }
+                              }}
+                            >
+                              🔄 Reset
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
+                              onClick={() => {
+                                const newAmountStr = prompt(`Update current progress for "${g.name}":`, g.current.toString());
+                                if (newAmountStr !== null) {
+                                  const newAmount = parseFloat(newAmountStr);
+                                  if (!isNaN(newAmount) && newAmount >= 0) {
+                                    const updatedGoals = settings.donationGoals!.map(item =>
+                                      item.id === g.id ? { 
+                                        ...item, 
+                                        current: newAmount,
+                                      } : item
+                                    );
+                                    handleSettingsChange({ donationGoals: updatedGoals });
+                                  }
+                                }
+                              }}
+                            >
+                              ✏️ Edit Goal
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
+                              onClick={() => {
+                                const newDurationStr = prompt(`Update auto-hide timer in minutes for "${g.name}" (0 = Always Show):`, (g.duration || 0).toString());
+                                if (newDurationStr !== null) {
+                                  const newDuration = parseInt(newDurationStr);
+                                  const validDuration = isNaN(newDuration) || newDuration < 0 ? 0 : newDuration;
+                                  const updatedGoals = settings.donationGoals!.map(item =>
+                                    item.id === g.id ? { 
+                                      ...item, 
+                                      duration: validDuration,
+                                      lastTriggered: validDuration > 0 ? Date.now() : item.lastTriggered
+                                    } : item
+                                  );
+                                  handleSettingsChange({ donationGoals: updatedGoals });
+                                }
+                              }}
+                            >
+                              ⏱️ Edit Duration
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to delete the goal "${g.name}"?`)) {
+                                  const updatedGoals = settings.donationGoals!.filter(item => item.id !== g.id);
+                                  handleSettingsChange({ donationGoals: updatedGoals });
+                                }
+                              }}
+                              style={{ 
+                                padding: '4px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '1.1em',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                color: '#ef4444',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                cursor: 'pointer'
+                              }}
+                              aria-label="Delete Goal"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', opacity: 0.5, fontSize: '0.9em', padding: '16px' }}>
+                      No active donation goals. Create one above!
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </section>
+
+          {/* Sub Goals Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>🔔 Twitch Sub Goals</h2>
+              <div className="checkbox-group" style={{ marginTop: '8px' }}>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showSubGoals ?? false}
+                    onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Show Sub Goals on Overlay</span>
+                </label>
+              </div>
+            </div>
+
+            {settings.showSubGoals && (
+              <>
+                {/* Twitch API Integration */}
+                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Twitch API Integration</h3>
+                  
+                  {settings.twitchToken ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(46, 204, 113, 0.1)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(46, 204, 113, 0.2)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <span style={{ fontSize: '1.2em', marginRight: '8px' }}>✅</span>
+                          <span style={{ fontWeight: 'bold' }}>Connected to Twitch</span>
+                          {settings.twitchUsername && (
+                            <div style={{ fontSize: '0.85em', opacity: 0.8, marginTop: '4px', marginLeft: '32px' }}>
+                              Logged in as <span style={{ color: '#9146FF', fontWeight: 'bold' }}>{settings.twitchUsername}</span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '8px 16px', fontSize: '0.85em' }}
+                          onClick={() => {
+                            if (confirm('Are you sure you want to disconnect from Twitch?')) {
+                              handleSettingsChange({
+                                twitchToken: '',
+                                twitchBroadcasterId: '',
+                                twitchUsername: ''
+                              });
+                            }
+                          }}
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <p style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '8px' }}>
+                        Connect your Twitch account to automatically sync your live subscriber count.
+                      </p>
+                      <button
+                        className="btn btn-primary"
+                        style={{ background: '#9146FF', color: 'white', padding: '12px', fontSize: '1em', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                        onClick={() => {
+                          const clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+                          const redirectUri = window.location.origin + '/twitch-auth';
+                          const scope = 'channel:read:subscriptions';
+                          const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
+                          window.location.href = authUrl;
+                        }}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                        </svg>
+                        Connect with Twitch
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="settings-grid">
+                  <div className="setting-group">
+                  <label>Total Sub Goal:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.totalSubGoal ?? 100}
+                    onChange={(e) => handleSettingsChange({ totalSubGoal: Math.max(1, parseInt(e.target.value) || 100) })}
+                  />
+                </div>
+                 <div className="setting-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label style={{ margin: 0 }}>Current Total Subs:</label>
+                  </div>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.totalSubCurrent ?? 0}
+                    disabled={!!settings.twitchToken}
+                    style={{ 
+                      opacity: settings.twitchToken ? 0.5 : 1, 
+                      cursor: settings.twitchToken ? 'not-allowed' : 'text',
+                      backgroundColor: settings.twitchToken ? 'rgba(255,255,255,0.05)' : undefined
+                    }}
+                    onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>Daily Sub Goal:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.dailySubGoal ?? 10}
+                    onChange={(e) => handleSettingsChange({ dailySubGoal: Math.max(1, parseInt(e.target.value) || 10) })}
+                  />
+                </div>
+                <div className="setting-group">
+                  <label>Current Daily Subs:</label>
+                  <input
+                    type="number"
+                    className="text-input"
+                    value={settings.dailySubCurrent ?? 0}
+                    disabled={!!settings.twitchToken}
+                    style={{ 
+                      opacity: settings.twitchToken ? 0.5 : 1, 
+                      cursor: settings.twitchToken ? 'not-allowed' : 'text',
+                      backgroundColor: settings.twitchToken ? 'rgba(255,255,255,0.05)' : undefined
+                    }}
+                    onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
+                  />
+                </div>
+              </div>
+              
+              {/* Scale & Position Controls */}
+              <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                  {/* Style Control */}
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Display Style</label>
+                    </div>
+                    <select
+                      value={settings.subGoalsStyle || 'default'}
+                      onChange={(e) => handleSettingsChange({ subGoalsStyle: e.target.value as any })}
+                      className="text-input"
+                      style={{ width: '100%', padding: '8px 10px', fontSize: '0.9em', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: '#fff' }}
+                    >
+                      <option value="default" style={{ background: '#1a1a1a', color: '#fff' }}>Show Bars & Background</option>
+                      <option value="no-bars" style={{ background: '#1a1a1a', color: '#fff' }}>Hide Bars (Background Only)</option>
+                      <option value="no-background" style={{ background: '#1a1a1a', color: '#fff' }}>Hide Background (Bars Only)</option>
+                      <option value="text-only" style={{ background: '#1a1a1a', color: '#fff' }}>Text Only (Hide Bars & Background)</option>
+                    </select>
+                  </div>
+
+                  {/* Font Control */}
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Font Style</label>
+                    </div>
+                    <select
+                      value={settings.subGoalsFont || 'default'}
+                      onChange={(e) => handleSettingsChange({ subGoalsFont: e.target.value as any })}
+                      className="text-input"
+                      style={{ width: '100%', padding: '8px 10px', fontSize: '0.9em', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: '#fff' }}
+                    >
+                      <option value="default" style={{ background: '#1a1a1a', color: '#fff' }}>Default Font</option>
+                      <option value="neon" style={{ background: '#1a1a1a', color: '#fff', fontFamily: '"Comic Sans MS", cursive, sans-serif' }}>Playful (Comic)</option>
+                      <option value="retro" style={{ background: '#1a1a1a', color: '#fff', fontFamily: '"Courier New", Courier, monospace' }}>Retro (Monospace)</option>
+                      <option value="bold" style={{ background: '#1a1a1a', color: '#fff', fontWeight: 'bold' }}>Bold (Thick)</option>
+                      <option value="impact" style={{ background: '#1a1a1a', color: '#fff', fontFamily: 'Impact, sans-serif' }}>Impact (Condensed)</option>
+                    </select>
+                  </div>
+
+                  {/* Text Stroke Control */}
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Text Outline</label>
+                    </div>
+                    <label className="checkbox-label" style={{ padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', display: 'flex', alignItems: 'center', cursor: 'pointer', height: '36px' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.subGoalsShowStroke ?? true}
+                        onChange={(e) => handleSettingsChange({ subGoalsShowStroke: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text" style={{ fontSize: '0.9em', color: '#fff' }}>Enable Stroke</span>
+                    </label>
+                  </div>
+
+                  {/* Scale Control */}
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Overlay Scale</label>
+                      <span style={{ fontSize: '0.85em' }}>{Math.round((settings.subGoalsScale || 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.3"
+                      max="3.0"
+                      step="0.1"
+                      value={settings.subGoalsScale || 1}
+                      onChange={(e) => handleSettingsChange({ subGoalsScale: parseFloat(e.target.value) })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  {/* Position Controls (D-Pad) */}
+                  <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>Position ({settings.subGoalsX || 0}, {settings.subGoalsY || 0})</label>
+                    
+                    {/* Up Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) - 10 })}
+                    >
+                      ▲
+                    </button>
+
+                    {/* Left, Reset, Right */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ subGoalsX: (settings.subGoalsX || 0) - 10 })}
+                      >
+                        ◀
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ subGoalsX: 0, subGoalsY: 0 })}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ subGoalsX: (settings.subGoalsX || 0) + 10 })}
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Down Button */}
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ subGoalsY: (settings.subGoalsY || 0) + 10 })}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+            )}
+          </section>
+
           {/* Bitrate Section */}
           <section className="settings-section">
             <div className="section-header">
               <h2>📡 Bitrate & Network</h2>
             </div>
 
-            <div className="setting-group">
-              <div className="checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showBitrateWarnings ?? true}
-                    onChange={(e) => handleSettingsChange({ showBitrateWarnings: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Enable Low Bitrate Warnings</span>
-                </label>
-                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
-                  Globally enable/disable all bitrate alerts (colors and image pop-ups).
-                </p>
-              </div>
-            </div>
+
 
             <div className="setting-group">
               <label className="group-label">Bitrate Display</label>
@@ -1220,42 +2205,27 @@ export default function AdminPage() {
             </div>
 
             <div className="setting-group">
-              <div className="checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showLowBitrateAlert ?? true}
-                    onChange={(e) => handleSettingsChange({ showLowBitrateAlert: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Enable Low Bitrate Text Alert</span>
-                </label>
-                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
-                  Shows a flashing text alert when bitrate drops below {settings.lowBitrateThreshold ?? 1300} Kbps.
-                </p>
-              </div>
-
-              {/* Font Choice Select */}
-              {settings.showLowBitrateAlert && (
-                <div style={{ marginTop: '12px', marginBottom: '12px' }}>
-                  <label className="group-label">Low Bitrate Text Style / Font</label>
-                  <RadioGroup
-                    value={settings.lowBitrateAlertFont || 'default'}
-                    onChange={(value) => handleSettingsChange({ lowBitrateAlertFont: value as any })}
-                    options={[
-                      { value: 'default', label: 'Default', icon: '📝', description: 'Bold sans-serif red/yellow warning pill' },
-                      { value: 'neon', label: 'Neon Cyberpunk', icon: '💻', description: 'Glowy cyan cyberpunk theme' },
-                      { value: 'retro', label: 'Retro Arcade', icon: '🕹️', description: '1980s monospaced double-bordered pixel style' },
-                      { value: 'bold', label: 'Bold Striped', icon: '🚧', description: 'Heavy warning stripes style' },
-                      { value: 'impact', label: 'Comic Impact', icon: '💥', description: 'Playful comic impact style' }
-                    ]}
-                  />
-                </div>
-              )}
+              <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+              <label className="group-label">Low Bitrate Text Style / Font</label>
+              <RadioGroup
+                value={settings.lowBitrateAlertFont || 'default'}
+                onChange={(value) => handleSettingsChange({ lowBitrateAlertFont: value as any })}
+                options={[
+                  { value: 'disabled', label: 'Disabled', icon: '❌', description: 'Do not show text popup' },
+                  { value: 'basic', label: 'Basic Text', icon: '📝', description: 'Simple white text, no background' },
+                  { value: 'default', label: 'Default Pill', icon: '💊', description: 'Bold red/yellow warning pill' },
+                  { value: 'neon', label: 'Neon Cyberpunk', icon: '💻', description: 'Glowy cyan cyberpunk theme' },
+                  { value: 'retro', label: 'Retro Arcade', icon: '🕹️', description: '1980s monospaced pixel style' },
+                  { value: 'bold', label: 'Bold Striped', icon: '🚧', description: 'Heavy warning stripes style' },
+                  { value: 'impact', label: 'Comic Impact', icon: '💥', description: 'Playful comic impact style' }
+                ]}
+              />
+            </div>
 
               {/* Threshold Controls */}
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginTop: '12px' }}>
-                {/* Low Threshold */}
+              {settings.lowBitrateAlertFont !== 'disabled' && (
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginTop: '12px' }}>
+                  {/* Low Threshold */}
                 <div style={{ flex: 1, minWidth: '150px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Low Threshold</label>
@@ -1295,10 +2265,11 @@ export default function AdminPage() {
                   />
                 </div>
               </div>
+            )}
 
-              {/* Scale and Position Controls (only show when alert is enabled) */}
-              {settings.showLowBitrateAlert && (
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginTop: '12px' }}>
+            {/* Scale and Position Controls (only show when alert is enabled) */}
+            {settings.lowBitrateAlertFont !== 'disabled' && (
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginTop: '12px' }}>
                   {/* Scale Control */}
                   <div style={{ flex: 1, minWidth: '150px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>

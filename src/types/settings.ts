@@ -37,6 +37,8 @@ export interface OverlaySettings {
   customLocation?: string;
   showCountryName: boolean;
   showWeather: boolean;
+  showWeatherWarnings?: boolean;
+  showTimeWeatherLocation?: boolean;
   weatherConditionDisplay: DisplayMode;
   temperatureUnit?: 'both' | 'F';
   showDate?: boolean;
@@ -64,7 +66,7 @@ export interface OverlaySettings {
   lowBitrateAlertScale?: number;
   lowBitrateAlertX?: number;
   lowBitrateAlertY?: number;
-  lowBitrateAlertFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
+  lowBitrateAlertFont?: 'disabled' | 'default' | 'neon' | 'retro' | 'bold' | 'impact' | 'basic';
   todoListPosition?: 'left' | 'right';
   showCalorieTracker?: boolean;
   calorieGoal?: number;
@@ -99,20 +101,35 @@ export interface OverlaySettings {
   twitchRevenueSplit?: number;
   donationGoalsDuration?: number;
   timeWeatherLocationScale?: number;
+  totalTipGoal?: number;
+  totalTipCurrent?: number;
+  dailyTipGoal?: number;
+  dailyTipCurrent?: number;
+  dailyTipLastReset?: string;
   showSubGoals?: boolean;
   totalSubGoal?: number;
   totalSubCurrent?: number;
   dailySubGoal?: number;
   dailySubCurrent?: number;
   dailySubLastReset?: string;
-  totalTipGoal?: number;
-  totalTipCurrent?: number;
-  dailyTipGoal?: number;
-  dailyTipCurrent?: number;
-  dailyTipLastReset?: string;
   subGoalsX?: number;
   subGoalsY?: number;
   subGoalsScale?: number;
+  subGoalsStyle?: 'default' | 'no-bars' | 'no-background' | 'text-only';
+  subGoalsFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
+  subGoalsShowStroke?: boolean;
+  seAutoSyncTotals?: boolean;
+  twitchClientId?: string;
+  twitchToken?: string;
+  twitchBroadcasterId?: string;
+  twitchUsername?: string;
+  combineDateTimeWithLocation?: boolean;
+  obsWebsocketUrl?: string;
+  obsWebsocketPassword?: string;
+  obsAutoSwitchSceneToggle?: boolean;
+  obsOfflineSceneName?: string;
+  obsLiveSceneName?: string;
+  obsAutoSwitchDebugger?: boolean;
 }
 
 // Default settings (single source of truth)
@@ -121,6 +138,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   customLocation: '',
   showCountryName: true,
   showWeather: true,
+  showWeatherWarnings: true,
+  showTimeWeatherLocation: true,
   weatherConditionDisplay: 'auto',
   temperatureUnit: 'both',
   showDate: true,
@@ -183,20 +202,35 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   twitchRevenueSplit: 50,
   donationGoalsDuration: 0,
   timeWeatherLocationScale: 1.0,
-  showSubGoals: false,
-  totalSubGoal: 100,
-  totalSubCurrent: 0,
-  dailySubGoal: 10,
-  dailySubCurrent: 0,
-  dailySubLastReset: '',
   totalTipGoal: 100,
   totalTipCurrent: 0,
   dailyTipGoal: 10,
   dailyTipCurrent: 0,
   dailyTipLastReset: '',
+  showSubGoals: false,
+  totalSubGoal: 50,
+  totalSubCurrent: 0,
+  dailySubGoal: 10,
+  dailySubCurrent: 0,
+  dailySubLastReset: '',
   subGoalsX: 0,
-  subGoalsY: 0,
-  subGoalsScale: 1,
+  subGoalsY: 100,
+  subGoalsScale: 1.0,
+  subGoalsStyle: 'default',
+  subGoalsFont: 'default',
+  subGoalsShowStroke: true,
+  seAutoSyncTotals: true,
+  twitchClientId: '',
+  twitchToken: '',
+  twitchBroadcasterId: '',
+  twitchUsername: '',
+  combineDateTimeWithLocation: false,
+  obsWebsocketUrl: 'ws://127.0.0.1:4455',
+  obsWebsocketPassword: '',
+  obsAutoSwitchSceneToggle: false,
+  obsOfflineSceneName: '',
+  obsLiveSceneName: '',
+  obsAutoSwitchDebugger: false,
 };
 
 // Valid settings schema for validation
@@ -206,6 +240,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   customLocation: 'string',
   showCountryName: 'boolean',
   showWeather: 'boolean',
+  showWeatherWarnings: 'boolean',
+  showTimeWeatherLocation: 'boolean',
   weatherConditionDisplay: 'string',
   temperatureUnit: 'string',
   showDate: 'boolean',
@@ -265,20 +301,35 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   twitchRevenueSplit: 'number',
   donationGoalsDuration: 'number',
   timeWeatherLocationScale: 'number',
+  totalTipGoal: 'number',
+  totalTipCurrent: 'number',
+  dailyTipGoal: 'number',
+  dailyTipCurrent: 'number',
+  dailyTipLastReset: 'string',
   showSubGoals: 'boolean',
   totalSubGoal: 'number',
   totalSubCurrent: 'number',
   dailySubGoal: 'number',
   dailySubCurrent: 'number',
   dailySubLastReset: 'string',
-  totalTipGoal: 'number',
-  totalTipCurrent: 'number',
-  dailyTipGoal: 'number',
-  dailyTipCurrent: 'number',
-  dailyTipLastReset: 'string',
   subGoalsX: 'number',
   subGoalsY: 'number',
   subGoalsScale: 'number',
+  subGoalsStyle: 'string',
+  subGoalsFont: 'string',
+  subGoalsShowStroke: 'boolean',
+  seAutoSyncTotals: 'boolean',
+  twitchClientId: 'string',
+  twitchToken: 'string',
+  twitchBroadcasterId: 'string',
+  twitchUsername: 'string',
+  combineDateTimeWithLocation: 'boolean',
+  obsWebsocketUrl: 'string',
+  obsWebsocketPassword: 'string',
+  obsAutoSwitchSceneToggle: 'boolean',
+  obsOfflineSceneName: 'string',
+  obsLiveSceneName: 'string',
+  obsAutoSwitchDebugger: 'boolean',
 };
 
 // SSE message types
