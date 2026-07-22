@@ -78,8 +78,6 @@ export const API_KEYS = {
   LOCATIONIQ: process.env.NEXT_PUBLIC_LOCATIONIQ_KEY,
   PULSOID: process.env.NEXT_PUBLIC_PULSOID_TOKEN,
   OPENWEATHER: process.env.NEXT_PUBLIC_OPENWEATHERMAP_KEY,
-  BITRATE_URL: process.env.NEXT_PUBLIC_NOALBS_STATS_URL,
-  SRT_PUBLISHER_KEY: process.env.NEXT_PUBLIC_SRT_PUBLISHER_KEY,
 } as const;
 
 // Weather mapping constants

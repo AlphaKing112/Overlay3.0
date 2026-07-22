@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
@@ -52,6 +55,7 @@ export async function GET(req: NextRequest) {
                         'Accept': 'application/json, text/plain, */*',
                         'Cache-Control': 'no-cache',
                     },
+                    cache: 'no-store',
                     signal: controller.signal,
                 });
 

@@ -708,3 +708,48 @@ export function isValidCoordinate(lat: number, lon: number): boolean {
     lon <= 180
   );
 }
+
+/**
+ * Parses coordinate string in either Decimal (40.757727, -73.825222) or DMS (40°45'27.8"N 73°49'30.8"W) format
+ */
+export function parseCoordinateString(input: string): { lat: number; lon: number } | null {
+  if (!input || !input.trim()) return null;
+  const str = input.trim();
+
+  // Check simple decimal format: e.g. "40.757727, -73.825222" or "40.757727 -73.825222"
+  const decimalMatch = str.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
+  if (decimalMatch) {
+    const lat = parseFloat(decimalMatch[1]);
+    const lon = parseFloat(decimalMatch[2]);
+    if (isValidCoordinate(lat, lon)) {
+      return { lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lon.toFixed(6)) };
+    }
+  }
+
+  // Check DMS format: e.g. 40°45'27.8"N 73°49'30.8"W
+  const dmsRegex = /(\d+)[°\s]+(\d+)['\s]+(\d+(?:\.\d+)?)"?\s*([NSns])[,\s]+(\d+)[°\s]+(\d+)['\s]+(\d+(?:\.\d+)?)"?\s*([EWew])/;
+  const dmsMatch = str.match(dmsRegex);
+  if (dmsMatch) {
+    const latDeg = parseFloat(dmsMatch[1]);
+    const latMin = parseFloat(dmsMatch[2]);
+    const latSec = parseFloat(dmsMatch[3]);
+    const latDir = dmsMatch[4].toUpperCase();
+
+    const lonDeg = parseFloat(dmsMatch[5]);
+    const lonMin = parseFloat(dmsMatch[6]);
+    const lonSec = parseFloat(dmsMatch[7]);
+    const lonDir = dmsMatch[8].toUpperCase();
+
+    let lat = latDeg + latMin / 60 + latSec / 3600;
+    if (latDir === 'S') lat = -lat;
+
+    let lon = lonDeg + lonMin / 60 + lonSec / 3600;
+    if (lonDir === 'W') lon = -lon;
+
+    if (isValidCoordinate(lat, lon)) {
+      return { lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lon.toFixed(6)) };
+    }
+  }
+
+  return null;
+}

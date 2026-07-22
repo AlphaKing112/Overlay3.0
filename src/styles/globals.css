@@ -136,7 +136,7 @@ body.overlay-page {
 }
 
 .overlay-box.no-background * {
-  text-shadow: none !important;
+  text-shadow: none;
 }
 
 /* === GLOBAL THEMES === */
@@ -317,6 +317,22 @@ body.overlay-page {
   flex-direction: column;
   align-items: flex-start;
   gap: 16px;
+}
+
+.bottom-middle {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  z-index: 9999;
+}
+
+.bottom-middle .overlay-box {
+  align-items: center;
 }
 
 /* === URL LIST STYLES === */
@@ -997,7 +1013,6 @@ body.overlay-page {
 /* === MINIMAP STYLES === */
 .minimap {
   border: 3px solid rgba(255, 255, 255, 0.9);
-  border-radius: 50%;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
@@ -1031,7 +1046,6 @@ body.overlay-page {
 .minimap-loading {
   width: 200px;
   height: 200px;
-  border-radius: 50%;
   background: rgba(248, 250, 252, 0.8);
   display: flex;
   align-items: center;
@@ -1045,7 +1059,6 @@ body.overlay-page {
 .minimap-placeholder {
   width: 200px;
   height: 200px;
-  border-radius: 50%;
   background: rgba(30, 20, 60, 0.3);
   display: flex;
   align-items: center;
@@ -1356,4 +1369,20 @@ body.overlay-page {
   color: #ffffff;
   text-shadow: 0 2px 6px rgba(0,0,0,0.5);
   letter-spacing: 0.02em;
+}
+
+/* Kick Style Social Text */
+.kick-style-text .social-name {
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  color: white !important;
+  font-weight: normal !important;
+  letter-spacing: 2px !important;
+  font-size: 1.4em !important;
+  text-shadow: 
+    /* First layer: Black stroke (2px) */
+    -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+    -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000,
+    /* Drop shadow for depth */
+    0 4px 8px rgba(0,0,0,0.6) !important;
+  text-transform: uppercase !important;
 }

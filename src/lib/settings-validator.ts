@@ -18,7 +18,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
   const rejectedKeys: string[] = [];
 
   // Validate specific string fields
-  const stringFields = ['theme', 'timeFormat', 'locationDisplay', 'fontFamily', 'todoTheme', 'donoTheme', 'donoStyle', 'socialTheme', 'globalFont', 'globalTheme', 'donoGoalText'];
+  const stringFields = ['theme', 'timeFormat', 'locationDisplay', 'fontFamily', 'todoTheme', 'donoTheme', 'donoStyle', 'socialTheme', 'globalFont', 'globalTheme', 'donoGoalText', 'distanceUnit', 'distanceTitle', 'distanceIcon', 'distanceColor', 'distanceStyle', 'distanceMode', 'destinationName'];
   stringFields.forEach(field => {
     if (settings[field as keyof OverlaySettings] !== undefined) {
       if (typeof settings[field as keyof OverlaySettings] === 'string') {
@@ -181,7 +181,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Validate mapStyle
   if (settings.mapStyle !== undefined) {
-    const validStyles = ['auto', 'standard', 'dark', 'gta'];
+    const validStyles = ['auto', 'standard', 'dark', 'gta', 'gta5'];
     if (typeof settings.mapStyle === 'string' && validStyles.includes(settings.mapStyle)) {
       cleanSettings.mapStyle = settings.mapStyle as any;
     } else {
@@ -236,6 +236,9 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     showMinimap: cleanSettings.showMinimap ?? DEFAULT_OVERLAY_SETTINGS.showMinimap,
     minimapSpeedBased: cleanSettings.minimapSpeedBased ?? DEFAULT_OVERLAY_SETTINGS.minimapSpeedBased,
     mapZoomLevel: cleanSettings.mapZoomLevel ?? DEFAULT_OVERLAY_SETTINGS.mapZoomLevel,
+    customMapZoom: (typeof cleanSettings.customMapZoom === 'number' && !isNaN(cleanSettings.customMapZoom))
+      ? Math.min(20, Math.max(1, cleanSettings.customMapZoom))
+      : (DEFAULT_OVERLAY_SETTINGS.customMapZoom ?? 15),
     altitudeDisplay: cleanSettings.altitudeDisplay ?? DEFAULT_OVERLAY_SETTINGS.altitudeDisplay,
     speedDisplay: cleanSettings.speedDisplay ?? DEFAULT_OVERLAY_SETTINGS.speedDisplay,
     todos: cleanSettings.todos ?? DEFAULT_OVERLAY_SETTINGS.todos,
@@ -290,25 +293,36 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
       ? Math.min(Math.max(cleanSettings.minimapY, -2000), 2000)
       : DEFAULT_OVERLAY_SETTINGS.minimapY,
     minimapPosition: cleanSettings.minimapPosition ?? DEFAULT_OVERLAY_SETTINGS.minimapPosition,
+    socialName: cleanSettings.socialName ?? DEFAULT_OVERLAY_SETTINGS.socialName,
+    socialKickEnabled: cleanSettings.socialKickEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialKickEnabled,
+    socialTwitchEnabled: cleanSettings.socialTwitchEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialTwitchEnabled,
     socialXEnabled: cleanSettings.socialXEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialXEnabled,
-    socialXName: cleanSettings.socialXName ?? DEFAULT_OVERLAY_SETTINGS.socialXName,
+
     socialYoutubeEnabled: cleanSettings.socialYoutubeEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialYoutubeEnabled,
-    socialYoutubeName: cleanSettings.socialYoutubeName ?? DEFAULT_OVERLAY_SETTINGS.socialYoutubeName,
     socialInstagramEnabled: cleanSettings.socialInstagramEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialInstagramEnabled,
-    socialInstagramName: cleanSettings.socialInstagramName ?? DEFAULT_OVERLAY_SETTINGS.socialInstagramName,
     socialTiktokEnabled: cleanSettings.socialTiktokEnabled ?? DEFAULT_OVERLAY_SETTINGS.socialTiktokEnabled,
-    socialTiktokName: cleanSettings.socialTiktokName ?? DEFAULT_OVERLAY_SETTINGS.socialTiktokName,
     showSocials: cleanSettings.showSocials ?? DEFAULT_OVERLAY_SETTINGS.showSocials,
-    socialRotateInterval: typeof cleanSettings.socialRotateInterval === 'number'
-      ? Math.min(Math.max(cleanSettings.socialRotateInterval, 1), 60)
-      : DEFAULT_OVERLAY_SETTINGS.socialRotateInterval,
-    socialPosition: (cleanSettings.socialPosition === 'top-middle' || cleanSettings.socialPosition === 'bottom-left')
+
+    socialPosition: (cleanSettings.socialPosition === 'top-middle' || cleanSettings.socialPosition === 'bottom-middle')
       ? cleanSettings.socialPosition
       : DEFAULT_OVERLAY_SETTINGS.socialPosition,
+    socialX: typeof cleanSettings.socialX === 'number'
+      ? Math.min(Math.max(cleanSettings.socialX, -2000), 2000)
+      : DEFAULT_OVERLAY_SETTINGS.socialX,
+    socialY: typeof cleanSettings.socialY === 'number'
+      ? Math.min(Math.max(cleanSettings.socialY, -2000), 2000)
+      : DEFAULT_OVERLAY_SETTINGS.socialY,
+    socialScale: typeof cleanSettings.socialScale === 'number'
+      ? Math.min(Math.max(cleanSettings.socialScale, 0.1), 5)
+      : DEFAULT_OVERLAY_SETTINGS.socialScale,
     socialTextTheme: (['default', 'neon', 'retro', 'bold', 'impact'] as const).includes(cleanSettings.socialTextTheme as any)
       ? cleanSettings.socialTextTheme as 'default' | 'neon' | 'retro' | 'bold' | 'impact'
       : DEFAULT_OVERLAY_SETTINGS.socialTextTheme,
     socialShowBackground: cleanSettings.socialShowBackground ?? DEFAULT_OVERLAY_SETTINGS.socialShowBackground,
+    socialFontFamily: cleanSettings.socialFontFamily ?? DEFAULT_OVERLAY_SETTINGS.socialFontFamily,
+    socialLoopAnimation: cleanSettings.socialLoopAnimation ?? DEFAULT_OVERLAY_SETTINGS.socialLoopAnimation,
+    socialLoopShowDuration: typeof cleanSettings.socialLoopShowDuration === 'number' ? Math.max(1, cleanSettings.socialLoopShowDuration) : DEFAULT_OVERLAY_SETTINGS.socialLoopShowDuration,
+    socialLoopHideDuration: typeof cleanSettings.socialLoopHideDuration === 'number' ? Math.max(1, cleanSettings.socialLoopHideDuration) : DEFAULT_OVERLAY_SETTINGS.socialLoopHideDuration,
     donationGoals: (() => {
       if (!Array.isArray(cleanSettings.donationGoals)) return DEFAULT_OVERLAY_SETTINGS.donationGoals;
       const valid = [];
@@ -332,8 +346,16 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     donationGoalsScale: typeof cleanSettings.donationGoalsScale === 'number' ? cleanSettings.donationGoalsScale : DEFAULT_OVERLAY_SETTINGS.donationGoalsScale,
     donoShowBackground: cleanSettings.donoShowBackground ?? DEFAULT_OVERLAY_SETTINGS.donoShowBackground,
     donoGoalText: cleanSettings.donoGoalText ?? DEFAULT_OVERLAY_SETTINGS.donoGoalText,
-    streamElementsEnabled: cleanSettings.streamElementsEnabled ?? DEFAULT_OVERLAY_SETTINGS.streamElementsEnabled,
-    streamElementsToken: cleanSettings.streamElementsToken ?? DEFAULT_OVERLAY_SETTINGS.streamElementsToken,
+    streamElementsEnabled: !!cleanSettings.streamElementsEnabled,
+    streamElementsToken: typeof cleanSettings.streamElementsToken === 'string'
+      ? cleanSettings.streamElementsToken
+      : DEFAULT_OVERLAY_SETTINGS.streamElementsToken,
+    belaboxUrl: typeof cleanSettings.belaboxUrl === 'string'
+      ? cleanSettings.belaboxUrl
+      : DEFAULT_OVERLAY_SETTINGS.belaboxUrl,
+    belaboxPublisherKey: typeof cleanSettings.belaboxPublisherKey === 'string'
+      ? cleanSettings.belaboxPublisherKey
+      : DEFAULT_OVERLAY_SETTINGS.belaboxPublisherKey,
     twitchRevenueSplit: typeof cleanSettings.twitchRevenueSplit === 'number'
       ? Math.min(Math.max(cleanSettings.twitchRevenueSplit, 0), 100)
       : DEFAULT_OVERLAY_SETTINGS.twitchRevenueSplit,
@@ -344,6 +366,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
       ? Math.min(Math.max(cleanSettings.timeWeatherLocationScale, 0.3), 3.0)
       : DEFAULT_OVERLAY_SETTINGS.timeWeatherLocationScale,
     showSubGoals: cleanSettings.showSubGoals ?? DEFAULT_OVERLAY_SETTINGS.showSubGoals,
+    showTotalSubGoal: cleanSettings.showTotalSubGoal ?? DEFAULT_OVERLAY_SETTINGS.showTotalSubGoal,
+    showDailySubGoal: cleanSettings.showDailySubGoal ?? DEFAULT_OVERLAY_SETTINGS.showDailySubGoal,
     totalTipGoal: typeof cleanSettings.totalTipGoal === 'number' ? cleanSettings.totalTipGoal : DEFAULT_OVERLAY_SETTINGS.totalTipGoal,
     totalTipCurrent: typeof cleanSettings.totalTipCurrent === 'number' ? cleanSettings.totalTipCurrent : DEFAULT_OVERLAY_SETTINGS.totalTipCurrent,
     dailyTipGoal: typeof cleanSettings.dailyTipGoal === 'number' ? cleanSettings.dailyTipGoal : DEFAULT_OVERLAY_SETTINGS.dailyTipGoal,
@@ -371,6 +395,32 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     obsAutoSwitchSceneToggle: cleanSettings.obsAutoSwitchSceneToggle ?? DEFAULT_OVERLAY_SETTINGS.obsAutoSwitchSceneToggle,
     obsOfflineSceneName: cleanSettings.obsOfflineSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsOfflineSceneName,
     obsLiveSceneName: cleanSettings.obsLiveSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsLiveSceneName,
+    showDistanceTracker: cleanSettings.showDistanceTracker ?? DEFAULT_OVERLAY_SETTINGS.showDistanceTracker,
+    distanceCurrent: typeof cleanSettings.distanceCurrent === 'number' ? cleanSettings.distanceCurrent : DEFAULT_OVERLAY_SETTINGS.distanceCurrent,
+    distanceGoal: typeof cleanSettings.distanceGoal === 'number' ? cleanSettings.distanceGoal : DEFAULT_OVERLAY_SETTINGS.distanceGoal,
+    distanceUnit: (cleanSettings.distanceUnit === 'mi' || cleanSettings.distanceUnit === 'km' || cleanSettings.distanceUnit === 'm') ? cleanSettings.distanceUnit : DEFAULT_OVERLAY_SETTINGS.distanceUnit,
+    distanceTitle: cleanSettings.distanceTitle ?? DEFAULT_OVERLAY_SETTINGS.distanceTitle,
+    distanceIcon: cleanSettings.distanceIcon ?? DEFAULT_OVERLAY_SETTINGS.distanceIcon,
+    distanceAutoGps: cleanSettings.distanceAutoGps ?? DEFAULT_OVERLAY_SETTINGS.distanceAutoGps,
+    distanceColor: (cleanSettings.distanceColor === 'neon-green' || cleanSettings.distanceColor === 'electric-blue' || cleanSettings.distanceColor === 'cyber-pink' || cleanSettings.distanceColor === 'sunset-orange' || cleanSettings.distanceColor === 'gold') ? cleanSettings.distanceColor : DEFAULT_OVERLAY_SETTINGS.distanceColor,
+    distanceStyle: (cleanSettings.distanceStyle === 'default' || cleanSettings.distanceStyle === 'compact' || cleanSettings.distanceStyle === 'no-background' || cleanSettings.distanceStyle === 'borderless') ? cleanSettings.distanceStyle : DEFAULT_OVERLAY_SETTINGS.distanceStyle,
+    distanceX: typeof cleanSettings.distanceX === 'number' ? Math.min(Math.max(cleanSettings.distanceX, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.distanceX,
+    distanceY: typeof cleanSettings.distanceY === 'number' ? Math.min(Math.max(cleanSettings.distanceY, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.distanceY,
+    distanceScale: typeof cleanSettings.distanceScale === 'number' ? Math.min(Math.max(cleanSettings.distanceScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.distanceScale,
+    distanceMode: (cleanSettings.distanceMode === 'manual' || cleanSettings.distanceMode === 'destination') ? cleanSettings.distanceMode : DEFAULT_OVERLAY_SETTINGS.distanceMode,
+    destinationLat: typeof cleanSettings.destinationLat === 'number' ? cleanSettings.destinationLat : DEFAULT_OVERLAY_SETTINGS.destinationLat,
+    destinationLon: typeof cleanSettings.destinationLon === 'number' ? cleanSettings.destinationLon : DEFAULT_OVERLAY_SETTINGS.destinationLon,
+    destinationName: cleanSettings.destinationName ?? DEFAULT_OVERLAY_SETTINGS.destinationName,
+    startLat: (typeof cleanSettings.startLat === 'number' && Math.abs(cleanSettings.startLat - 25.7743) > 0.01) ? cleanSettings.startLat : undefined,
+    startLon: (typeof cleanSettings.startLon === 'number' && Math.abs(cleanSettings.startLon - (-80.1937)) > 0.01) ? cleanSettings.startLon : undefined,
+    autoSetStartOnGps: cleanSettings.autoSetStartOnGps ?? DEFAULT_OVERLAY_SETTINGS.autoSetStartOnGps,
+    todoTitle: cleanSettings.todoTitle ?? DEFAULT_OVERLAY_SETTINGS.todoTitle,
+    todoX: typeof cleanSettings.todoX === 'number' ? Math.min(Math.max(cleanSettings.todoX, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoX,
+    todoY: typeof cleanSettings.todoY === 'number' ? Math.min(Math.max(cleanSettings.todoY, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoY,
+    todoScale: typeof cleanSettings.todoScale === 'number' ? Math.min(Math.max(cleanSettings.todoScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoScale,
+    minimapShape: (cleanSettings.minimapShape === 'circle' || cleanSettings.minimapShape === 'square') ? cleanSettings.minimapShape : DEFAULT_OVERLAY_SETTINGS.minimapShape,
+    distanceFont: cleanSettings.distanceFont ?? DEFAULT_OVERLAY_SETTINGS.distanceFont,
+    distanceShowCurrentLocation: cleanSettings.distanceShowCurrentLocation ?? DEFAULT_OVERLAY_SETTINGS.distanceShowCurrentLocation,
   };
 
   return completeSettings;

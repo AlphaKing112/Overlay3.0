@@ -62,6 +62,11 @@ const CalorieTracker = dynamic(() => import('@/components/CalorieTracker').then(
   loading: () => null
 });
 
+const DistanceTracker = dynamic(() => import('@/components/DistanceTracker').then(mod => mod.DistanceTracker), {
+  ssr: false,
+  loading: () => null
+});
+
 // Flag component - simple SVG only, hidden until loaded to prevent alt text flash
 const LocationFlag = ({ countryCode }: { countryCode: string }) => {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -146,6 +151,15 @@ function OverlayPage() {
   const lastBitrateStateRef = useRef<'live' | 'offline' | null>(null);
 
   const [totalDistanceTracked, setTotalDistanceTracked] = useState(0); // In meters
+  const [currentGpsCoords, setCurrentGpsCoords] = useState<[number, number] | null>(null);
+  const hasAutoSetStartCoordsRef = useRef(false);
+
+  useEffect(() => {
+    if (!settings.startLat) {
+      hasAutoSetStartCoordsRef.current = false;
+    }
+  }, [settings.destinationLat, settings.destinationLon, settings.startLat]);
+
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
 
   // Persistent storage keys
@@ -159,8 +173,29 @@ function OverlayPage() {
   const completedTodoTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map()); // Track timers for hiding completed todos
 
   // Social media rotation state and logic
-  const [activeSocialIndex, setActiveSocialIndex] = useState(0);
+  const [socialVisible, setSocialVisible] = useState(true);
 
+  useEffect(() => {
+    if (settings.socialLoopAnimation) {
+      const showDuration = (settings.socialLoopShowDuration || 15) * 60 * 1000;
+      const hideDuration = (settings.socialLoopHideDuration || 15) * 60 * 1000;
+      
+      let timeoutId: NodeJS.Timeout;
+
+      const runLoop = (isShowing: boolean) => {
+        setSocialVisible(isShowing);
+        timeoutId = setTimeout(() => {
+          runLoop(!isShowing);
+        }, isShowing ? showDuration : hideDuration);
+      };
+
+      runLoop(true);
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      setSocialVisible(true);
+    }
+  }, [settings.socialLoopAnimation, settings.socialLoopShowDuration, settings.socialLoopHideDuration]);
   // Donation toast notification state
   const [donationToast, setDonationToast] = useState<{
     username: string;
@@ -242,43 +277,21 @@ function OverlayPage() {
 
   const activeSocials = useMemo(() => {
     const list = [];
-    if (settings.socialXEnabled && settings.socialXName) {
-      list.push({ type: 'x', name: settings.socialXName });
-    }
-    if (settings.socialYoutubeEnabled && settings.socialYoutubeName) {
-      list.push({ type: 'youtube', name: settings.socialYoutubeName });
-    }
-    if (settings.socialInstagramEnabled && settings.socialInstagramName) {
-      list.push({ type: 'instagram', name: settings.socialInstagramName });
-    }
-    if (settings.socialTiktokEnabled && settings.socialTiktokName) {
-      list.push({ type: 'tiktok', name: settings.socialTiktokName });
-    }
+    if (settings.socialKickEnabled) list.push('kick');
+    if (settings.socialTwitchEnabled) list.push('twitch');
+    if (settings.socialXEnabled) list.push('x');
+    if (settings.socialYoutubeEnabled) list.push('youtube');
+    if (settings.socialInstagramEnabled) list.push('instagram');
+    if (settings.socialTiktokEnabled) list.push('tiktok');
     return list;
   }, [
+    settings.socialKickEnabled,
+    settings.socialTwitchEnabled,
     settings.socialXEnabled,
-    settings.socialXName,
     settings.socialYoutubeEnabled,
-    settings.socialYoutubeName,
     settings.socialInstagramEnabled,
-    settings.socialInstagramName,
-    settings.socialTiktokEnabled,
-    settings.socialTiktokName
+    settings.socialTiktokEnabled
   ]);
-
-  useEffect(() => {
-    if (activeSocials.length <= 1) {
-      setActiveSocialIndex(0);
-      return;
-    }
-
-    const intervalSeconds = settings.socialRotateInterval || 5;
-    const intervalId = setInterval(() => {
-      setActiveSocialIndex((prevIndex) => (prevIndex + 1) % activeSocials.length);
-    }, intervalSeconds * 1000);
-
-    return () => clearInterval(intervalId);
-  }, [activeSocials, settings.socialRotateInterval]);
 
 
   // Rate-gating refs for external API calls
@@ -899,6 +912,13 @@ function OverlayPage() {
           filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4))',
         }}
       >
+        <style>{`
+          @keyframes slideShine {
+            0% { transform: skewX(-20deg) translateX(-150%); }
+            50% { transform: skewX(-20deg) translateX(150%); }
+            100% { transform: skewX(-20deg) translateX(150%); }
+          }
+        `}</style>
         {visibleGoals.map(goal => {
           const goalTarget = goal.goal || 100;
           const goalCurrent = goal.current || 0;
@@ -906,32 +926,103 @@ function OverlayPage() {
           const done = pct >= 100;
 
           return (
-            <div key={goal.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-              {/* Label + number inline, left-aligned — matches sub goal style */}
-              <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
-                <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  {goal.name}
-                </span>
-                <span style={{ color: done ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                  ${goalCurrent.toLocaleString(undefined, { minimumFractionDigits: goalCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${goalTarget.toLocaleString(undefined, { minimumFractionDigits: goalTarget % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-              {/* Progress bar */}
+            <div key={goal.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginBottom: '4px' }}>
+              {/* Progress bar with text inside */}
               <div style={{
-                height: 8,
-                borderRadius: 4,
-                background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)',
-                boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                overflow: 'hidden',
-                width: '100%'
+                position: 'relative',
+                minHeight: 46,
+                padding: '4px 0',
+                borderRadius: 8,
+                background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.25)',
+                boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
+                width: '100%',
+                border: '1px solid rgba(255,255,255,0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                overflow: 'hidden'
               }}>
+                {/* Glow behind the bar */}
                 <div style={{
-                  height: '100%',
+                  position: 'absolute',
+                  top: 0, left: 0, bottom: 0,
                   width: `${pct}%`,
-                  background: done ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                  borderRadius: 4,
-                  transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  background: done ? '#fbbf24' : '#22d3ee',
+                  filter: 'blur(4px)',
+                  opacity: 0.5,
+                  transition: 'width 0.8s cubic-bezier(0.34,1.56,0.64,1)',
+                  borderRadius: 8,
                 }} />
+                
+                {/* Actual bar fill */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0, left: 0, bottom: 0,
+                  width: `${pct}%`,
+                  background: done 
+                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24, #fcd34d)' 
+                    : 'linear-gradient(90deg, #0284c7, #0ea5e9, #38bdf8)',
+                  transition: 'width 0.8s cubic-bezier(0.34,1.56,0.64,1)',
+                  boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), inset 0 -1px 2px rgba(0,0,0,0.2)',
+                  borderRadius: 8,
+                  overflow: 'hidden'
+                }}>
+                  {/* Highlight stripe on the bar */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0, left: 0, right: 0, height: '40%',
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 100%)',
+                  }} />
+                  {/* Subtle animated shine */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0, left: 0, bottom: 0, width: '50%',
+                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                    animation: 'slideShine 3s infinite ease-in-out'
+                  }} />
+                </div>
+
+                {/* Content over the bar */}
+                <div style={{
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  width: '100%',
+                  padding: '4px 12px',
+                  zIndex: 2,
+                  gap: '2px'
+                }}>
+                  <span style={{ 
+                    color: done ? '#fbbf24' : '#fff', 
+                    fontWeight: 800, 
+                    fontSize: '0.95em', 
+                    textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 2px rgba(0,0,0,0.5)', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.05em',
+                    lineHeight: '1.2',
+                    textAlign: 'center',
+                    whiteSpace: 'normal',
+                    overflowWrap: 'break-word',
+                  }}>
+                    {goal.name}
+                  </span>
+                  <span style={{ 
+                    color: done ? '#fbbf24' : '#fff', 
+                    fontWeight: 800, 
+                    fontSize: '0.95em', 
+                    textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 2px rgba(0,0,0,0.5)',
+                    fontVariantNumeric: 'tabular-nums',
+                    textAlign: 'center'
+                  }}>
+                    <span style={{ color: '#fff', fontSize: '1.15em' }}>
+                      ${goalCurrent.toLocaleString(undefined, { minimumFractionDigits: goalCurrent % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                    </span>
+                    <span style={{ opacity: 0.8 }}>
+                      {' '} / ${goalTarget.toLocaleString(undefined, { minimumFractionDigits: goalTarget % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
+                    </span>
+                  </span>
+                </div>
               </div>
               
               {/* Countdown Timer */}
@@ -1918,6 +2009,22 @@ function OverlayPage() {
 
               // Store coordinates and timestamps for next speed calculation
               lastCoords.current = [lat, lon];
+              setCurrentGpsCoords([lat, lon]);
+
+              // Auto-capture initial journey start coordinates if autoSetStartOnGps is active or startLat is unset
+              if (
+                settingsRef.current.distanceMode === 'destination' &&
+                (settingsRef.current.autoSetStartOnGps || !settingsRef.current.startLat) &&
+                !hasAutoSetStartCoordsRef.current
+              ) {
+                hasAutoSetStartCoordsRef.current = true;
+                setSettings(prev => ({
+                  ...prev,
+                  startLat: parseFloat(lat.toFixed(5)),
+                  startLon: parseFloat(lon.toFixed(5)),
+                }));
+                OverlayLogger.overlay(`Auto-captured journey start location from RealtimeIRL: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+              }
               // Update total distance if moving
               if (prevCoords && roundedSpeed > 1) { // Only track if moving > 1 km/h to avoid GPS noise
                 const moved = distanceInMeters(lat, lon, prevCoords[0], prevCoords[1]);
@@ -2675,20 +2782,8 @@ function OverlayPage() {
 
   // Bitrate display logic
   const bitrateDisplay = useMemo(() => {
-    // Hide ONLY if hidden in settings
-    if (settings.bitrateDisplay === 'hidden') {
-      return null;
-    }
-
-    // Auto mode: hide if no data, 0 bitrate, or data is stale
+    // We always compute this so that the Low Bitrate Alert works independently of the widget visibility
     const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
-    if (settings.bitrateDisplay === 'auto' && (currentBitrate === null || currentBitrate <= 0 || isStale)) {
-      return null;
-    }
-
-    // Mode is 'always' OR mode is 'auto' with valid data
-    // If animated value is null but raw value isn't, use raw value
-    // This handles the very first frame before animation starts
     const bitrate = displayedBitrate !== null ? displayedBitrate : (currentBitrate || 0);
     const rtt = currentRtt;
 
@@ -2699,24 +2794,32 @@ function OverlayPage() {
 
     const criticalThreshold = settings.criticalBitrateThreshold ?? 900;
     const lowThreshold = settings.lowBitrateThreshold ?? 1300;
+    
+    // Treat stale data as 0 bitrate for warnings
+    const effectiveBitrate = (isStale && settings.bitrateDisplay === 'auto') ? 0 : bitrate;
 
     return {
       value: bitrate,
       formatted,
-      warningLevel: (bitrate <= 0) ? 'none' : (bitrate < criticalThreshold ? 'red' : (bitrate < lowThreshold ? 'yellow' : 'none'))
+      isStale,
+      warningLevel: (effectiveBitrate <= 0) ? 'none' : (effectiveBitrate < criticalThreshold ? 'red' : (effectiveBitrate < lowThreshold ? 'yellow' : 'none'))
     };
   }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp, settings.lowBitrateThreshold, settings.criticalBitrateThreshold, settings.showBitrateWarnings]);
 
   // Periodic bitrate stats fetcher
   useEffect(() => {
-    if (!API_KEYS.BITRATE_URL) {
-      console.warn('📡 Bitrate display is active but NEXT_PUBLIC_NOALBS_STATS_URL is not set in .env.local');
+    const key = settings.belaboxPublisherKey;
+    const bitrateUrl = key ? `https://stats.srt.belabox.net/${key}` : '';
+    const publisherKey = ''; // We take the first stream from their personal stats page
+
+    if (!bitrateUrl) {
+      console.warn('📡 Bitrate display is active but no Belabox URL is configured in settings or .env');
       return;
     }
 
-    console.log('📡 Bitrate debugger: Periodic fetching started from', API_KEYS.BITRATE_URL);
-    if (API_KEYS.SRT_PUBLISHER_KEY) {
-      console.log('📡 Bitrate debugger: Filtering for publisher key:', API_KEYS.SRT_PUBLISHER_KEY);
+    console.log('📡 Bitrate debugger: Periodic fetching started from', bitrateUrl);
+    if (publisherKey) {
+      console.log('📡 Bitrate debugger: Filtering for publisher key:', publisherKey);
     } else {
       console.log('📡 Bitrate debugger: No publisher key set, will use the first stream found.');
     }
@@ -2727,7 +2830,7 @@ function OverlayPage() {
     const fetchStats = async () => {
       if (!isActive) return;
 
-      const stats = await fetchBitrateStats(API_KEYS.BITRATE_URL!, API_KEYS.SRT_PUBLISHER_KEY);
+      const stats = await fetchBitrateStats(bitrateUrl, publisherKey);
 
       if (isActive) {
         if (stats) {
@@ -2765,10 +2868,14 @@ function OverlayPage() {
       isActive = false;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [settings.belaboxPublisherKey]);
 
   // Shared Bitrate JSX to avoid duplication
-  const isBitrateVisible = bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always');
+  // Handle Bitrate display visibility independently
+  const isBitrateVisible = bitrateDisplay && settings.bitrateDisplay !== 'hidden' && (
+    settings.bitrateDisplay === 'always' || 
+    (settings.bitrateDisplay === 'auto' && bitrateDisplay.value > 0 && !bitrateDisplay.isStale)
+  );
   
   const bitrateJSX = isBitrateVisible && (
     <div
@@ -2850,7 +2957,7 @@ function OverlayPage() {
       )}
 
       {/* Movement Data section */}
-      {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always'))) && (
+      {(altitudeDisplay || speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible)) && (
         <div className="movement-data-group">
           {altitudeDisplay && (
             <div className="weather weather-line movement-data-line">
@@ -2869,7 +2976,7 @@ function OverlayPage() {
   );
 
   const showTimeWeatherLocation = settings.showTimeWeatherLocation !== false;
-  const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && !!bitrateDisplay && (bitrateDisplay.value > 0 || settings.bitrateDisplay === 'always')));
+  const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
   const showTimeDate = showTimeWeatherLocation && ((isValidTimezone(timezone) && (!!timeDisplay.time || !!timeDisplay.date)) || !!API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && !!bitrateJSX));
 
   return (
@@ -2916,7 +3023,20 @@ function OverlayPage() {
 
           {/* To-Do List - Top Left (below time) */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'left' && (
-            <div className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ marginTop: '12px', alignSelf: 'flex-start' }}>
+            <div
+              className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`}
+              style={{
+                marginTop: '12px',
+                alignSelf: 'flex-start',
+                transform: `translate(${settings.todoX || 0}px, ${-(settings.todoY || 0)}px) scale(${settings.todoScale || 1.0})`,
+                transformOrigin: 'top left',
+              }}
+            >
+              {settings.todoTitle && (
+                <div className="todo-header-title" style={{ fontSize: '0.8em', fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                  {settings.todoTitle}
+                </div>
+              )}
               {visibleTodos
                 .sort((a, b) => (a.completed === b.completed ? 0 : a.completed ? 1 : -1))
                 .map((todo) => (
@@ -2940,7 +3060,7 @@ function OverlayPage() {
               className={`dono-toast ${donationToast.phase}`}
               style={{
                 marginTop: '8px',
-                transform: `scale(${settings.donationGoalsScale || 1})`,
+                transform: `translate(${settings.donationGoalsX || 0}px, ${settings.donationGoalsY || 0}px) scale(${settings.donationGoalsScale || 1})`,
                 transformOrigin: 'top left',
                 alignSelf: 'flex-start',
               }}
@@ -2990,7 +3110,20 @@ function OverlayPage() {
           {/* To-Do List - Top Right (below location) */}
           {/* Show todo list when enabled and there are visible todos */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'right' && (
-            <div className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`} style={{ marginTop: '12px', alignSelf: 'flex-end' }}>
+            <div
+              className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`}
+              style={{
+                marginTop: '12px',
+                alignSelf: 'flex-end',
+                transform: `translate(${settings.todoX || 0}px, ${-(settings.todoY || 0)}px) scale(${settings.todoScale || 1.0})`,
+                transformOrigin: 'top right',
+              }}
+            >
+              {settings.todoTitle && (
+                <div className="todo-header-title" style={{ fontSize: '0.8em', fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                  {settings.todoTitle}
+                </div>
+              )}
               {visibleTodos
                 .sort((a, b) => {
                   // Incomplete tasks first, then completed tasks
@@ -3018,7 +3151,7 @@ function OverlayPage() {
               className={`dono-toast ${donationToast.phase}`}
               style={{
                 marginTop: '8px',
-                transform: `scale(${settings.donationGoalsScale || 1})`,
+                transform: `translate(${settings.donationGoalsX || 0}px, ${settings.donationGoalsY || 0}px) scale(${settings.donationGoalsScale || 1})`,
                 transformOrigin: 'top right',
                 alignSelf: 'flex-end',
               }}
@@ -3032,119 +3165,60 @@ function OverlayPage() {
           )}
         </div>
 
-        {/* Top Middle Panel (Social Media Rotation) */}
-        {settings.showSocials !== false && settings.socialPosition !== 'bottom-left' && activeSocials.length > 0 && (
-          <div className="top-middle">
+        {/* Social Media Rotation Panel */}
+        {settings.showSocials !== false && activeSocials.length > 0 && (
+          <div className={settings.socialPosition === 'bottom-middle' ? 'bottom-middle' : 'top-middle'} style={{ transform: `translate(${settings.socialX || 0}px, ${-(settings.socialY || 0)}px) scale(${settings.socialScale || 1})`, transformOrigin: settings.socialPosition === 'bottom-middle' ? 'bottom center' : 'top center', opacity: socialVisible ? 1 : 0, transition: 'opacity 1.5s ease-in-out', pointerEvents: socialVisible ? 'auto' : 'none' }}>
             <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
-              {(() => {
-                const social = activeSocials[activeSocialIndex] || activeSocials[0];
-                if (!social) return null;
-                const theme = settings.socialTextTheme || 'default';
-
-                return (
-                  <div key={social.type} className="social-item" data-theme={theme} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--font-size-sm)', animation: 'fadeIn 0.5s ease' }}>
-                    {social.type === 'x' && (
-                      <>
-                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px' }}>
-                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                        </span>
-                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                      </>
-                    )}
-                    {social.type === 'youtube' && (
-                      <>
-                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#FF0000' }}>
-                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-                        </span>
-                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                      </>
-                    )}
-                    {social.type === 'instagram' && (
-                      <>
-                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#E1306C' }}>
-                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                        </span>
-                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                      </>
-                    )}
-                    {social.type === 'tiktok' && (
-                      <>
-                        <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#00f2fe' }}>
-                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.17-2.86-.74-3.94-1.74-.22-.2-.42-.43-.61-.67-.02 3.76-.01 7.52-.02 11.28-.19 3.28-2.6 6.08-5.88 6.55-3.71.53-7.26-1.97-7.9-5.62-.64-3.69 1.64-7.46 5.29-8.26.8-.17 1.62-.2 2.43-.07v4.18c-.68-.14-1.39-.14-2.07.03-1.63.39-2.73 2.02-2.52 3.69.21 1.68 1.69 2.92 3.38 2.77 1.73-.15 2.97-1.7 2.82-3.43V.02z"/></svg>
-                        </span>
-                        <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
+              <div className="social-item kick-style-text" data-theme={settings.socialTextTheme || 'default'} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'var(--font-size-sm)' }}>
+                <div className="social-icons-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {activeSocials.includes('kick') && (
+                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#53FC19', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>
+                    </span>
+                  )}
+                  {activeSocials.includes('twitch') && (
+                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#9146FF', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg>
+                    </span>
+                  )}
+                  {activeSocials.includes('x') && (
+                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'white', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>
+                    </span>
+                  )}
+                  {activeSocials.includes('youtube') && (
+                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#FF0000', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
+                      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    </span>
+                  )}
+                  {activeSocials.includes('instagram') && (
+                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#FF0069', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>
+                    </span>
+                  )}
+                  {activeSocials.includes('tiktok') && (
+                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'white', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                    </span>
+                  )}
+                </div>
+                <span className="social-name" style={{ fontFamily: settings.socialFontFamily || 'Impact' }}>{settings.socialName}</span>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Bottom Left Panel (Social Media & URLs) */}
-        {((settings.showSocials !== false && settings.socialPosition === 'bottom-left' && activeSocials.length > 0) ||
-          (settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0)) && (
+        {/* Bottom Left Panel (URLs) */}
+        {settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0 && (
           <div className="bottom-left">
-            {/* Social Media Panel */}
-            {settings.showSocials !== false && settings.socialPosition === 'bottom-left' && activeSocials.length > 0 && (
-              <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
-                {(() => {
-                  const social = activeSocials[activeSocialIndex] || activeSocials[0];
-                  if (!social) return null;
-                  const theme = settings.socialTextTheme || 'default';
-
-                  return (
-                    <div key={social.type} className="social-item" data-theme={theme} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--font-size-sm)', animation: 'fadeIn 0.5s ease' }}>
-                      {social.type === 'x' && (
-                        <>
-                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px' }}>
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                          </span>
-                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                        </>
-                      )}
-                      {social.type === 'youtube' && (
-                        <>
-                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#FF0000' }}>
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-                          </span>
-                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                        </>
-                      )}
-                      {social.type === 'instagram' && (
-                        <>
-                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#E1306C' }}>
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                          </span>
-                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                        </>
-                      )}
-                      {social.type === 'tiktok' && (
-                        <>
-                          <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', color: '#00f2fe' }}>
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.17-2.86-.74-3.94-1.74-.22-.2-.42-.43-.61-.67-.02 3.76-.01 7.52-.02 11.28-.19 3.28-2.6 6.08-5.88 6.55-3.71.53-7.26-1.97-7.9-5.62-.64-3.69 1.64-7.46 5.29-8.26.8-.17 1.62-.2 2.43-.07v4.18c-.68-.14-1.39-.14-2.07.03-1.63.39-2.73 2.02-2.52 3.69.21 1.68 1.69 2.92 3.38 2.77 1.73-.15 2.97-1.7 2.82-3.43V.02z"/></svg>
-                          </span>
-                          <span className="social-name" style={{ fontWeight: '800', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-compact)' }}>{social.name}</span>
-                        </>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* URLs Panel */}
-            {settings.showUrls && settings.urls && settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).length > 0 && (
-              <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
-                {settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).map(url => (
-                  <div key={url.id} className="url-item">
-                    <div className="url-label">{url.label}</div>
-                    <div className="url-address">{url.url}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className={`overlay-box ${!settings.showBackground ? 'no-background' : ''}`}>
+              {settings.urls.filter(u => u.active && (!u.type || u.type === 'text')).map(url => (
+                <div key={url.id} className="url-item">
+                  <div className="url-label">{url.label}</div>
+                  <div className="url-address">{url.url}</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -3178,7 +3252,7 @@ function OverlayPage() {
         }
         {/* Calorie Tracker */}
         {/* Twitch Sub Goals */}
-        {settings.showSubGoals && (() => {
+        {settings.showSubGoals && (settings.showTotalSubGoal !== false || settings.showDailySubGoal !== false) && (() => {
           const hideBg = !settings.showBackground || settings.donoShowBackground === false || settings.subGoalsStyle === 'no-background';
           const hideBars = settings.subGoalsStyle === 'text-only' || settings.subGoalsStyle === 'no-bars';
 
@@ -3191,6 +3265,21 @@ function OverlayPage() {
           const dailyCurrent = settings.dailySubLastReset === new Date().toLocaleDateString('en-CA') ? (settings.dailySubCurrent || 0) : 0;
           const dailyPct = dailyGoal > 0 ? Math.min(100, (dailyCurrent / dailyGoal) * 100) : 0;
           const dailyDone = dailyPct >= 100;
+
+          const getFontFamily = (fontTheme?: string) => {
+            switch (fontTheme) {
+              case 'neon': return '"Comic Sans MS", cursive, sans-serif';
+              case 'retro': return '"Courier New", Courier, monospace';
+              case 'impact': return 'Impact, sans-serif';
+              default: return 'inherit';
+            }
+          };
+          const fontFam = getFontFamily(settings.subGoalsFont);
+          const fontWght = settings.subGoalsFont === 'bold' ? 900 : 800;
+          const showShadow = settings.subGoalsShowStroke ?? true;
+          
+          // Use a dense 1px 8-directional text-shadow for a crisp outline on small font sizes without jagged edges
+          const shadowStyle = showShadow ? '1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000, 0px 4px 8px rgba(0,0,0,0.9)' : 'none';
 
           return (
             <div
@@ -3209,68 +3298,71 @@ function OverlayPage() {
                 zIndex: 50,
                 padding: '12px 16px',
                 pointerEvents: 'none',
-                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4))',
               }}
             >
               {/* Total Subs */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    TOTAL SUBS
-                  </span>
-                  <span style={{ color: totalDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                    {totalCurrent} / {totalGoal}
-                  </span>
-                </div>
-                {!hideBars && (
-                  <div style={{ 
-                    height: 8, 
-                    borderRadius: 4, 
-                    background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                    boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                    overflow: 'hidden', 
-                    width: '100%' 
-                  }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${totalPct}%`,
-                      background: totalDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                      borderRadius: 4,
-                      transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                    }} />
+              {settings.showTotalSubGoal !== false && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
+                    <span style={{ color: '#fff', fontFamily: fontFam, fontWeight: fontWght, fontSize: '0.9em', textShadow: shadowStyle, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                      TOTAL SUBS
+                    </span>
+                    <span style={{ color: totalDone ? '#fbbf24' : '#ffffff', fontFamily: fontFam, fontWeight: fontWght, fontSize: '0.85em', textShadow: shadowStyle }}>
+                      {totalCurrent} / {totalGoal}
+                    </span>
                   </div>
-                )}
-              </div>
+                  {!hideBars && (
+                    <div style={{ 
+                      height: 8, 
+                      borderRadius: 4, 
+                      background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                      boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                      overflow: 'hidden', 
+                      width: '100%' 
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${totalPct}%`,
+                        background: totalDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                        borderRadius: 4,
+                        transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                      }} />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Daily Subs */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9em', textShadow: 'var(--text-shadow)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    DAILY SUBS
-                  </span>
-                  <span style={{ color: dailyDone ? '#fbbf24' : '#ffffff', fontWeight: 800, fontSize: '0.85em', textShadow: 'var(--text-shadow)' }}>
-                    {dailyCurrent} / {dailyGoal}
-                  </span>
-                </div>
-                {!hideBars && (
-                  <div style={{ 
-                    height: 8, 
-                    borderRadius: 4, 
-                    background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
-                    boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
-                    overflow: 'hidden', 
-                    width: '100%' 
-                  }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${dailyPct}%`,
-                      background: dailyDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
-                      borderRadius: 4,
-                      transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                    }} />
+              {settings.showDailySubGoal !== false && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 6, width: '100%' }}>
+                    <span style={{ color: '#fff', fontFamily: fontFam, fontWeight: fontWght, fontSize: '0.9em', textShadow: shadowStyle, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                      DAILY SUBS
+                    </span>
+                    <span style={{ color: dailyDone ? '#fbbf24' : '#ffffff', fontFamily: fontFam, fontWeight: fontWght, fontSize: '0.85em', textShadow: shadowStyle }}>
+                      {dailyCurrent} / {dailyGoal}
+                    </span>
                   </div>
-                )}
-              </div>
+                  {!hideBars && (
+                    <div style={{ 
+                      height: 8, 
+                      borderRadius: 4, 
+                      background: hideBg ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.15)', 
+                      boxShadow: hideBg ? '0 0 4px rgba(0,0,0,0.8), inset 0 0 2px rgba(0,0,0,0.8)' : 'none',
+                      overflow: 'hidden', 
+                      width: '100%' 
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${dailyPct}%`,
+                        background: dailyDone ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                        borderRadius: 4,
+                        transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                      }} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -3283,6 +3375,72 @@ function OverlayPage() {
           x={settings.calorieTrackerX || 0}
           y={settings.calorieTrackerY || 0}
         />
+
+        {(() => {
+          const unit = settings.distanceUnit || 'mi';
+          const unitFactor = unit === 'km' ? 0.001 : unit === 'm' ? 1.0 : (1 / 1609.344);
+          let computedCurrent = settings.distanceCurrent !== undefined ? settings.distanceCurrent : 154;
+          let computedGoal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 378;
+          let computedTitle = settings.distanceTitle || '';
+
+          if (settings.distanceMode === 'destination') {
+            const destLat = settings.destinationLat ?? 40.7577;
+            const destLon = settings.destinationLon ?? -73.8252;
+            const activeCoords = currentGpsCoords || [destLat, destLon];
+            const startLat = settings.startLat ?? activeCoords[0];
+            const startLon = settings.startLon ?? activeCoords[1];
+
+            const totalMeters = distanceInMeters(startLat, startLon, destLat, destLon);
+            const remainingMeters = distanceInMeters(activeCoords[0], activeCoords[1], destLat, destLon);
+
+            // Arrival radius zone: if within 35 meters (~115 feet) of destination, mark as 100% COMPLETED!
+            const ARRIVAL_ZONE_METERS = 35;
+            const isArrived = remainingMeters <= ARRIVAL_ZONE_METERS;
+
+            // Progress to destination: straight line distance traveled from start point toward destination
+            const traveledMeters = isArrived
+              ? totalMeters
+              : Math.max(0, Math.min(totalMeters, totalMeters - remainingMeters));
+
+            computedCurrent = Math.round((traveledMeters * unitFactor) * 10) / 10;
+            computedGoal = Math.round((totalMeters * unitFactor) * 10) / 10;
+            if (computedGoal <= 0) computedGoal = 0.1;
+            if (isArrived) computedCurrent = computedGoal;
+          } else if (settings.distanceAutoGps) {
+            computedCurrent = Math.round(((settings.distanceCurrent || 0) + (totalDistanceTracked * unitFactor)) * 10) / 10;
+          }
+
+          const destNameFormatted = settings.destinationName
+            ? (settings.destinationName.toUpperCase().startsWith('TO:')
+                ? settings.destinationName.toUpperCase()
+                : `TO: ${settings.destinationName.toUpperCase()}`)
+            : '';
+
+          const liveLocFormatted = (settings.distanceShowCurrentLocation ?? true) && location?.primary
+            ? (location.primary.toUpperCase().startsWith('IN:')
+                ? location.primary.toUpperCase()
+                : `IN: ${location.primary.toUpperCase()}`)
+            : '';
+
+          return (
+            <DistanceTracker
+              current={computedCurrent}
+              goal={computedGoal}
+              unit={unit}
+              title={settings.distanceTitle || ''}
+              locationText={destNameFormatted}
+              currentLocationText={liveLocFormatted}
+              icon={settings.distanceIcon || '🛼'}
+              visible={settings.showDistanceTracker || false}
+              color={settings.distanceColor || 'neon-green'}
+              styleVariant={settings.distanceStyle || 'default'}
+              fontStyle={settings.distanceFont || 'default'}
+              scale={settings.distanceScale || 1.0}
+              x={settings.distanceX || 0}
+              y={settings.distanceY || 0}
+            />
+          );
+        })()}
 
 
         {/* Standalone Minimap Container */}
@@ -3303,7 +3461,7 @@ function OverlayPage() {
                 zIndex: 100,
                 pointerEvents: 'none',
                 filter: minimapVisible ? `blur(0px) ${settings.showBackground ? 'drop-shadow(0 10px 15px rgba(0,0,0,0.3))' : ''}` : 'blur(8px)',
-                borderRadius: '50%',
+                borderRadius: settings.minimapShape === 'square' ? '16px' : '50%',
                 overflow: 'hidden',
                 boxShadow: (minimapVisible && settings.showBackground) ? '0 10px 30px rgba(0, 0, 0, 0.4)' : 'none'
               }}
@@ -3315,9 +3473,11 @@ function OverlayPage() {
                     lon={mapCoords[1]}
                     isVisible={minimapVisible}
                     zoomLevel={settings.mapZoomLevel}
+                    customZoom={settings.customMapZoom}
                     timezone={timezone || undefined}
                     isNight={isNightTime}
                     mapStyle={settings.mapStyle}
+                    shape={settings.minimapShape || 'circle'}
                   />
                 </ErrorBoundary>
               ) : (

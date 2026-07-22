@@ -6,6 +6,9 @@ import { authenticatedFetch } from '@/lib/client-auth';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoomLevel, DisplayMode, TodoItem, UrlItem } from '@/types/settings';
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
+import * as workerTimers from 'worker-timers';
+import { parseCoordinateString, distanceInMeters } from '@/utils/location-utils';
+import { DistanceTracker } from '@/components/DistanceTracker';
 import '@/styles/admin.css';
 
 declare global {
@@ -501,105 +504,52 @@ export default function AdminPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.obsWebsocketUrl, settings.obsWebsocketPassword, syncStatus]);
 
-  // ===== OBS AUTO-SWITCH SCENE LOGIC (runs in Admin Panel, not overlay) =====
-  // This runs in your real Chrome browser which:
-  // 1. Already has a stable OBS WebSocket connection
-  // 2. Is never throttled by OBS's internal browser source
-  // 3. Can reliably poll bitrate and switch scenes
-  const autoSwitchLastStateRef = useRef<'live' | 'offline' | null>(null);
-  const autoSwitchFailuresRef = useRef<number>(0);
+  // ===== OBS AUTO-SWITCH BACKEND INTEGRATION =====
   const [autoSwitchStatus, setAutoSwitchStatus] = useState<string>('Idle');
 
   useEffect(() => {
-    if (!settings.obsAutoSwitchSceneToggle) {
-      autoSwitchLastStateRef.current = null;
-      setAutoSwitchStatus('Toggle is OFF');
-      return;
+    // 1. Tell backend to start or stop when the toggle changes
+    if (settings.obsAutoSwitchSceneToggle && settings.obsWebsocketUrl) {
+      fetch('/api/auto-switch-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start', settings })
+      }).catch(() => {});
+    } else {
+      fetch('/api/auto-switch-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' })
+      }).catch(() => {});
     }
-    if (!settings.obsOfflineSceneName && !settings.obsLiveSceneName) {
-      setAutoSwitchStatus('No scenes configured');
-      return;
-    }
+  }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsLiveSceneName, settings.obsOfflineSceneName, settings.belaboxPublisherKey]);
 
-    const BITRATE_URL = process.env.NEXT_PUBLIC_NOALBS_STATS_URL;
-    const PUBLISHER_KEY = process.env.NEXT_PUBLIC_SRT_PUBLISHER_KEY;
-
-    if (!BITRATE_URL) {
-      setAutoSwitchStatus('No bitrate URL configured');
-      return;
-    }
-
+  useEffect(() => {
+    // 2. Poll the backend for the current status to display in the UI
     let isActive = true;
-
-    const switchScene = async (sceneName: string) => {
-      if (!obsRef.current || obsStatus !== 'connected') {
-        console.warn('[AUTO-SWITCH] OBS not connected, cannot switch scene');
-        setAutoSwitchStatus(`❌ OBS not connected`);
+    const pollBackend = async () => {
+      if (!isActive) return;
+      if (!settings.obsAutoSwitchSceneToggle) {
+        setAutoSwitchStatus('Toggle is OFF');
         return;
       }
       try {
-        await obsRef.current.call('SetCurrentProgramScene', { sceneName });
-        console.log(`[AUTO-SWITCH] ✅ Switched to: ${sceneName}`);
-        setAutoSwitchStatus(`✅ Switched to: ${sceneName} at ${new Date().toLocaleTimeString()}`);
-        setObsCurrentScene(sceneName);
-      } catch {
-        try {
-          const v4Method = 'SetCurrentScene' as any;
-          await obsRef.current.call(v4Method, { 'scene-name': sceneName });
-          setAutoSwitchStatus(`✅ Switched to: ${sceneName} (v4) at ${new Date().toLocaleTimeString()}`);
-          setObsCurrentScene(sceneName);
-        } catch (v4Err: any) {
-          console.warn(`[AUTO-SWITCH] ❌ Failed to switch scene:`, v4Err?.message || v4Err);
-          setAutoSwitchStatus(`❌ Switch failed: ${v4Err?.message}`);
+        const res = await fetch('/api/auto-switch-service');
+        if (res.ok) {
+          const data = await res.json();
+          setAutoSwitchStatus(data.statusLog || 'Running in background...');
         }
+      } catch (e) {
+        setAutoSwitchStatus('Backend unreachable');
       }
-    };
-
-    const poll = async () => {
-      if (!isActive) return;
-
-      try {
-        // fetchBitrateStats handles fetching, CORS proxying, and parsing automatically
-        const stats = await fetchBitrateStats(BITRATE_URL, PUBLISHER_KEY);
-        const bitrateKbps = stats ? stats.bitrateKbps : 0;
-
-        const isLive = bitrateKbps > 0;
-        autoSwitchFailuresRef.current = isLive ? 0 : autoSwitchFailuresRef.current + 1;
-
-        setAutoSwitchStatus(`Polling: ${bitrateKbps} kbps, state=${autoSwitchLastStateRef.current || 'null'}`);
-
-        if (isLive && autoSwitchLastStateRef.current !== 'live') {
-          if (settings.obsLiveSceneName) {
-            autoSwitchLastStateRef.current = 'live';
-            await switchScene(settings.obsLiveSceneName);
-          }
-        } else if (!isLive && autoSwitchLastStateRef.current !== 'offline') {
-          if (settings.obsOfflineSceneName) {
-            autoSwitchLastStateRef.current = 'offline';
-            await switchScene(settings.obsOfflineSceneName);
-          }
-        }
-      } catch (err: any) {
-        autoSwitchFailuresRef.current++;
-        if (autoSwitchFailuresRef.current >= 3 && autoSwitchLastStateRef.current !== 'offline') {
-          if (settings.obsOfflineSceneName) {
-            autoSwitchLastStateRef.current = 'offline';
-            await switchScene(settings.obsOfflineSceneName);
-          }
-        }
-        setAutoSwitchStatus(`⚠️ Error (${autoSwitchFailuresRef.current}): ${err?.message}`);
-      }
-
       if (isActive) {
-        setTimeout(poll, 3000); // Poll every 3 seconds
+        setTimeout(pollBackend, 3000);
       }
     };
-
-    poll();
-
+    pollBackend();
     return () => { isActive = false; };
-  }, [settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLiveSceneName, obsStatus]);
-  // ===== END AUTO-SWITCH =====
+  }, [settings.obsAutoSwitchSceneToggle]);
+  // ===== END OBS AUTO-SWITCH BACKEND INTEGRATION =====
 
 
 
@@ -1248,7 +1198,20 @@ export default function AdminPage() {
                       { value: 'auto', label: 'Auto (Day/Night)', icon: '🌓' },
                       { value: 'standard', label: 'Standard', icon: '☀️' },
                       { value: 'dark', label: 'Dark Mode', icon: '🌙' },
-                      { value: 'gta', label: 'GTA / Schematic', icon: '🚁' }
+                      { value: 'gta', label: 'GTA / Schematic', icon: '🚁' },
+                      { value: 'gta5', label: 'GTA 5 Map', icon: '🗺️' }
+                    ]}
+                  />
+                </div>
+
+                <div className="setting-group">
+                  <label className="group-label">Map Shape</label>
+                  <RadioGroup
+                    value={settings.minimapShape || 'circle'}
+                    onChange={(value) => handleSettingsChange({ minimapShape: value as 'circle' | 'square' })}
+                    options={[
+                      { value: 'circle', label: 'Circle Map', icon: '⭕', description: 'Classic circular radar style' },
+                      { value: 'square', label: 'Square Map', icon: '🔳', description: 'Modern squared card style' }
                     ]}
                   />
                 </div>
@@ -1346,19 +1309,53 @@ export default function AdminPage() {
             )}
 
             <div className="setting-group">
-              <label className="group-label">Zoom Level</label>
+              <label className="group-label">Zoom Level Presets</label>
               <RadioGroup
                 value={settings.mapZoomLevel}
-                onChange={(value) => handleSettingsChange({ mapZoomLevel: value as MapZoomLevel })}
+                onChange={(value) => {
+                  const presetZoomMap: Record<string, number> = {
+                    neighbourhood: 15,
+                    city: 13,
+                    state: 8,
+                    country: 5,
+                    ocean: 3,
+                    continental: 1,
+                  };
+                  const zoomNum = presetZoomMap[value] || 15;
+                  handleSettingsChange({ mapZoomLevel: value as MapZoomLevel, customMapZoom: zoomNum });
+                }}
                 options={[
-                  { value: 'neighbourhood', label: 'Neighbourhood', icon: '🏘️' },
-                  { value: 'city', label: 'City', icon: '🏙️' },
-                  { value: 'state', label: 'State', icon: '🗺️' },
-                  { value: 'country', label: 'Country', icon: '🌍' },
-                  { value: 'ocean', label: 'Ocean', icon: '🌊' },
-                  { value: 'continental', label: 'Continental', icon: '🌎' }
+                  { value: 'neighbourhood', label: 'Neighbourhood (15x)', icon: '🏘️' },
+                  { value: 'city', label: 'City (13x)', icon: '🏙️' },
+                  { value: 'state', label: 'State (8x)', icon: '🗺️' },
+                  { value: 'country', label: 'Country (5x)', icon: '🌍' },
+                  { value: 'ocean', label: 'Ocean (3x)', icon: '🌊' },
+                  { value: 'continental', label: 'Continental (1x)', icon: '🌎' }
                 ]}
               />
+            </div>
+
+            <div className="setting-group" style={{ marginTop: '16px', background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label className="group-label" style={{ margin: 0, fontSize: '0.95rem' }}>🔍 Custom Zoom Scale</label>
+                <span style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#38bdf8', fontFamily: 'monospace', background: 'rgba(56,189,248,0.1)', padding: '2px 8px', borderRadius: '6px' }}>
+                  {(settings.customMapZoom ?? 15).toFixed(1)}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                step="0.25"
+                value={settings.customMapZoom ?? 15}
+                onChange={(e) => handleSettingsChange({ customMapZoom: parseFloat(e.target.value) })}
+                style={{ width: '100%', accentColor: '#38bdf8', height: '6px', cursor: 'pointer' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75em', color: '#94a3b8', marginTop: '6px' }}>
+                <span>1x (Continental)</span>
+                <span>10x (State/City)</span>
+                <span>20x (Max Zoom)</span>
+              </div>
             </div>
           </section>
 
@@ -1510,6 +1507,548 @@ export default function AdminPage() {
                         className="btn btn-secondary btn-small"
                         style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
                         onClick={() => handleSettingsChange({ calorieTrackerY: (settings.calorieTrackerY || 0) - 10 })}
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+
+          {/* Distance Goal Progress Bar Section */}
+          <section className="settings-section">
+            <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2>🛼 Distance Goal Progress Bar</h2>
+              <span className="badge" style={{ background: 'rgba(0, 255, 102, 0.15)', color: '#00ff66', border: '1px solid rgba(0, 255, 102, 0.3)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8em', fontWeight: 'bold' }}>
+                Walk / Skate / Run
+              </span>
+            </div>
+
+            <div className="setting-group">
+              <div className="checkbox-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showDistanceTracker ?? false}
+                    onChange={(e) => handleSettingsChange({ showDistanceTracker: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">Show Distance Progress Bar Overlay</span>
+                </label>
+                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
+                  Displays a sleek, animated glassmorphic progress bar overlay as you travel to your destination.
+                </p>
+              </div>
+            </div>
+
+            {settings.showDistanceTracker && (
+              <>
+                {/* Live Preview Box */}
+                {(() => {
+                  const unit = settings.distanceUnit || 'mi';
+                  const unitFactor = unit === 'km' ? 0.001 : unit === 'm' ? 1.0 : (1 / 1609.344);
+                  let previewCurrent = settings.distanceCurrent ?? 154;
+                  let previewGoal = settings.distanceGoal ?? 378;
+
+                  if (settings.distanceMode === 'destination') {
+                    const destLat = settings.destinationLat ?? 40.7577;
+                    const destLon = settings.destinationLon ?? -73.8252;
+                    const startLat = settings.startLat ?? (destLat - 0.05);
+                    const startLon = settings.startLon ?? (destLon - 0.05);
+
+                    const totalM = distanceInMeters(startLat, startLon, destLat, destLon);
+                    previewGoal = Math.round((totalM * unitFactor) * 10) / 10 || 1;
+                    previewCurrent = (settings.distanceCurrent !== undefined && settings.distanceCurrent !== 0)
+                      ? settings.distanceCurrent
+                      : Math.round((previewGoal * 0.4) * 10) / 10;
+                  }
+
+                  const pct = previewGoal > 0 ? Math.min(Math.max((previewCurrent / previewGoal) * 100, 0), 100) : 0;
+
+                  return (
+                    <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                      <div style={{ fontSize: '0.85em', fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>LIVE OVERLAY PREVIEW</span>
+                        <span>{pct.toFixed(1)}% Completed</span>
+                      </div>
+                      <div style={{ padding: '10px 0', overflowX: 'auto', display: 'flex', justifyContent: 'center' }}>
+                        <DistanceTracker
+                          current={previewCurrent}
+                          goal={previewGoal}
+                          title={settings.distanceTitle || ''}
+                          locationText={settings.destinationName ? `TO: ${settings.destinationName.toUpperCase()}` : ''}
+                          currentLocationText={(settings.distanceShowCurrentLocation ?? true) ? 'IN: FLUSHING, NY' : ''}
+                          icon={settings.distanceIcon || '🛼'}
+                          visible={true}
+                          color={settings.distanceColor || 'neon-green'}
+                          styleVariant={settings.distanceStyle || 'default'}
+                          fontStyle={settings.distanceFont || 'default'}
+                          scale={1}
+                          x={0}
+                          y={0}
+                          isDemo={true}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Mode Selector: Manual vs GPS Destination */}
+                <div className="setting-group" style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '16px', borderRadius: '10px', marginBottom: '16px' }}>
+                  <label className="group-label" style={{ marginBottom: '10px', color: '#00ff66', fontWeight: 'bold' }}>📍 Tracking Mode</label>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                      className={`btn ${settings.distanceMode !== 'destination' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => handleSettingsChange({ distanceMode: 'manual' })}
+                      style={{ flex: 1, minWidth: '160px', padding: '10px', fontWeight: 'bold' }}
+                    >
+                      📊 Manual / Step Counter
+                    </button>
+                    <button
+                      className={`btn ${settings.distanceMode === 'destination' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => handleSettingsChange({ distanceMode: 'destination' })}
+                      style={{ flex: 1, minWidth: '160px', padding: '10px', fontWeight: 'bold' }}
+                    >
+                      🎯 Realtime GPS Destination
+                    </button>
+                  </div>
+                </div>
+
+                {/* GPS Destination Target Controls */}
+                {settings.distanceMode === 'destination' ? (
+                  <div className="setting-group" style={{ background: 'rgba(0, 255, 102, 0.05)', border: '1px solid rgba(0, 255, 102, 0.2)', padding: '16px', borderRadius: '10px', marginBottom: '16px' }}>
+                    <label className="group-label" style={{ marginBottom: '12px', color: '#00ff66', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>🎯 Destination GPS Coords & Trip Setup</span>
+                      <span style={{ fontSize: '0.85em', opacity: 0.8, color: '#ffffff' }}>Auto-calculates progress from GPS</span>
+                    </label>
+
+                    {/* Destination Name */}
+                    <div style={{ marginBottom: '14px' }}>
+                      <label style={{ display: 'block', fontSize: '0.85em', opacity: 0.8, marginBottom: '6px' }}>Destination Name / Label</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Flushing, NY"
+                        value={settings.destinationName || ''}
+                        onChange={(e) => handleSettingsChange({ destinationName: e.target.value })}
+                        className="text-input"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+
+                    {/* Quick Paste Coords from Google Maps */}
+                    <div style={{ marginBottom: '14px', background: 'rgba(0, 255, 102, 0.08)', padding: '10px 12px', borderRadius: '8px', border: '1px dashed rgba(0, 255, 102, 0.3)' }}>
+                      <label style={{ display: 'block', fontSize: '0.85em', color: '#00ff66', fontWeight: 'bold', marginBottom: '4px' }}>
+                        📋 Quick Paste Google Maps Coords (Decimal or DMS)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Paste e.g. 40°45'27.8&quot;N 73°49'30.8&quot;W or 40.757727, -73.825222"
+                        onChange={(e) => {
+                          const parsed = parseCoordinateString(e.target.value);
+                          if (parsed) {
+                            handleSettingsChange({
+                              destinationLat: parsed.lat,
+                              destinationLon: parsed.lon,
+                            });
+                          }
+                        }}
+                        className="text-input"
+                        style={{ width: '100%', fontSize: '0.9em' }}
+                      />
+                      <span style={{ fontSize: '0.75em', opacity: 0.7, marginTop: '4px', display: 'block' }}>
+                        Paste any Google Maps format (DMS or Decimal) to auto-fill Destination Latitude & Longitude below!
+                      </span>
+                    </div>
+
+                    {/* Coordinates Inputs: Destination Lat/Lon & Start Lat/Lon */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                      {/* Destination Coords */}
+                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <label style={{ display: 'block', fontSize: '0.85em', color: '#00ff66', fontWeight: 'bold', marginBottom: '8px' }}>🏁 Destination Coords</label>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <div>
+                            <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Latitude</span>
+                            <input
+                              type="number"
+                              step="any"
+                              value={settings.destinationLat ?? 40.763621}
+                              onChange={(e) => handleSettingsChange({ destinationLat: parseFloat(e.target.value) || 0 })}
+                              className="text-input"
+                              style={{ width: '100%', fontSize: '0.9em' }}
+                            />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Longitude</span>
+                            <input
+                              type="number"
+                              step="any"
+                              value={settings.destinationLon ?? -73.828090}
+                              onChange={(e) => handleSettingsChange({ destinationLon: parseFloat(e.target.value) || 0 })}
+                              className="text-input"
+                              style={{ width: '100%', fontSize: '0.9em' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Start Coords */}
+                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <label style={{ display: 'block', fontSize: '0.85em', color: '#00d2ff', fontWeight: 'bold', marginBottom: '8px' }}>🚀 Journey Start Coords (Auto-set on start)</label>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <div>
+                            <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Latitude</span>
+                            <input
+                              type="number"
+                              step="any"
+                              placeholder="Auto-captured"
+                              value={settings.startLat ?? ''}
+                              onChange={(e) => handleSettingsChange({ startLat: e.target.value ? parseFloat(e.target.value) : undefined })}
+                              className="text-input"
+                              style={{ width: '100%', fontSize: '0.9em' }}
+                            />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Longitude</span>
+                            <input
+                              type="number"
+                              step="any"
+                              placeholder="Auto-captured"
+                              value={settings.startLon ?? ''}
+                              onChange={(e) => handleSettingsChange({ startLon: e.target.value ? parseFloat(e.target.value) : undefined })}
+                              className="text-input"
+                              style={{ width: '100%', fontSize: '0.9em' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Unit Selector */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <label style={{ fontSize: '0.85em', opacity: 0.8, marginRight: '8px' }}>Distance Unit:</label>
+                        <select
+                          value={settings.distanceUnit || 'mi'}
+                          onChange={(e) => handleSettingsChange({ distanceUnit: e.target.value as 'mi' | 'km' | 'm' })}
+                          className="text-input"
+                          style={{ padding: '4px 10px' }}
+                        >
+                          <option value="mi">Miles (mi)</option>
+                          <option value="km">Kilometers (km)</option>
+                          <option value="m">Meters (m)</option>
+                        </select>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          className="btn btn-primary btn-small"
+                          onClick={() => {
+                            handleSettingsChange({
+                              startLat: undefined,
+                              startLon: undefined,
+                              distanceCurrent: 0,
+                            });
+                          }}
+                          style={{ padding: '6px 12px', fontSize: '0.85em', background: '#00d2ff', color: '#000', fontWeight: 'bold' }}
+                        >
+                          🚀 Reset & Start New Journey
+                        </button>
+
+                        <button
+                          className="btn btn-secondary btn-small"
+                          onClick={() => {
+                            if (navigator.geolocation) {
+                              navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                  handleSettingsChange({
+                                    startLat: parseFloat(pos.coords.latitude.toFixed(5)),
+                                    startLon: parseFloat(pos.coords.longitude.toFixed(5)),
+                                  });
+                                },
+                                (err) => console.warn(err)
+                              );
+                            }
+                          }}
+                          style={{ padding: '6px 12px', fontSize: '0.85em' }}
+                        >
+                          📍 Set Browser GPS as Start
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Auto-set start location toggle */}
+                    <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.autoSetStartOnGps ?? true}
+                          onChange={(e) => handleSettingsChange({ autoSetStartOnGps: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        <span className="checkbox-text" style={{ fontSize: '0.88em' }}>Auto-set Start Coords from first RealtimeIRL GPS signal when starting stream</span>
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  /* Manual Mode Distance Controls */
+                  <div className="setting-group" style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '10px', marginBottom: '16px' }}>
+                    <label className="group-label" style={{ marginBottom: '12px', color: '#00ff66', fontWeight: 'bold' }}>⚡ Distance Controls</label>
+                    
+                    {/* Current & Goal Inputs */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.85em', opacity: 0.8, marginBottom: '6px' }}>Current Distance</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={settings.distanceCurrent ?? 154}
+                          onChange={(e) => handleSettingsChange({ distanceCurrent: parseFloat(e.target.value) || 0 })}
+                          className="text-input"
+                          style={{ width: '100%', fontSize: '1.1em', fontWeight: 'bold' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.85em', opacity: 0.8, marginBottom: '6px' }}>Goal Distance</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          value={settings.distanceGoal ?? 378}
+                          onChange={(e) => handleSettingsChange({ distanceGoal: parseFloat(e.target.value) || 1 })}
+                          className="text-input"
+                          style={{ width: '100%', fontSize: '1.1em', fontWeight: 'bold' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.85em', opacity: 0.8, marginBottom: '6px' }}>Distance Unit</label>
+                        <select
+                          value={settings.distanceUnit || 'mi'}
+                          onChange={(e) => handleSettingsChange({ distanceUnit: e.target.value as 'mi' | 'km' | 'm' })}
+                          className="text-input"
+                          style={{ width: '100%' }}
+                        >
+                          <option value="mi">Miles (mi)</option>
+                          <option value="km">Kilometers (km)</option>
+                          <option value="m">Meters (m)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Quick Distance Add Buttons */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8em', opacity: 0.7, marginBottom: '6px' }}>Quick Add Distance:</label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {[0.1, 0.5, 1.0, 5.0, 10.0].map((inc) => (
+                          <button
+                            key={inc}
+                            className="btn btn-secondary btn-small"
+                            onClick={() => handleSettingsChange({ distanceCurrent: Math.round(((settings.distanceCurrent || 0) + inc) * 10) / 10 })}
+                            style={{ padding: '6px 12px', fontWeight: 'bold' }}
+                          >
+                            +{inc} {settings.distanceUnit || 'mi'}
+                          </button>
+                        ))}
+                        <button
+                          className="btn btn-danger btn-small"
+                          onClick={() => handleSettingsChange({ distanceCurrent: 0 })}
+                          style={{ padding: '6px 12px' }}
+                        >
+                          Reset to 0
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Auto GPS Checkbox */}
+                    <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.distanceAutoGps ?? false}
+                          onChange={(e) => handleSettingsChange({ distanceAutoGps: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        <span className="checkbox-text" style={{ fontSize: '0.9em' }}>Auto-increment distance from live GPS movement</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Customization: Title & Icon */}
+                <div className="setting-group" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                  <div>
+                    <label className="group-label">Title / Subtitle Label</label>
+                    <input
+                      type="text"
+                      placeholder="Leave blank for no title (e.g. DAY 6/14)"
+                      value={settings.distanceTitle || ''}
+                      onChange={(e) => handleSettingsChange({ distanceTitle: e.target.value })}
+                      className="text-input"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="group-label">Activity Icon</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        placeholder="🛼"
+                        value={settings.distanceIcon || ''}
+                        onChange={(e) => handleSettingsChange({ distanceIcon: e.target.value })}
+                        className="text-input"
+                        style={{ width: '60px', textAlign: 'center', fontSize: '1.2em' }}
+                      />
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', flex: 1 }}>
+                        {['🛼', '🚶', '🏃', '🚲', '🥾', '📍', '🏆'].map((presetIcon) => (
+                          <button
+                            key={presetIcon}
+                            className={`btn btn-small ${settings.distanceIcon === presetIcon ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => handleSettingsChange({ distanceIcon: presetIcon })}
+                            style={{ padding: '4px 8px', fontSize: '1.1em' }}
+                          >
+                            {presetIcon}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Style & Color Theme */}
+                <div className="setting-group" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                  <div>
+                    <label className="group-label">Color Accent</label>
+                    <select
+                      value={settings.distanceColor || 'neon-green'}
+                      onChange={(e) => handleSettingsChange({ distanceColor: e.target.value as any })}
+                      className="text-input"
+                      style={{ width: '100%' }}
+                    >
+                      <option value="neon-green">🟢 Neon Green (Default)</option>
+                      <option value="electric-blue">🔵 Electric Blue</option>
+                      <option value="cyber-pink">🩷 Cyber Pink</option>
+                      <option value="sunset-orange">🟠 Sunset Orange</option>
+                      <option value="gold">🟡 Gold / Trophy</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="group-label">Visual Style</label>
+                    <select
+                      value={settings.distanceStyle || 'default'}
+                      onChange={(e) => handleSettingsChange({ distanceStyle: e.target.value as any })}
+                      className="text-input"
+                      style={{ width: '100%' }}
+                    >
+                      <option value="default">Glass Pill (Standard)</option>
+                      <option value="compact">Compact Pill</option>
+                      <option value="borderless">Borderless Glass</option>
+                      <option value="no-background">No Background (Transparent)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="group-label">Font Style</label>
+                    <select
+                      value={settings.distanceFont || 'default'}
+                      onChange={(e) => handleSettingsChange({ distanceFont: e.target.value as any })}
+                      className="text-input"
+                      style={{ width: '100%' }}
+                    >
+                      <option value="default">Default Monospace</option>
+                      <option value="neon">Playful (Comic)</option>
+                      <option value="retro">Retro Arcade Pixel</option>
+                      <option value="bold">Bold Thick</option>
+                      <option value="impact">Impact Condensed</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="group-label">Live Location Label</label>
+                    <label className="checkbox-label" style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', borderRadius: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', height: '42px' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.distanceShowCurrentLocation ?? true}
+                        onChange={(e) => handleSettingsChange({ distanceShowCurrentLocation: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text" style={{ fontSize: '0.85em', color: '#fff' }}>
+                        Include Live Current Area
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Scale and Position Controls */}
+                <div className="setting-group">
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '14px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                    {/* Scale Control */}
+                    <div style={{ flex: 1, minWidth: '150px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
+                        <span style={{ fontSize: '0.85em', fontWeight: 'bold' }}>{Math.round((settings.distanceScale || 1) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.0"
+                        step="0.05"
+                        value={settings.distanceScale || 1}
+                        onChange={(e) => handleSettingsChange({ distanceScale: parseFloat(e.target.value) })}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+
+                    {/* Position Controls (D-Pad) */}
+                    <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>
+                        Position ({settings.distanceX || 0}, {settings.distanceY || 0})
+                      </label>
+
+                      {/* Up Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ distanceY: (settings.distanceY || 0) - 10 })}
+                      >
+                        ▲
+                      </button>
+
+                      {/* Left, Reset, Right */}
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ distanceX: (settings.distanceX || 0) - 10 })}
+                        >
+                          ◀
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ distanceX: 0, distanceY: 0, distanceScale: 1 })}
+                        >
+                          Reset
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ distanceX: (settings.distanceX || 0) + 10 })}
+                        >
+                          ▶
+                        </button>
+                      </div>
+
+                      {/* Down Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ distanceY: (settings.distanceY || 0) + 10 })}
                       >
                         ▼
                       </button>
@@ -1993,7 +2532,18 @@ export default function AdminPage() {
                 
                 <div className="settings-grid">
                   <div className="setting-group">
-                  <label>Total Sub Goal:</label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <label style={{ margin: 0 }}>Total Sub Goal:</label>
+                    <label className="checkbox-label" style={{ fontSize: '0.85em' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.showTotalSubGoal ?? true}
+                        onChange={(e) => handleSettingsChange({ showTotalSubGoal: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      Show
+                    </label>
+                  </div>
                   <input
                     type="number"
                     className="text-input"
@@ -2019,7 +2569,18 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="setting-group">
-                  <label>Daily Sub Goal:</label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <label style={{ margin: 0 }}>Daily Sub Goal:</label>
+                    <label className="checkbox-label" style={{ fontSize: '0.85em' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.showDailySubGoal ?? true}
+                        onChange={(e) => handleSettingsChange({ showDailySubGoal: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      Show
+                    </label>
+                  </div>
                   <input
                     type="number"
                     className="text-input"
@@ -2097,7 +2658,7 @@ export default function AdminPage() {
                         onChange={(e) => handleSettingsChange({ subGoalsShowStroke: e.target.checked })}
                         className="checkbox-input"
                       />
-                      <span className="checkbox-text" style={{ fontSize: '0.9em', color: '#fff' }}>Enable Stroke</span>
+                      <span className="checkbox-text" style={{ fontSize: '0.9em', color: '#fff' }}>Drop Shadow</span>
                     </label>
                   </div>
 
@@ -2177,8 +2738,20 @@ export default function AdminPage() {
               <h2>📡 Bitrate & Network</h2>
             </div>
 
-
-
+            <div className="setting-group" style={{ marginBottom: '24px' }}>
+              <label className="group-label">Belabox Publisher Key</label>
+              <input
+                type="password"
+                placeholder="Enter your publisher key"
+                className="text-input"
+                value={settings.belaboxPublisherKey || ''}
+                onChange={(e) => handleSettingsChange({ belaboxPublisherKey: e.target.value })}
+                style={{ width: '100%' }}
+              />
+              <div style={{ fontSize: '0.8em', opacity: 0.7, marginTop: '8px' }}>
+                Automatically fetches from https://stats.srt.belabox.net
+              </div>
+            </div>
             <div className="setting-group">
               <label className="group-label">Bitrate Display</label>
               <RadioGroup
@@ -2351,7 +2924,7 @@ export default function AdminPage() {
               )}
 
               <p className="setting-description" style={{ marginTop: '12px', fontSize: '0.9em', opacity: 0.8 }}>
-                Requires <code>NEXT_PUBLIC_NOALBS_STATS_URL</code> to be set in <code>.env.local</code>.
+                Requires the Belabox Publisher Key to be set in the Bitrate section.
               </p>
             </div>
           </section>
@@ -2374,6 +2947,18 @@ export default function AdminPage() {
             </div>
 
             <div className="setting-group">
+              <label className="group-label">List Header / Title (Optional)</label>
+              <input
+                type="text"
+                placeholder="Leave blank for no title (e.g. TODAY'S TASKS)"
+                value={settings.todoTitle || ''}
+                onChange={(e) => handleSettingsChange({ todoTitle: e.target.value })}
+                className="text-input"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div className="setting-group">
               <label className="group-label">To-Do List Position</label>
               <RadioGroup
                 value={settings.todoListPosition || 'left'}
@@ -2383,6 +2968,79 @@ export default function AdminPage() {
                   { value: 'right', label: 'Top Right', icon: '➡️', description: 'Below location overlay' }
                 ]}
               />
+            </div>
+
+            {/* To-Do List Scale & Position Controls */}
+            <div className="setting-group">
+              <label className="group-label">Scale & Position Fine-Tuning</label>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '14px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                {/* Scale Control */}
+                <div style={{ flex: 1, minWidth: '150px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
+                    <span style={{ fontSize: '0.85em', fontWeight: 'bold' }}>{Math.round((settings.todoScale || 1) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2.0"
+                    step="0.05"
+                    value={settings.todoScale || 1}
+                    onChange={(e) => handleSettingsChange({ todoScale: parseFloat(e.target.value) })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* Position Controls (D-Pad) */}
+                <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>
+                    Position Offset ({settings.todoX || 0}, {settings.todoY || 0})
+                  </label>
+
+                  {/* Up Button */}
+                  <button
+                    className="btn btn-secondary btn-small"
+                    style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                    onClick={() => handleSettingsChange({ todoY: (settings.todoY || 0) + 10 })}
+                  >
+                    ▲
+                  </button>
+
+                  {/* Left, Reset, Right */}
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ todoX: (settings.todoX || 0) - 10 })}
+                    >
+                      ◀
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ todoX: 0, todoY: 0, todoScale: 1 })}
+                    >
+                      Reset
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ todoX: (settings.todoX || 0) + 10 })}
+                    >
+                      ▶
+                    </button>
+                  </div>
+
+                  {/* Down Button */}
+                  <button
+                    className="btn btn-secondary btn-small"
+                    style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                    onClick={() => handleSettingsChange({ todoY: (settings.todoY || 0) - 10 })}
+                  >
+                    ▼
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="setting-group">
@@ -2664,11 +3322,42 @@ export default function AdminPage() {
               <>
                 {/* Social Channels */}
                 <div className="setting-group" style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                  <label className="group-label" style={{ marginBottom: '12px' }}>Social Channels</label>
+                  <label className="group-label" style={{ marginBottom: '12px' }}>Global Social Username</label>
+                  <input
+                    type="text"
+                    placeholder="Enter your username (e.g. NICKLEE)"
+                    value={settings.socialName || ''}
+                    onChange={(e) => handleSettingsChange({ socialName: e.target.value })}
+                    style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff', marginBottom: '20px', fontSize: '1.1em' }}
+                  />
+
+                  <label className="group-label" style={{ marginBottom: '12px' }}>Enable Platforms</label>
                   
-                  {/* YouTube */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
-                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
+                    {/* Kick */}
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={settings.socialKickEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ socialKickEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Kick</span>
+                    </label>
+
+                    {/* Twitch */}
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={settings.socialTwitchEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ socialTwitchEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text">Twitch</span>
+                    </label>
+
+                    {/* YouTube */}
+                    <label className="checkbox-label">
                       <input
                         type="checkbox"
                         checked={settings.socialYoutubeEnabled ?? false}
@@ -2677,19 +3366,9 @@ export default function AdminPage() {
                       />
                       <span className="checkbox-text">YouTube</span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="YouTube channel name"
-                      value={settings.socialYoutubeName || ''}
-                      onChange={(e) => handleSettingsChange({ socialYoutubeName: e.target.value })}
-                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
-                      disabled={!settings.socialYoutubeEnabled}
-                    />
-                  </div>
 
-                  {/* Instagram */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
-                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                    {/* Instagram */}
+                    <label className="checkbox-label">
                       <input
                         type="checkbox"
                         checked={settings.socialInstagramEnabled ?? false}
@@ -2698,19 +3377,9 @@ export default function AdminPage() {
                       />
                       <span className="checkbox-text">Instagram</span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="Instagram username"
-                      value={settings.socialInstagramName || ''}
-                      onChange={(e) => handleSettingsChange({ socialInstagramName: e.target.value })}
-                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
-                      disabled={!settings.socialInstagramEnabled}
-                    />
-                  </div>
 
-                  {/* TikTok */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
-                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                    {/* TikTok */}
+                    <label className="checkbox-label">
                       <input
                         type="checkbox"
                         checked={settings.socialTiktokEnabled ?? false}
@@ -2719,19 +3388,9 @@ export default function AdminPage() {
                       />
                       <span className="checkbox-text">TikTok</span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="TikTok username"
-                      value={settings.socialTiktokName || ''}
-                      onChange={(e) => handleSettingsChange({ socialTiktokName: e.target.value })}
-                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
-                      disabled={!settings.socialTiktokEnabled}
-                    />
-                  </div>
 
-                  {/* Twitter / X */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <label className="checkbox-label" style={{ width: '130px', flexShrink: 0 }}>
+                    {/* X / Twitter */}
+                    <label className="checkbox-label">
                       <input
                         type="checkbox"
                         checked={settings.socialXEnabled ?? false}
@@ -2740,37 +3399,8 @@ export default function AdminPage() {
                       />
                       <span className="checkbox-text">X / Twitter</span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="X username"
-                      value={settings.socialXName || ''}
-                      onChange={(e) => handleSettingsChange({ socialXName: e.target.value })}
-                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
-                      disabled={!settings.socialXEnabled}
-                    />
                   </div>
                 </div>
-
-                {/* Rotator Interval */}
-                <div className="setting-group" style={{ marginTop: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <label className="group-label">Rotation Interval</label>
-                    <span style={{ fontSize: '0.9em', fontWeight: 'bold' }}>{settings.socialRotateInterval || 5} seconds</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="60"
-                    step="1"
-                    value={settings.socialRotateInterval || 5}
-                    onChange={(e) => handleSettingsChange({ socialRotateInterval: parseInt(e.target.value) })}
-                    style={{ width: '100%' }}
-                  />
-                  <p className="setting-description" style={{ marginTop: '4px' }}>
-                    Choose how many seconds each social media handle displays before rotating to the next.
-                  </p>
-                </div>
-
                 {/* Text Theme / Style */}
                 <div className="setting-group" style={{ marginTop: '16px' }}>
                   <label className="group-label">Rotator Style Theme</label>
@@ -2787,6 +3417,25 @@ export default function AdminPage() {
                   />
                 </div>
 
+                {/* Font Family */}
+                <div className="setting-group" style={{ marginTop: '16px' }}>
+                  <label className="group-label">Font Family</label>
+                  <RadioGroup
+                    value={settings.socialFontFamily || 'Impact'}
+                    onChange={(value) => handleSettingsChange({ socialFontFamily: value as string })}
+                    options={[
+                      { value: 'Impact', label: 'Impact (Default Kick)', icon: 'Aa' },
+                      { value: 'var(--font-anton)', label: 'Anton (Heavy Block)', icon: 'Aa' },
+                      { value: 'var(--font-bebas)', label: 'Bebas Neue (Tall/Clean)', icon: 'Aa' },
+                      { value: 'var(--font-oswald)', label: 'Oswald (Structured)', icon: 'Aa' },
+                      { value: 'var(--font-russo)', label: 'Russo One (Tech/Wide)', icon: 'Aa' },
+                      { value: 'var(--font-righteous)', label: 'Righteous (Modern/Round)', icon: 'Aa' },
+                      { value: 'var(--font-marker)', label: 'Permanent Marker (Handwritten)', icon: 'Aa' },
+                      { value: 'var(--font-bangers)', label: 'Bangers (Comic Book)', icon: 'Aa' }
+                    ]}
+                  />
+                </div>
+
                 {/* Position and Background */}
                 <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
                   <div style={{ flex: 1, minWidth: '200px' }}>
@@ -2796,9 +3445,60 @@ export default function AdminPage() {
                       onChange={(value) => handleSettingsChange({ socialPosition: value as any })}
                       options={[
                         { value: 'top-middle', label: 'Top Middle', icon: '⬆️' },
-                        { value: 'bottom-left', label: 'Bottom Left', icon: '↙️' }
+                        { value: 'bottom-middle', label: 'Bottom Middle', icon: '⬇️' }
                       ]}
                     />
+                  </div>
+                  <div className="setting-group" style={{ flex: 1, minWidth: '200px' }}>
+                    <label className="group-label">Offset Position ({settings.socialX || 0}, {settings.socialY || 0})</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                      {/* Up Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ socialY: (settings.socialY || 0) + 10 })}
+                      >
+                        ▲
+                      </button>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {/* Left Button */}
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ socialX: (settings.socialX || 0) - 10 })}
+                        >
+                          ◀
+                        </button>
+
+                        {/* Reset Button */}
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 8px', fontSize: '0.8em', fontWeight: 'bold' }}
+                          onClick={() => handleSettingsChange({ socialX: 0, socialY: 0 })}
+                        >
+                          Reset
+                        </button>
+
+                        {/* Right Button */}
+                        <button
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ socialX: (settings.socialX || 0) + 10 })}
+                        >
+                          ▶
+                        </button>
+                      </div>
+
+                      {/* Down Button */}
+                      <button
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 12px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ socialY: (settings.socialY || 0) - 10 })}
+                      >
+                        ▼
+                      </button>
+                    </div>
                   </div>
                   <div style={{ flex: 1, minWidth: '200px', display: 'flex', alignItems: 'center' }}>
                     <label className="checkbox-label" style={{ marginTop: '24px' }}>
@@ -2812,6 +3512,63 @@ export default function AdminPage() {
                     </label>
                   </div>
                 </div>
+                
+                {/* Scale */}
+                <div style={{ marginTop: '16px', maxWidth: '300px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
+                    <span style={{ fontSize: '0.85em' }}>{Math.round((settings.socialScale || 1) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2"
+                    step="0.1"
+                    className="range-slider"
+                    value={settings.socialScale || 1}
+                    onChange={(e) => handleSettingsChange({ socialScale: parseFloat(e.target.value) })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                {/* Animation Loop */}
+                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                  <label className="checkbox-label" style={{ marginBottom: '12px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.socialLoopAnimation ?? false}
+                      onChange={(e) => handleSettingsChange({ socialLoopAnimation: e.target.checked })}
+                      className="checkbox-input"
+                    />
+                    <span className="checkbox-text">Enable Show/Hide Animation Loop</span>
+                  </label>
+
+                  {settings.socialLoopAnimation && (
+                    <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
+                      <div style={{ flex: 1 }}>
+                        <label className="group-label" style={{ fontSize: '0.85em', opacity: 0.8 }}>Show Duration (mins)</label>
+                        <input
+                          type="number"
+                          className="text-input"
+                          min="1"
+                          value={settings.socialLoopShowDuration ?? 15}
+                          onChange={(e) => handleSettingsChange({ socialLoopShowDuration: Math.max(1, parseInt(e.target.value) || 15) })}
+                          style={{ marginTop: '4px' }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label className="group-label" style={{ fontSize: '0.85em', opacity: 0.8 }}>Hide Duration (mins)</label>
+                        <input
+                          type="number"
+                          className="text-input"
+                          min="1"
+                          value={settings.socialLoopHideDuration ?? 15}
+                          onChange={(e) => handleSettingsChange({ socialLoopHideDuration: Math.max(1, parseInt(e.target.value) || 15) })}
+                          style={{ marginTop: '4px' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </section>
@@ -2820,17 +3577,6 @@ export default function AdminPage() {
           <section className="settings-section">
             <div className="section-header">
               <h2>🔗 URLs</h2>
-              <div className="checkbox-group" style={{ marginTop: '8px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showUrls ?? false}
-                    onChange={(e) => handleSettingsChange({ showUrls: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Show on overlay</span>
-                </label>
-              </div>
             </div>
 
             <div className="setting-group">

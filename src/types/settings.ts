@@ -45,6 +45,7 @@ export interface OverlaySettings {
   showMinimap: boolean;
   minimapSpeedBased: boolean;
   mapZoomLevel: MapZoomLevel;
+  customMapZoom?: number;
   altitudeDisplay: DisplayMode;
   speedDisplay: DisplayMode;
   todos?: TodoItem[];
@@ -54,7 +55,7 @@ export interface OverlaySettings {
   swapLocationTimePositions?: boolean;
   minimapScale?: number;
   showBackground?: boolean;
-  mapStyle?: 'auto' | 'standard' | 'dark' | 'gta';
+  mapStyle?: 'auto' | 'standard' | 'dark' | 'gta' | 'gta5';
   bitrateDisplay?: DisplayMode;
   bitrateAnchor?: 'time' | 'location';
   showLowBitrateAlert?: boolean;
@@ -68,27 +69,58 @@ export interface OverlaySettings {
   lowBitrateAlertY?: number;
   lowBitrateAlertFont?: 'disabled' | 'default' | 'neon' | 'retro' | 'bold' | 'impact' | 'basic';
   todoListPosition?: 'left' | 'right';
+  todoTitle?: string;
+  todoX?: number;
+  todoY?: number;
+  todoScale?: number;
   showCalorieTracker?: boolean;
   calorieGoal?: number;
   calorieTrackerScale?: number;
   calorieTrackerX?: number;
   calorieTrackerY?: number;
+  showDistanceTracker?: boolean;
+  distanceCurrent?: number;
+  distanceGoal?: number;
+  distanceUnit?: 'mi' | 'km' | 'm';
+  distanceTitle?: string;
+  distanceIcon?: string;
+  distanceAutoGps?: boolean;
+  distanceColor?: 'neon-green' | 'electric-blue' | 'cyber-pink' | 'sunset-orange' | 'gold';
+  distanceStyle?: 'default' | 'compact' | 'no-background' | 'borderless';
+  distanceFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
+  distanceShowCurrentLocation?: boolean;
+  distanceX?: number;
+  distanceY?: number;
+  distanceScale?: number;
+  distanceMode?: 'manual' | 'destination';
+  destinationLat?: number;
+  destinationLon?: number;
+  destinationName?: string;
+  startLat?: number;
+  startLon?: number;
+  autoSetStartOnGps?: boolean;
   minimapX?: number;
   minimapY?: number;
   minimapPosition?: 'left' | 'right';
+  minimapShape?: 'circle' | 'square';
   showSocials?: boolean;
+  socialName?: string;
+  socialKickEnabled?: boolean;
+  socialTwitchEnabled?: boolean;
   socialXEnabled?: boolean;
-  socialXName?: string;
   socialYoutubeEnabled?: boolean;
-  socialYoutubeName?: string;
   socialInstagramEnabled?: boolean;
-  socialInstagramName?: string;
   socialTiktokEnabled?: boolean;
-  socialTiktokName?: string;
-  socialRotateInterval?: number;
-  socialPosition?: 'top-middle' | 'bottom-left';
+  socialPosition?: 'top-middle' | 'bottom-middle';
+  socialX?: number;
+  socialY?: number;
+  socialScale?: number;
   socialTextTheme?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   socialShowBackground?: boolean;
+  socialFontFamily?: string;
+  socialLoopAnimation?: boolean;
+  socialLoopShowDuration?: number;
+  socialLoopHideDuration?: number;
   donationGoals?: DonationGoal[];
   showDonationGoals?: boolean;
   donationGoalsX?: number;
@@ -98,6 +130,8 @@ export interface OverlaySettings {
   donoGoalText?: string;
   streamElementsEnabled?: boolean;
   streamElementsToken?: string;
+  belaboxUrl?: string;
+  belaboxPublisherKey?: string;
   twitchRevenueSplit?: number;
   donationGoalsDuration?: number;
   timeWeatherLocationScale?: number;
@@ -107,6 +141,8 @@ export interface OverlaySettings {
   dailyTipCurrent?: number;
   dailyTipLastReset?: string;
   showSubGoals?: boolean;
+  showTotalSubGoal?: boolean;
+  showDailySubGoal?: boolean;
   totalSubGoal?: number;
   totalSubCurrent?: number;
   dailySubGoal?: number;
@@ -146,6 +182,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   showMinimap: false,
   minimapSpeedBased: false,
   mapZoomLevel: 'city',
+  customMapZoom: 15,
   altitudeDisplay: 'auto',
   speedDisplay: 'auto',
   todos: [],
@@ -169,27 +206,58 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   lowBitrateAlertY: 0,
   lowBitrateAlertFont: 'default',
   todoListPosition: 'left',
+  todoTitle: '',
+  todoX: 0,
+  todoY: 0,
+  todoScale: 1.0,
   showCalorieTracker: false,
   calorieGoal: 500,
   calorieTrackerScale: 1,
   calorieTrackerX: 0,
   calorieTrackerY: 0,
+  showDistanceTracker: false,
+  distanceCurrent: 154,
+  distanceGoal: 378,
+  distanceUnit: 'mi',
+  distanceTitle: '',
+  distanceIcon: '🛼',
+  distanceAutoGps: false,
+  distanceColor: 'neon-green',
+  distanceStyle: 'default',
+  distanceFont: 'default',
+  distanceShowCurrentLocation: true,
+  distanceX: 0,
+  distanceY: 0,
+  distanceScale: 1.0,
+  distanceMode: 'manual',
+  destinationLat: 25.7617,
+  destinationLon: -80.1918,
+  destinationName: 'Destination',
+  startLat: undefined,
+  startLon: undefined,
+  autoSetStartOnGps: true,
   minimapX: 0,
   minimapY: 0,
   minimapPosition: 'left',
+  minimapShape: 'circle',
   showSocials: false,
+  socialName: '',
+  socialKickEnabled: false,
+  socialTwitchEnabled: false,
   socialXEnabled: false,
-  socialXName: '',
   socialYoutubeEnabled: false,
-  socialYoutubeName: '',
   socialInstagramEnabled: false,
-  socialInstagramName: '',
   socialTiktokEnabled: false,
-  socialTiktokName: '',
-  socialRotateInterval: 5,
   socialPosition: 'top-middle',
-  socialTextTheme: 'default',
+  socialX: 0,
+  socialY: 0,
+  socialScale: 1,
+  socialTextTheme: 'impact',
   socialShowBackground: true,
+  socialFontFamily: 'Impact',
+  socialLoopAnimation: false,
+  socialLoopShowDuration: 15,
+  socialLoopHideDuration: 15,
   donationGoals: [],
   showDonationGoals: false,
   donationGoalsX: 0,
@@ -199,6 +267,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   donoGoalText: 'DONO GOAL:',
   streamElementsEnabled: false,
   streamElementsToken: '',
+  belaboxUrl: '',
+  belaboxPublisherKey: '',
   twitchRevenueSplit: 50,
   donationGoalsDuration: 0,
   timeWeatherLocationScale: 1.0,
@@ -208,6 +278,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   dailyTipCurrent: 0,
   dailyTipLastReset: '',
   showSubGoals: false,
+  showTotalSubGoal: true,
+  showDailySubGoal: true,
   totalSubGoal: 50,
   totalSubCurrent: 0,
   dailySubGoal: 10,
@@ -248,6 +320,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   showMinimap: 'boolean',
   minimapSpeedBased: 'boolean',
   mapZoomLevel: 'string',
+  customMapZoom: 'number',
   altitudeDisplay: 'string',
   speedDisplay: 'string',
   showTodoList: 'boolean',
@@ -269,27 +342,58 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   lowBitrateAlertY: 'number',
   lowBitrateAlertFont: 'string',
   todoListPosition: 'string',
+  todoTitle: 'string',
+  todoX: 'number',
+  todoY: 'number',
+  todoScale: 'number',
   showCalorieTracker: 'boolean',
   calorieGoal: 'number',
   calorieTrackerScale: 'number',
   calorieTrackerX: 'number',
   calorieTrackerY: 'number',
+  showDistanceTracker: 'boolean',
+  distanceCurrent: 'number',
+  distanceGoal: 'number',
+  distanceUnit: 'string',
+  distanceTitle: 'string',
+  distanceIcon: 'string',
+  distanceAutoGps: 'boolean',
+  distanceColor: 'string',
+  distanceStyle: 'string',
+  distanceFont: 'string',
+  distanceShowCurrentLocation: 'boolean',
+  distanceX: 'number',
+  distanceY: 'number',
+  distanceScale: 'number',
+  distanceMode: 'string',
+  destinationLat: 'number',
+  destinationLon: 'number',
+  destinationName: 'string',
+  startLat: 'number',
+  startLon: 'number',
+  autoSetStartOnGps: 'boolean',
   minimapX: 'number',
   minimapY: 'number',
   minimapPosition: 'string',
+  minimapShape: 'string',
   showSocials: 'boolean',
+  socialName: 'string',
+  socialKickEnabled: 'boolean',
+  socialTwitchEnabled: 'boolean',
   socialXEnabled: 'boolean',
-  socialXName: 'string',
   socialYoutubeEnabled: 'boolean',
-  socialYoutubeName: 'string',
   socialInstagramEnabled: 'boolean',
-  socialInstagramName: 'string',
   socialTiktokEnabled: 'boolean',
-  socialTiktokName: 'string',
-  socialRotateInterval: 'number',
   socialPosition: 'string',
+  socialX: 'number',
+  socialY: 'number',
+  socialScale: 'number',
   socialTextTheme: 'string',
   socialShowBackground: 'boolean',
+  socialFontFamily: 'string',
+  socialLoopAnimation: 'boolean',
+  socialLoopShowDuration: 'number',
+  socialLoopHideDuration: 'number',
   showDonationGoals: 'boolean',
   donationGoalsX: 'number',
   donationGoalsY: 'number',
@@ -298,6 +402,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   donoGoalText: 'string',
   streamElementsEnabled: 'boolean',
   streamElementsToken: 'string',
+  belaboxUrl: 'string',
+  belaboxPublisherKey: 'string',
   twitchRevenueSplit: 'number',
   donationGoalsDuration: 'number',
   timeWeatherLocationScale: 'number',
@@ -307,6 +413,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   dailyTipCurrent: 'number',
   dailyTipLastReset: 'string',
   showSubGoals: 'boolean',
+  showTotalSubGoal: 'boolean',
+  showDailySubGoal: 'boolean',
   totalSubGoal: 'number',
   totalSubCurrent: 'number',
   dailySubGoal: 'number',

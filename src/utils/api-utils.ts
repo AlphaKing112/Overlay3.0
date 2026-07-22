@@ -678,7 +678,7 @@ export async function fetchBitrateStats(
       'Troubleshooting Checklist:\n' +
       '1. 🔴 IS YOUR STREAM LIVE? Stats are usually only available while you are streaming.\n' +
       '2. 🌐 Reachability: Check if your stats URL is accessible from your network.\n' +
-      '3. 🔑 Publisher Key: Ensure NEXT_PUBLIC_SRT_PUBLISHER_KEY matches your "Stream ID".\n' +
+      '3. 🔑 Publisher Key: Ensure your Publisher Key matches your "Stream ID" in Belabox.\n' +
       '4. 🏗️ Nginx Setup: If using Nginx NOALBS, ensure "rtmp_stat_format json" is enabled.\n' +
       '5. 🔄 Ports: Try ports 80, 8080, or 8181 in your .env.local.',
       'background: #D0021B; color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px;',

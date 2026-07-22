@@ -22,8 +22,7 @@ export function performStartupValidation(): void {
     locationiq: !!process.env.NEXT_PUBLIC_LOCATIONIQ_KEY,
     pulsoid: !!process.env.NEXT_PUBLIC_PULSOID_TOKEN,
     kv: !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
-    auth: !!process.env.ADMIN_PASSWORD,
-    bitrate: !!process.env.NEXT_PUBLIC_NOALBS_STATS_URL,
+    auth: !!process.env.ADMIN_PASSWORD
   };
 
   console.log('🔧 Feature availability:', features);
