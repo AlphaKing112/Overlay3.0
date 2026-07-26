@@ -420,6 +420,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     todoX: typeof cleanSettings.todoX === 'number' ? Math.min(Math.max(cleanSettings.todoX, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoX,
     todoY: typeof cleanSettings.todoY === 'number' ? Math.min(Math.max(cleanSettings.todoY, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoY,
     todoScale: typeof cleanSettings.todoScale === 'number' ? Math.min(Math.max(cleanSettings.todoScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoScale,
+    todoShowBackground: cleanSettings.todoShowBackground ?? DEFAULT_OVERLAY_SETTINGS.todoShowBackground,
     minimapShape: (cleanSettings.minimapShape === 'circle' || cleanSettings.minimapShape === 'square') ? cleanSettings.minimapShape : DEFAULT_OVERLAY_SETTINGS.minimapShape,
     distanceFont: cleanSettings.distanceFont ?? DEFAULT_OVERLAY_SETTINGS.distanceFont,
     distanceShowCurrentLocation: cleanSettings.distanceShowCurrentLocation ?? DEFAULT_OVERLAY_SETTINGS.distanceShowCurrentLocation,

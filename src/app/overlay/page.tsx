@@ -3034,7 +3034,7 @@ function OverlayPage() {
           {/* To-Do List - Top Left (below time) */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'left' && (
             <div
-              className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`}
+              className={`overlay-box todo-list-box ${(!settings.showBackground || settings.todoShowBackground === false) ? 'no-background' : ''}`}
               style={{
                 marginTop: '12px',
                 alignSelf: 'flex-start',
@@ -3121,7 +3121,7 @@ function OverlayPage() {
           {/* Show todo list when enabled and there are visible todos */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'right' && (
             <div
-              className={`overlay-box todo-list-box ${!settings.showBackground ? 'no-background' : ''}`}
+              className={`overlay-box todo-list-box ${(!settings.showBackground || settings.todoShowBackground === false) ? 'no-background' : ''}`}
               style={{
                 marginTop: '12px',
                 alignSelf: 'flex-end',

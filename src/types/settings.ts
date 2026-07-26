@@ -73,6 +73,7 @@ export interface OverlaySettings {
   todoX?: number;
   todoY?: number;
   todoScale?: number;
+  todoShowBackground?: boolean;
   showCalorieTracker?: boolean;
   calorieGoal?: number;
   calorieTrackerScale?: number;
@@ -212,6 +213,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   todoX: 0,
   todoY: 0,
   todoScale: 1.0,
+  todoShowBackground: true,
   showCalorieTracker: false,
   calorieGoal: 500,
   calorieTrackerScale: 1,
@@ -350,6 +352,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   todoX: 'number',
   todoY: 'number',
   todoScale: 'number',
+  todoShowBackground: 'boolean',
   showCalorieTracker: 'boolean',
   calorieGoal: 'number',
   calorieTrackerScale: 'number',

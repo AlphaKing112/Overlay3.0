@@ -366,6 +366,26 @@ body.overlay-page {
 }
 
 /* === TO-DO LIST STYLES === */
+.todo-list-box {
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.75));
+  transition: all 0.3s ease;
+}
+
+.todo-list-box.no-background {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 16px rgba(0, 0, 0, 0.85)) !important;
+}
+
+.todo-list-box.no-background .todo-header-title,
+.todo-list-box.no-background .todo-text,
+.todo-list-box.no-background .todo-checkbox-icon,
+.todo-list-box.no-background .todo-goal-progress {
+  text-shadow: 0 2px 4px #000000, 0 0 8px #000000, 0 0 12px rgba(0, 0, 0, 0.9) !important;
+}
+
 .todo-item {
   font-size: var(--font-size-sm);
   font-weight: 800;
@@ -376,6 +396,7 @@ body.overlay-page {
   align-items: center;
   gap: var(--gap-sm);
   text-align: left;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
 }
 
 .todo-item.completed {

@@ -1803,6 +1803,7 @@ export default function AdminPage() {
                               startLon: undefined,
                               distanceCurrent: 0,
                             });
+                            setToast({ type: 'saved', message: '🚀 Journey reset! Next GPS signal will auto-set your new start location.' });
                           }}
                           style={{ padding: '6px 12px', fontSize: '0.85em', background: '#00d2ff', color: '#000', fontWeight: 'bold' }}
                         >
@@ -3031,6 +3032,21 @@ export default function AdminPage() {
                   { value: 'right', label: 'Top Right', icon: '➡️', description: 'Below location overlay' }
                 ]}
               />
+            </div>
+
+            <div className="setting-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={settings.todoShowBackground ?? true}
+                  onChange={(e) => handleSettingsChange({ todoShowBackground: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text">Show Dark Card Background for To-Do List</span>
+              </label>
+              <span style={{ fontSize: '0.8em', opacity: 0.65, display: 'block', marginTop: '4px' }}>
+                Uncheck to remove background box and show crisp text with drop shadow outline.
+              </span>
             </div>
 
             {/* To-Do List Scale & Position Controls */}
