@@ -67,6 +67,41 @@
   contain: layout style paint;
 }
 
+/* === MOBILE & PREVIEW RESPONSIVE 16:9 CANVAS FIT === */
+@media screen and (max-width: 1024px) {
+  html, body {
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    background-color: #000000;
+  }
+
+  .overlay-container {
+    width: 1920px !important;
+    height: 1080px !important;
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform-origin: center center !important;
+    padding: 24px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Vertical / Portrait Mode on Phone: Scale down 1920x1080 to fit mobile width */
+@media screen and (max-width: 1024px) and (orientation: portrait) {
+  .overlay-container {
+    transform: translate(-50%, -50%) scale(calc(100vw / 1920)) !important;
+  }
+}
+
+/* Horizontal / Landscape Mode on Phone: Scale down 1920x1080 to fit mobile height */
+@media screen and (max-width: 1024px) and (orientation: landscape) {
+  .overlay-container {
+    transform: translate(-50%, -50%) scale(calc(100vh / 1080)) !important;
+  }
+}
+
 /* === GLOBAL RESET === */
 * {
   box-sizing: border-box;
