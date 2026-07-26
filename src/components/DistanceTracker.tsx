@@ -12,7 +12,7 @@ export interface DistanceTrackerProps {
   icon?: string;
   visible: boolean;
   color?: 'neon-green' | 'electric-blue' | 'cyber-pink' | 'sunset-orange' | 'gold';
-  styleVariant?: 'default' | 'compact' | 'no-background' | 'borderless';
+  styleVariant?: 'default' | 'compact' | 'cyberpunk' | 'minimal-bar' | 'no-background' | 'borderless';
   fontStyle?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   scale?: number;
   x?: number;
@@ -86,27 +86,35 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
 
   const availableLabels = useMemo(() => {
     const list: string[] = [];
-    if (title && title.trim()) list.push(title.trim());
-    if (locationText && locationText.trim()) list.push(locationText.trim());
-    if (currentLocationText && currentLocationText.trim()) list.push(currentLocationText.trim());
+    const mainTitle = (title && title.trim()) ? title.trim() : 'WALKING CHALLENGE';
+    list.push(mainTitle);
+
+    if (locationText && locationText.trim()) {
+      if (locationText.trim() !== mainTitle) list.push(locationText.trim());
+    }
+    if (currentLocationText && currentLocationText.trim()) {
+      if (currentLocationText.trim() !== mainTitle) list.push(currentLocationText.trim());
+    }
     return list;
   }, [title, locationText, currentLocationText]);
 
   const fontFamilyStyle = useMemo(() => {
     switch (fontStyle) {
       case 'neon':
-        return '"Comic Sans MS", cursive, sans-serif';
+        return 'var(--font-comic), "Comic Sans MS", cursive, sans-serif';
       case 'retro':
-        return '"Courier New", Courier, monospace';
+        return 'var(--font-courier), "Courier New", Courier, monospace';
       case 'bold':
-        return '"Arial Black", sans-serif';
+        return 'var(--font-russo), "Arial Black", sans-serif';
       case 'impact':
-        return 'Impact, sans-serif';
+        return 'var(--font-bebas), var(--font-anton), Impact, sans-serif';
       case 'default':
       default:
-        return "'JetBrains Mono', 'Roboto Mono', 'Courier New', monospace";
+        return "var(--font-inter), 'JetBrains Mono', 'Roboto Mono', monospace";
     }
   }, [fontStyle]);
+
+  const labelsKey = availableLabels.join('||');
 
   useEffect(() => {
     if (availableLabels.length <= 1) {
@@ -115,7 +123,7 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
       return;
     }
 
-    const rotationIntervalMs = isDemo ? 5000 : 2 * 60 * 1000; // 2 minutes for live overlay, 5s for admin preview
+    const rotationIntervalMs = isDemo ? 5000 : 8000; // 8 seconds for live overlay, 5s for admin preview
 
     const interval = setInterval(() => {
       setLabelFadeState('out');
@@ -126,7 +134,7 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
     }, rotationIntervalMs);
 
     return () => clearInterval(interval);
-  }, [availableLabels]);
+  }, [labelsKey, isDemo]);
 
   const displayedLabelText = availableLabels[activeLabelIndex] || availableLabels[0] || '';
 
@@ -167,8 +175,8 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
     <div
       className={`distance-tracker-root ${visible ? 'fade-in' : 'fade-out'} variant-${styleVariant} ${isDemo ? 'is-demo' : ''}`}
       style={{
-        transform: isDemo ? 'none' : `translate(${x}px, ${y}px) scale(${scale})`,
-        transformOrigin: 'bottom center',
+        transform: isDemo ? 'none' : `translate(calc(-50% + ${x}px), ${y}px) scale(${scale})`,
+        transformOrigin: 'top center',
       }}
     >
       <div className="distance-tracker-inner">
@@ -191,9 +199,7 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
             <div
               className="distance-progress-fill"
               style={{ width: `${percentage}%` }}
-            >
-              <div className="distance-fill-glow" />
-            </div>
+            />
 
             {/* Leading Edge Icon Marker (slips across bar) */}
             <div
@@ -225,10 +231,10 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
       <style jsx>{`
         .distance-tracker-root {
           position: ${isDemo ? 'relative' : 'fixed'};
-          bottom: ${isDemo ? 'auto' : '40px'};
+          top: ${isDemo ? 'auto' : '18px'};
           left: ${isDemo ? 'auto' : '50%'};
           margin-left: ${isDemo ? '0' : '0'};
-          transform-origin: bottom center;
+          transform-origin: top center;
           z-index: 999;
           font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
@@ -283,6 +289,24 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
         .variant-compact .distance-tracker-inner {
           padding: 6px 14px;
           gap: 10px;
+        }
+
+        .variant-cyberpunk .distance-tracker-inner {
+          border-radius: 4px;
+          background: rgba(5, 7, 14, 0.94);
+          border: 1.5px solid ${theme.accent};
+          box-shadow: 0 0 16px ${theme.glow}, inset 0 0 12px rgba(0, 0, 0, 0.9);
+          clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+        }
+
+        .variant-minimal-bar .distance-tracker-inner {
+          background: rgba(0, 0, 0, 0.55);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 8px;
+          padding: 5px 12px;
+          box-shadow: none;
         }
 
         /* Left Panel */
@@ -388,7 +412,7 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
           display: flex;
           align-items: center;
           flex-shrink: 0;
-          font-family: 'JetBrains Mono', 'Roboto Mono', 'Courier New', monospace;
+          font-family: ${fontFamilyStyle};
           white-space: nowrap;
           font-size: 12.5px;
           color: rgba(255, 255, 255, 0.95);

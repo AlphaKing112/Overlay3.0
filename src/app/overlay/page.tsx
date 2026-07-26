@@ -153,10 +153,12 @@ function OverlayPage() {
   const [totalDistanceTracked, setTotalDistanceTracked] = useState(0); // In meters
   const [currentGpsCoords, setCurrentGpsCoords] = useState<[number, number] | null>(null);
   const hasAutoSetStartCoordsRef = useRef(false);
+  const sessionStartCoordsRef = useRef<[number, number] | null>(null);
 
   useEffect(() => {
     if (!settings.startLat) {
       hasAutoSetStartCoordsRef.current = false;
+      sessionStartCoordsRef.current = null;
     }
   }, [settings.destinationLat, settings.destinationLon, settings.startLat]);
 
@@ -2018,12 +2020,20 @@ function OverlayPage() {
                 !hasAutoSetStartCoordsRef.current
               ) {
                 hasAutoSetStartCoordsRef.current = true;
+                const capturedStartLat = parseFloat(lat.toFixed(5));
+                const capturedStartLon = parseFloat(lon.toFixed(5));
+                sessionStartCoordsRef.current = [capturedStartLat, capturedStartLon];
                 setSettings(prev => ({
                   ...prev,
-                  startLat: parseFloat(lat.toFixed(5)),
-                  startLon: parseFloat(lon.toFixed(5)),
+                  startLat: capturedStartLat,
+                  startLon: capturedStartLon,
                 }));
-                OverlayLogger.overlay(`Auto-captured journey start location from RealtimeIRL: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+                fetch('/api/save-settings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ settings: { startLat: capturedStartLat, startLon: capturedStartLon } })
+                }).catch(err => OverlayLogger.error('Failed to save auto-captured start coords:', err));
+                OverlayLogger.overlay(`Auto-captured journey start location from RealtimeIRL: ${capturedStartLat}, ${capturedStartLon}`);
               }
               // Update total distance if moving
               if (prevCoords && roundedSpeed > 1) { // Only track if moving > 1 km/h to avoid GPS noise
@@ -3383,12 +3393,21 @@ function OverlayPage() {
           let computedGoal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 378;
           let computedTitle = settings.distanceTitle || '';
 
-          if (settings.distanceMode === 'destination') {
+          if (settings.isTestingFill && typeof settings.testFillProgress === 'number') {
+            computedGoal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 0.5;
+            computedCurrent = Math.round(((settings.testFillProgress / 100) * computedGoal) * 10) / 10;
+            if (settings.testFillProgress >= 100) computedCurrent = computedGoal;
+          } else if (settings.distanceMode === 'destination') {
             const destLat = settings.destinationLat ?? 40.7577;
             const destLon = settings.destinationLon ?? -73.8252;
             const activeCoords = currentGpsCoords || [destLat, destLon];
-            const startLat = settings.startLat ?? activeCoords[0];
-            const startLon = settings.startLon ?? activeCoords[1];
+
+            if (!sessionStartCoordsRef.current && currentGpsCoords) {
+              sessionStartCoordsRef.current = [currentGpsCoords[0], currentGpsCoords[1]];
+            }
+
+            const startLat = settings.startLat ?? (sessionStartCoordsRef.current ? sessionStartCoordsRef.current[0] : activeCoords[0]);
+            const startLon = settings.startLon ?? (sessionStartCoordsRef.current ? sessionStartCoordsRef.current[1] : activeCoords[1]);
 
             const totalMeters = distanceInMeters(startLat, startLon, destLat, destLon);
             const remainingMeters = distanceInMeters(activeCoords[0], activeCoords[1], destLat, destLon);

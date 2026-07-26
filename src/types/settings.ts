@@ -86,7 +86,7 @@ export interface OverlaySettings {
   distanceIcon?: string;
   distanceAutoGps?: boolean;
   distanceColor?: 'neon-green' | 'electric-blue' | 'cyber-pink' | 'sunset-orange' | 'gold';
-  distanceStyle?: 'default' | 'compact' | 'no-background' | 'borderless';
+  distanceStyle?: 'default' | 'compact' | 'cyberpunk' | 'minimal-bar' | 'no-background' | 'borderless';
   distanceFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   distanceShowCurrentLocation?: boolean;
   distanceX?: number;
@@ -99,6 +99,8 @@ export interface OverlaySettings {
   startLat?: number;
   startLon?: number;
   autoSetStartOnGps?: boolean;
+  isTestingFill?: boolean;
+  testFillProgress?: number;
   minimapX?: number;
   minimapY?: number;
   minimapPosition?: 'left' | 'right';
@@ -236,6 +238,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   startLat: undefined,
   startLon: undefined,
   autoSetStartOnGps: true,
+  isTestingFill: false,
+  testFillProgress: undefined,
   minimapX: 0,
   minimapY: 0,
   minimapPosition: 'left',
@@ -372,6 +376,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   startLat: 'number',
   startLon: 'number',
   autoSetStartOnGps: 'boolean',
+  isTestingFill: 'boolean',
+  testFillProgress: 'number',
   minimapX: 'number',
   minimapY: 'number',
   minimapPosition: 'string',

@@ -60,6 +60,9 @@ export default function AdminPage() {
   const [newGoalCurrent, setNewGoalCurrent] = useState('0');
   const [newGoalDuration, setNewGoalDuration] = useState('0');
 
+  // Fill animation test state
+  const [isTestingFillAnimation, setIsTestingFillAnimation] = useState(false);
+
   // Countdown timer tick state for Donation Goals countdown
   const [timeTick, setTimeTick] = useState(Date.now());
   useEffect(() => {
@@ -277,6 +280,46 @@ export default function AdminPage() {
       setTimeout(() => setToast(null), 5000);
     }
   }, [settings]);
+
+  const runTestFillAnimation = useCallback(() => {
+    if (isTestingFillAnimation) return;
+    setIsTestingFillAnimation(true);
+
+    const initialValue = settings.distanceCurrent || 0;
+    const goal = settings.distanceGoal || 0.5;
+    const steps = 20;
+    let currentStep = 0;
+
+    handleSettingsChange({
+      isTestingFill: true,
+      testFillProgress: 0,
+      distanceCurrent: 0
+    });
+
+    const interval = setInterval(() => {
+      currentStep++;
+      const pct = Math.round((currentStep / steps) * 100);
+      const nextVal = Math.round(((currentStep / steps) * goal) * 10) / 10;
+
+      handleSettingsChange({
+        isTestingFill: true,
+        testFillProgress: pct,
+        distanceCurrent: nextVal
+      });
+
+      if (currentStep >= steps) {
+        clearInterval(interval);
+        setTimeout(() => {
+          handleSettingsChange({
+            isTestingFill: false,
+            testFillProgress: undefined,
+            distanceCurrent: initialValue
+          });
+          setIsTestingFillAnimation(false);
+        }, 1500);
+      }
+    }, 250);
+  }, [isTestingFillAnimation, settings.distanceCurrent, settings.distanceGoal, handleSettingsChange]);
 
   // Debounced custom location handler
   const handleCustomLocationChange = useCallback((value: string) => {
@@ -1569,8 +1612,18 @@ export default function AdminPage() {
 
                   return (
                     <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                      <div style={{ fontSize: '0.85em', fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>LIVE OVERLAY PREVIEW</span>
+                      <div style={{ fontSize: '0.85em', fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span>LIVE OVERLAY PREVIEW</span>
+                          <button
+                            className="btn btn-primary btn-small"
+                            disabled={isTestingFillAnimation}
+                            onClick={runTestFillAnimation}
+                            style={{ padding: '3px 10px', fontSize: '0.8em', background: '#00ff66', color: '#000', fontWeight: 'bold', cursor: 'pointer' }}
+                          >
+                            {isTestingFillAnimation ? '⏳ Filling Bar...' : '🎬 Test Fill Animation'}
+                          </button>
+                        </div>
                         <span>{pct.toFixed(1)}% Completed</span>
                       </div>
                       <div style={{ padding: '10px 0', overflowX: 'auto', display: 'flex', justifyContent: 'center' }}>
@@ -1579,7 +1632,7 @@ export default function AdminPage() {
                           goal={previewGoal}
                           title={settings.distanceTitle || ''}
                           locationText={settings.destinationName ? `TO: ${settings.destinationName.toUpperCase()}` : ''}
-                          currentLocationText={(settings.distanceShowCurrentLocation ?? true) ? 'IN: FLUSHING, NY' : ''}
+                          currentLocationText={(settings.distanceShowCurrentLocation ?? true) ? 'IN: CURRENT LOCATION' : ''}
                           icon={settings.distanceIcon || '🛼'}
                           visible={true}
                           color={settings.distanceColor || 'neon-green'}
@@ -1854,6 +1907,14 @@ export default function AdminPage() {
                           </button>
                         ))}
                         <button
+                          className="btn btn-primary btn-small"
+                          disabled={isTestingFillAnimation}
+                          onClick={runTestFillAnimation}
+                          style={{ padding: '6px 12px', fontWeight: 'bold', background: '#00ff66', color: '#000' }}
+                        >
+                          {isTestingFillAnimation ? '⏳ Filling Bar...' : '🎬 Test Fill Animation'}
+                        </button>
+                        <button
                           className="btn btn-danger btn-small"
                           onClick={() => handleSettingsChange({ distanceCurrent: 0 })}
                           style={{ padding: '6px 12px' }}
@@ -1945,10 +2006,12 @@ export default function AdminPage() {
                       className="text-input"
                       style={{ width: '100%' }}
                     >
-                      <option value="default">Glass Pill (Standard)</option>
-                      <option value="compact">Compact Pill</option>
-                      <option value="borderless">Borderless Glass</option>
-                      <option value="no-background">No Background (Transparent)</option>
+                      <option value="default">✨ Glass Pill (Standard)</option>
+                      <option value="compact">⚡ Compact Pill</option>
+                      <option value="cyberpunk">🤖 Cyberpunk Neon HUD</option>
+                      <option value="minimal-bar">🧹 Minimal Slim Bar</option>
+                      <option value="borderless">🔲 Borderless Glass</option>
+                      <option value="no-background">👻 Frameless (Transparent)</option>
                     </select>
                   </div>
 
