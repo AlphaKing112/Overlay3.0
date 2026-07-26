@@ -3470,12 +3470,12 @@ function OverlayPage() {
               style={{
                 opacity: minimapOpacity,
                 position: 'absolute',
-                top: '20px',
+                bottom: '20px',
                 [settings.minimapPosition === 'right' ? 'right' : 'left']: '20px',
                 width: `${200 * ((settings.minimapScale || 100) / 100)}px`,
                 height: `${200 * ((settings.minimapScale || 100) / 100)}px`,
-                transform: `translate(${settings.minimapX || 0}px, ${-(settings.minimapY || 0)}px) 
-                            ${!minimapVisible ? 'scale(0.7) translateY(-40px) rotate(8deg)' : 'scale(1) translateY(0) rotate(0deg)'}`,
+                transform: `translate(${settings.minimapX || 0}px, ${-(Math.abs(settings.minimapY || 0) > 400 ? 0 : (settings.minimapY || 0))}px) 
+                            ${!minimapVisible ? 'scale(0.7) translateY(40px) rotate(8deg)' : 'scale(1) translateY(0) rotate(0deg)'}`,
                 transition: 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 zIndex: 100,
                 pointerEvents: 'none',
