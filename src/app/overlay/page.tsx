@@ -119,6 +119,13 @@ const EmbedUrl = ({ url }: { url: any }) => {
 function OverlayPage() {
   useRenderPerformance('OverlayPage');
 
+  useEffect(() => {
+    document.body.classList.add('overlay-page');
+    return () => {
+      document.body.classList.remove('overlay-page');
+    };
+  }, []);
+
   // Version parameter is added server-side via middleware to prevent OBS caching
   // No client-side code needed - middleware handles it before the page loads
 
