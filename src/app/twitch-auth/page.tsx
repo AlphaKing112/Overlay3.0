@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_KEYS } from '@/utils/overlay-constants';
 
 function TwitchAuthHandler() {
   const router = useRouter();
@@ -29,11 +30,13 @@ function TwitchAuthHandler() {
 
         setStatus('Authenticating with Twitch...');
 
+        const clientId = API_KEYS.TWITCH_CLIENT_ID;
+
         // Fetch user data from Twitch to get Broadcaster ID and Username
         const res = await fetch('https://api.twitch.tv/helix/users', {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
-            'Client-Id': 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw' // Hardcoded client ID as requested
+            'Client-Id': clientId
           }
         });
 
@@ -66,7 +69,7 @@ function TwitchAuthHandler() {
             twitchToken: accessToken,
             twitchBroadcasterId: broadcasterId,
             twitchUsername: username,
-            twitchClientId: 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw'
+            twitchClientId: clientId
           })
         });
 

@@ -1511,7 +1511,7 @@ function OverlayPage() {
     const broadcasterId = settings.twitchBroadcasterId;
     if (!token || !broadcasterId) return;
 
-    const clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+    const clientId = API_KEYS.TWITCH_CLIENT_ID;
 
     const syncTwitchSubs = async () => {
       try {

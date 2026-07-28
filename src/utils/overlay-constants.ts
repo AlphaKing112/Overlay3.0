@@ -78,6 +78,7 @@ export const API_KEYS = {
   LOCATIONIQ: process.env.NEXT_PUBLIC_LOCATIONIQ_KEY,
   PULSOID: process.env.NEXT_PUBLIC_PULSOID_TOKEN,
   OPENWEATHER: process.env.NEXT_PUBLIC_OPENWEATHERMAP_KEY,
+  TWITCH_CLIENT_ID: process.env.NEXT_PUBLIC_TWITCH_CLIENT_ID || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw',
 } as const;
 
 // Weather mapping constants

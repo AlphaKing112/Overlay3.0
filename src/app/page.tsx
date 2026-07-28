@@ -6,6 +6,7 @@ import { authenticatedFetch } from '@/lib/client-auth';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoomLevel, DisplayMode, TodoItem, UrlItem } from '@/types/settings';
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
+import { API_KEYS } from '@/utils/overlay-constants';
 import * as workerTimers from 'worker-timers';
 import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
 import { DistanceTracker } from '@/components/DistanceTracker';
@@ -358,7 +359,7 @@ export default function AdminPage() {
 
 
   const syncFromTwitch = useCallback(async () => {
-    const clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw'; // Hardcoded client ID for Lazesk Overlay
+    const clientId = API_KEYS.TWITCH_CLIENT_ID;
     if (!settings.twitchToken || !settings.twitchBroadcasterId) {
       setToast({ type: 'error', message: 'Please connect to Twitch first.' });
       setTimeout(() => setToast(null), 3000);
@@ -2602,7 +2603,7 @@ export default function AdminPage() {
                         className="btn btn-primary"
                         style={{ background: '#9146FF', color: 'white', padding: '12px', fontSize: '1em', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                         onClick={() => {
-                          const clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+                          const clientId = API_KEYS.TWITCH_CLIENT_ID;
                           const redirectUri = window.location.origin + '/twitch-auth';
                           const scope = 'channel:read:subscriptions';
                           const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
