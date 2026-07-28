@@ -714,9 +714,10 @@ export function isValidCoordinate(lat: number, lon: number): boolean {
  */
 export function parseCoordinateString(input: string): { lat: number; lon: number } | null {
   if (!input || !input.trim()) return null;
-  const str = input.trim();
+  // Clean surrounding parentheses (40.755,-73.985), brackets [40.755,-73.985], quotes, spaces
+  const str = input.trim().replace(/^[\(\[\{\s'"]+|[\)\]\}\s'"]+$/g, '').trim();
 
-  // Check simple decimal format: e.g. "40.757727, -73.825222" or "40.757727 -73.825222"
+  // Check simple decimal format: e.g. "40.757727, -73.825222" or "40.757727 -73.825222" or "(40.757727, -73.825222)"
   const decimalMatch = str.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
   if (decimalMatch) {
     const lat = parseFloat(decimalMatch[1]);
@@ -753,3 +754,80 @@ export function parseCoordinateString(input: string): { lat: number; lon: number
 
   return null;
 }
+
+export interface DistanceProgressResult {
+  current: number;
+  goal: number;
+  pct: number;
+  unit: 'mi' | 'km' | 'm';
+}
+
+/**
+ * Unified distance progress calculator for overlay and live overlay preview
+ */
+export function calculateDistanceProgress({
+  settings,
+  currentGpsCoords = null,
+  sessionStartCoords = null,
+  totalDistanceTracked = 0,
+}: {
+  settings: any;
+  currentGpsCoords?: [number, number] | null;
+  sessionStartCoords?: [number, number] | null;
+  totalDistanceTracked?: number;
+}): DistanceProgressResult {
+  const unit: 'mi' | 'km' | 'm' = settings.distanceUnit || 'mi';
+  const unitFactor = unit === 'km' ? 0.001 : unit === 'm' ? 1.0 : (1 / 1609.344);
+
+  let current = settings.distanceCurrent !== undefined ? settings.distanceCurrent : 154;
+  let goal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 378;
+
+  // 1) Test Fill Animation taking priority
+  if (settings.isTestingFill && typeof settings.testFillProgress === 'number') {
+    goal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 0.5;
+    current = Math.round(((settings.testFillProgress / 100) * goal) * 10) / 10;
+    if (settings.testFillProgress >= 100) current = goal;
+  }
+  // 2) Destination Mode
+  else if (settings.distanceMode === 'destination') {
+    const destLat = settings.destinationLat ?? 40.7577;
+    const destLon = settings.destinationLon ?? -73.8252;
+
+    const startLat = settings.startLat ?? (sessionStartCoords ? sessionStartCoords[0] : destLat - 0.05);
+    const startLon = settings.startLon ?? (sessionStartCoords ? sessionStartCoords[1] : destLon - 0.05);
+
+    const totalMeters = distanceInMeters(startLat, startLon, destLat, destLon);
+    goal = Math.round((totalMeters * unitFactor) * 10) / 10;
+    if (goal <= 0) goal = 0.1;
+
+    if (currentGpsCoords) {
+      const remainingMeters = distanceInMeters(currentGpsCoords[0], currentGpsCoords[1], destLat, destLon);
+      const ARRIVAL_ZONE_METERS = 35;
+      const isArrived = remainingMeters <= ARRIVAL_ZONE_METERS;
+
+      const traveledMeters = isArrived
+        ? totalMeters
+        : Math.max(0, Math.min(totalMeters, totalMeters - remainingMeters));
+
+      current = Math.round((traveledMeters * unitFactor) * 10) / 10;
+      if (isArrived) current = goal;
+    } else {
+      // When no live GPS stream, use settings.distanceCurrent directly
+      current = settings.distanceCurrent !== undefined ? settings.distanceCurrent : 0;
+    }
+  }
+  // 3) Auto GPS Tracking Mode
+  else if (settings.distanceAutoGps) {
+    current = Math.round(((settings.distanceCurrent || 0) + (totalDistanceTracked * unitFactor)) * 10) / 10;
+  }
+  // 4) Manual Mode
+  else {
+    current = settings.distanceCurrent !== undefined ? settings.distanceCurrent : 154;
+    goal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 378;
+  }
+
+  const pct = goal > 0 ? Math.min(Math.max((current / goal) * 100, 0), 100) : 0;
+
+  return { current, goal, pct, unit };
+}
+

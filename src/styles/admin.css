@@ -94,6 +94,38 @@
   gap: 0.5rem;
 }
 
+@media (max-width: 600px) {
+  .todo-item-admin {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.625rem;
+    padding: 0.875rem;
+  }
+
+  .todo-checkbox-label {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .todo-text-admin {
+    font-size: 0.875rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .todo-actions {
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 0.5rem;
+  }
+
+  .todo-actions .btn-small {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.8rem;
+  }
+}
+
 .todo-edit-input {
   flex: 1;
   padding: 0.5rem;
@@ -169,6 +201,9 @@ body {
 .admin-page {
   min-height: 100vh;
   background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Loading Screen */
@@ -997,34 +1032,46 @@ select.text-input option {
   }
   
   .radio-group.segmented .radio-option {
-    min-height: 2.75rem;
-    padding: 0.75rem 0.5rem;
-    font-size: 0.8rem;
-    min-width: 70px;
-    max-width: calc(50% - 0.125rem); /* 2 per row on mobile */
-    flex: 1 1 auto;
+    min-height: auto;
+    padding: 0.625rem 0.375rem;
+    font-size: 0.78rem;
+    min-width: 0;
+    max-width: calc(50% - 0.25rem); /* 2 per row on mobile for clean text readability */
+    flex: 1 1 calc(50% - 0.25rem);
+    box-sizing: border-box;
   }
   
   .radio-group.segmented .radio-option .radio-content {
-    gap: 0.1rem;
+    gap: 0.15rem;
+    width: 100%;
+    min-width: 0;
   }
   
   .radio-group.segmented .radio-option .radio-label {
-    font-size: 0.8rem;
-    line-height: 1.2;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    white-space: normal;
+    word-break: break-word;
+    overflow: visible;
+    text-overflow: clip;
+    text-align: center;
   }
   
   .radio-group.segmented .radio-option .radio-description {
-    font-size: 0.7rem;
-    line-height: 1.3;
+    font-size: 0.68rem;
+    line-height: 1.25;
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
+    word-break: break-word;
+    text-align: center;
+    opacity: 0.8;
   }
   
   .radio-group.segmented .radio-option .radio-icon {
-    font-size: 1rem;
-    margin-bottom: 0.125rem;
+    font-size: 0.95rem;
+    margin-bottom: 0.2rem;
+    display: inline-block;
   }
   
   /* Better mobile spacing */
@@ -1052,32 +1099,6 @@ select.text-input option {
     min-width: 0;
     padding: 1rem;
     font-size: 0.9rem;
-  }
-  
-  /* Special handling for location options on very small screens */
-  .radio-group.segmented {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-  }
-  
-  .radio-group.segmented .radio-option {
-    flex: 1 1 calc(33.333% - 0.25rem); /* 3 per row on very small screens */
-    min-width: 0;
-    padding: 0.625rem 0.25rem;
-    font-size: 0.75rem;
-    min-height: auto;
-    padding-bottom: 0.75rem;
-  }
-  
-  .radio-group.segmented .radio-option .radio-label {
-    font-size: 0.75rem;
-    line-height: 1.1;
-  }
-  
-  .radio-group.segmented .radio-option .radio-icon {
-    font-size: 0.875rem;
-    margin-bottom: 0.125rem;
   }
 }
 
@@ -1393,6 +1414,175 @@ select.text-input option {
   font-weight: 600;
   color: #f9fafb;
   user-select: none;
+}
+
+/* === URL SECTION STYLES === */
+.url-input-group {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.url-input-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.url-input-col.type-col {
+  flex: 1;
+  min-width: 120px;
+}
+
+.url-input-col.label-col {
+  flex: 1;
+  min-width: 130px;
+}
+
+.url-input-col.url-col {
+  flex: 2;
+  min-width: 200px;
+}
+
+.url-add-btn {
+  height: 42px;
+  align-self: flex-end;
+}
+
+.url-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.url-item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+
+.url-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.url-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.url-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.url-item-label {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #ffffff;
+}
+
+.url-item-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.url-item-badge.embed {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.url-item-badge.text {
+  background: rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+}
+
+.url-item-link-text {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  line-height: 1.35;
+  user-select: all;
+}
+
+.url-controls-container {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+  width: 100%;
+  margin-top: 0.25rem;
+  box-sizing: border-box;
+}
+
+.url-control-col {
+  flex: 1;
+  min-width: 140px;
+}
+
+@media (max-width: 600px) {
+  .url-input-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .url-input-col.type-col,
+  .url-input-col.label-col,
+  .url-input-col.url-col {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .url-add-btn {
+    width: 100%;
+    height: 44px;
+    align-self: stretch;
+  }
+
+  .url-controls-container {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .url-control-col {
+    width: 100%;
+    min-width: 100%;
+  }
 }
 
  

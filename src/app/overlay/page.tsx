@@ -25,7 +25,7 @@ const {
   MINIMAP_GPS_STALE_GRACE_PERIOD,
   BITRATE_UPDATE_INTERVAL,
 } = TIMERS;
-import { distanceInMeters } from '@/utils/location-utils';
+import { distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
 import { fetchWeatherAndTimezoneFromOpenWeatherMap, fetchLocationFromLocationIQ, fetchBitrateStats, type SunriseSunsetData } from '@/utils/api-utils';
 import { formatLocation, formatCountryName, type LocationData } from '@/utils/location-utils';
 import { checkRateLimit } from '@/utils/rate-limiting';
@@ -89,6 +89,19 @@ const LocationFlag = ({ countryCode }: { countryCode: string }) => {
 
 // Component for embedded URLs - Simplified for maximum compatibility
 const EmbedUrl = ({ url }: { url: any }) => {
+  const getDimensions = () => {
+    switch (url.resolution) {
+      case '800x600':
+        return { width: '800px', height: '600px' };
+      case '720p':
+        return { width: '1280px', height: '720px' };
+      case '1080p':
+      default:
+        return { width: '1920px', height: '1080px' };
+    }
+  };
+  const { width, height } = getDimensions();
+
   return (
     <iframe
       src={url.url}
@@ -96,8 +109,8 @@ const EmbedUrl = ({ url }: { url: any }) => {
         position: 'absolute',
         top: `${url.y || 0}px`,
         left: `${url.x || 0}px`,
-        width: '1920px',
-        height: '1080px',
+        width,
+        height,
         border: 'none',
         pointerEvents: 'none', // Allow click-through to underlying elements/game
         zIndex: 999,
@@ -118,13 +131,6 @@ const EmbedUrl = ({ url }: { url: any }) => {
 
 function OverlayPage() {
   useRenderPerformance('OverlayPage');
-
-  useEffect(() => {
-    document.body.classList.add('overlay-page');
-    return () => {
-      document.body.classList.remove('overlay-page');
-    };
-  }, []);
 
   // Version parameter is added server-side via middleware to prevent OBS caching
   // No client-side code needed - middleware handles it before the page loads
@@ -165,7 +171,26 @@ function OverlayPage() {
   useEffect(() => {
     if (!settings.startLat) {
       hasAutoSetStartCoordsRef.current = false;
-      sessionStartCoordsRef.current = null;
+      if (currentGpsCoords) {
+        const capturedLat = parseFloat(currentGpsCoords[0].toFixed(5));
+        const capturedLon = parseFloat(currentGpsCoords[1].toFixed(5));
+        sessionStartCoordsRef.current = [capturedLat, capturedLon];
+        hasAutoSetStartCoordsRef.current = true;
+        setSettings(prev => ({
+          ...prev,
+          startLat: capturedLat,
+          startLon: capturedLon,
+          distanceCurrent: 0,
+        }));
+        fetch('/api/save-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: { startLat: capturedLat, startLon: capturedLon, distanceCurrent: 0 } })
+        }).catch(err => OverlayLogger.error('Failed to auto-set reset start coords:', err));
+      } else {
+        sessionStartCoordsRef.current = null;
+      }
+      setTotalDistanceTracked(0);
     }
   }, [settings.destinationLat, settings.destinationLon, settings.startLat]);
 
@@ -1175,17 +1200,20 @@ function OverlayPage() {
         // Fetch total subs from SE API on connect
         const channelId = data?.channelId;
         const currentToken = seSettingsRef.current.streamElementsToken;
-        if (channelId && currentToken) {
+        if (channelId && currentToken && seSettingsRef.current.seAutoSyncTotals !== false) {
            fetch(`https://api.streamelements.com/kappa/v2/sessions/${channelId}`, {
               headers: { Authorization: `Bearer ${currentToken}` }
            })
            .then(res => res.json())
            .then(sessionData => {
-              const subTotal = sessionData?.data?.['subscriber-total']?.count;
-              const tipTotal = sessionData?.data?.['tip-total']?.amount;
+              const subTotalData = sessionData?.data?.['subscriber-total'] ?? sessionData?.data?.['subscriber-points'] ?? sessionData?.data?.['subscriber-session'];
+              const subTotal = typeof subTotalData === 'object' && subTotalData !== null
+                ? (subTotalData.count ?? subTotalData.amount)
+                : (typeof subTotalData === 'number' ? subTotalData : undefined);
+              const tipTotal = sessionData?.data?.['tip-total']?.amount ?? sessionData?.data?.['tip-total']?.count;
               const updates: any = {};
               
-              if (typeof subTotal === 'number' && seSettingsRef.current.totalSubCurrent !== subTotal) {
+              if (typeof subTotal === 'number' && seSettingsRef.current.totalSubCurrent !== subTotal && !seSettingsRef.current.twitchToken) {
                  updates.totalSubCurrent = subTotal;
               }
               if (typeof tipTotal === 'number' && seSettingsRef.current.totalTipCurrent !== tipTotal) {
@@ -1476,6 +1504,41 @@ function OverlayPage() {
     };
   }, [settings.streamElementsEnabled, settings.streamElementsToken]);
   // Note: twitchRevenueSplit intentionally excluded — read via seSettingsRef to avoid socket rebuild
+
+  // Direct periodic sync from Twitch API when Twitch integration is enabled
+  useEffect(() => {
+    const token = settings.twitchToken;
+    const broadcasterId = settings.twitchBroadcasterId;
+    if (!token || !broadcasterId) return;
+
+    const clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+
+    const syncTwitchSubs = async () => {
+      try {
+        const res = await fetch(`/api/twitch-subs?broadcasterId=${broadcasterId}&token=${token}&clientId=${clientId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const liveSubTotal = typeof data.total === 'number' ? data.total : (data.points ?? 0);
+          if (typeof liveSubTotal === 'number' && seSettingsRef.current.totalSubCurrent !== liveSubTotal) {
+            OverlayLogger.overlay(`Directly syncing Total Subs from Twitch API: ${liveSubTotal}`);
+            seSettingsRef.current = { ...seSettingsRef.current, totalSubCurrent: liveSubTotal };
+            setSettings(prev => ({ ...prev, totalSubCurrent: liveSubTotal }));
+            fetch('/api/save-settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ settings: { totalSubCurrent: liveSubTotal } })
+            }).catch(err => OverlayLogger.error('Failed to save Twitch sub total to KV:', err));
+          }
+        }
+      } catch (err) {
+        OverlayLogger.error('Failed to sync Twitch subs in overlay:', err);
+      }
+    };
+
+    syncTwitchSubs();
+    const interval = setInterval(syncTwitchSubs, 180000); // Poll Twitch API every 3 minutes to save invocations
+    return () => clearInterval(interval);
+  }, [settings.twitchToken, settings.twitchBroadcasterId]);
 
 
   // Persist completed todo timestamps to localStorage whenever they change
@@ -3394,47 +3457,16 @@ function OverlayPage() {
         />
 
         {(() => {
-          const unit = settings.distanceUnit || 'mi';
-          const unitFactor = unit === 'km' ? 0.001 : unit === 'm' ? 1.0 : (1 / 1609.344);
-          let computedCurrent = settings.distanceCurrent !== undefined ? settings.distanceCurrent : 154;
-          let computedGoal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 378;
-          let computedTitle = settings.distanceTitle || '';
-
-          if (settings.isTestingFill && typeof settings.testFillProgress === 'number') {
-            computedGoal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 0.5;
-            computedCurrent = Math.round(((settings.testFillProgress / 100) * computedGoal) * 10) / 10;
-            if (settings.testFillProgress >= 100) computedCurrent = computedGoal;
-          } else if (settings.distanceMode === 'destination') {
-            const destLat = settings.destinationLat ?? 40.7577;
-            const destLon = settings.destinationLon ?? -73.8252;
-            const activeCoords = currentGpsCoords || [destLat, destLon];
-
-            if (!sessionStartCoordsRef.current && currentGpsCoords) {
-              sessionStartCoordsRef.current = [currentGpsCoords[0], currentGpsCoords[1]];
-            }
-
-            const startLat = settings.startLat ?? (sessionStartCoordsRef.current ? sessionStartCoordsRef.current[0] : activeCoords[0]);
-            const startLon = settings.startLon ?? (sessionStartCoordsRef.current ? sessionStartCoordsRef.current[1] : activeCoords[1]);
-
-            const totalMeters = distanceInMeters(startLat, startLon, destLat, destLon);
-            const remainingMeters = distanceInMeters(activeCoords[0], activeCoords[1], destLat, destLon);
-
-            // Arrival radius zone: if within 35 meters (~115 feet) of destination, mark as 100% COMPLETED!
-            const ARRIVAL_ZONE_METERS = 35;
-            const isArrived = remainingMeters <= ARRIVAL_ZONE_METERS;
-
-            // Progress to destination: straight line distance traveled from start point toward destination
-            const traveledMeters = isArrived
-              ? totalMeters
-              : Math.max(0, Math.min(totalMeters, totalMeters - remainingMeters));
-
-            computedCurrent = Math.round((traveledMeters * unitFactor) * 10) / 10;
-            computedGoal = Math.round((totalMeters * unitFactor) * 10) / 10;
-            if (computedGoal <= 0) computedGoal = 0.1;
-            if (isArrived) computedCurrent = computedGoal;
-          } else if (settings.distanceAutoGps) {
-            computedCurrent = Math.round(((settings.distanceCurrent || 0) + (totalDistanceTracked * unitFactor)) * 10) / 10;
+          if (!sessionStartCoordsRef.current && currentGpsCoords) {
+            sessionStartCoordsRef.current = [currentGpsCoords[0], currentGpsCoords[1]];
           }
+
+          const { current: computedCurrent, goal: computedGoal, unit } = calculateDistanceProgress({
+            settings,
+            currentGpsCoords,
+            sessionStartCoords: sessionStartCoordsRef.current,
+            totalDistanceTracked,
+          });
 
           const destNameFormatted = settings.destinationName
             ? (settings.destinationName.toUpperCase().startsWith('TO:')

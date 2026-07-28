@@ -24,7 +24,16 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
-    return NextResponse.json({ total: data.total });
+    // Twitch Sub Goal displays sub points (e.g. 10/20 Sub Points)
+    const points = typeof data.points === 'number' ? data.points : (data.total ?? 0);
+    const total = typeof data.total === 'number' ? data.total : points;
+
+    return NextResponse.json({ 
+      total: points, 
+      points, 
+      subCount: total,
+      rawTotal: data.total 
+    });
   } catch (error) {
     console.error('Twitch API Proxy Error:', error);
     return NextResponse.json(

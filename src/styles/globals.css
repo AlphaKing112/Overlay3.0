@@ -67,10 +67,11 @@
   contain: layout style paint;
 }
 
-/* === MOBILE & PREVIEW RESPONSIVE 16:9 CANVAS FIT (OVERLAY PAGE ONLY) === */
+/* === MOBILE & PREVIEW RESPONSIVE 16:9 CANVAS FIT === */
 @media screen and (max-width: 1024px) {
-  body.overlay-page,
-  body:has(.overlay-container) {
+  html:has(.overlay-container),
+  body:has(.overlay-container),
+  body.overlay-page {
     overflow: hidden;
     width: 100%;
     height: 100%;
@@ -113,6 +114,10 @@ body {
   margin: 0;
   padding: 0;
   font-family: 'Montserrat', sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 /* Overlay page specific styles */

@@ -18,8 +18,18 @@ const russo = Russo_One({ subsets: ["latin"], weight: ["400"], display: "swap", 
 const righteous = Righteous({ subsets: ["latin"], weight: ["400"], display: "swap", variable: "--font-righteous" });
 const marker = Permanent_Marker({ subsets: ["latin"], weight: ["400"], display: "swap", variable: "--font-marker" });
 
-export const metadata = {
+import type { Metadata, Viewport } from "next";
+
+export const metadata: Metadata = {
   title: "IRL Stream Overlay",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

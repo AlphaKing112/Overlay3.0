@@ -18,6 +18,7 @@ export interface UrlItem {
   label: string;
   active: boolean;
   type: 'text' | 'embed';
+  resolution?: '800x600' | '720p' | '1080p';
   scale?: number;
   x?: number;
   y?: number;

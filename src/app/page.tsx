@@ -7,7 +7,7 @@ import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoom
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import * as workerTimers from 'worker-timers';
-import { parseCoordinateString, distanceInMeters } from '@/utils/location-utils';
+import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
 import { DistanceTracker } from '@/components/DistanceTracker';
 import '@/styles/admin.css';
 
@@ -53,6 +53,12 @@ export default function AdminPage() {
   const [urlLabelInput, setUrlLabelInput] = useState('');
   const [urlAddressInput, setUrlAddressInput] = useState('');
   const [urlTypeInput, setUrlTypeInput] = useState<'text' | 'embed'>('text');
+  const [urlResolutionInput, setUrlResolutionInput] = useState<'800x600' | '720p' | '1080p'>('1080p');
+
+  // URL editing state
+  const [editingUrlId, setEditingUrlId] = useState<string | null>(null);
+  const [editingUrlLabel, setEditingUrlLabel] = useState('');
+  const [editingUrlAddress, setEditingUrlAddress] = useState('');
 
   // Donation Goal input state
   const [newGoalName, setNewGoalName] = useState('');
@@ -376,7 +382,7 @@ export default function AdminPage() {
       }
       
       const result = await res.json();
-      const subTotal = result.total ?? 0;
+      const subTotal = typeof result.total === 'number' ? result.total : (result.points ?? 0);
       
       handleSettingsChange({
         totalSubCurrent: subTotal
@@ -1590,25 +1596,9 @@ export default function AdminPage() {
               <>
                 {/* Live Preview Box */}
                 {(() => {
-                  const unit = settings.distanceUnit || 'mi';
-                  const unitFactor = unit === 'km' ? 0.001 : unit === 'm' ? 1.0 : (1 / 1609.344);
-                  let previewCurrent = settings.distanceCurrent ?? 154;
-                  let previewGoal = settings.distanceGoal ?? 378;
-
-                  if (settings.distanceMode === 'destination') {
-                    const destLat = settings.destinationLat ?? 40.7577;
-                    const destLon = settings.destinationLon ?? -73.8252;
-                    const startLat = settings.startLat ?? (destLat - 0.05);
-                    const startLon = settings.startLon ?? (destLon - 0.05);
-
-                    const totalM = distanceInMeters(startLat, startLon, destLat, destLon);
-                    previewGoal = Math.round((totalM * unitFactor) * 10) / 10 || 1;
-                    previewCurrent = (settings.distanceCurrent !== undefined && settings.distanceCurrent !== 0)
-                      ? settings.distanceCurrent
-                      : Math.round((previewGoal * 0.4) * 10) / 10;
-                  }
-
-                  const pct = previewGoal > 0 ? Math.min(Math.max((previewCurrent / previewGoal) * 100, 0), 100) : 0;
+                  const { current: previewCurrent, goal: previewGoal, pct, unit } = calculateDistanceProgress({
+                    settings,
+                  });
 
                   return (
                     <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
@@ -1630,8 +1620,9 @@ export default function AdminPage() {
                         <DistanceTracker
                           current={previewCurrent}
                           goal={previewGoal}
+                          unit={unit}
                           title={settings.distanceTitle || ''}
-                          locationText={settings.destinationName ? `TO: ${settings.destinationName.toUpperCase()}` : ''}
+                          locationText={settings.destinationName ? (settings.destinationName.toUpperCase().startsWith('TO:') ? settings.destinationName.toUpperCase() : `TO: ${settings.destinationName.toUpperCase()}`) : ''}
                           currentLocationText={(settings.distanceShowCurrentLocation ?? true) ? 'IN: CURRENT LOCATION' : ''}
                           icon={settings.distanceIcon || '🛼'}
                           visible={true}
@@ -1697,10 +1688,21 @@ export default function AdminPage() {
                       </label>
                       <input
                         type="text"
-                        placeholder="Paste e.g. 40°45'27.8&quot;N 73°49'30.8&quot;W or 40.757727, -73.825222"
+                        placeholder="Paste e.g. (40.755601, -73.985850) or 40°45'27.8&quot;N 73°49'30.8&quot;W"
                         onChange={(e) => {
                           const parsed = parseCoordinateString(e.target.value);
                           if (parsed) {
+                            handleSettingsChange({
+                              destinationLat: parsed.lat,
+                              destinationLon: parsed.lon,
+                            });
+                          }
+                        }}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData('text');
+                          const parsed = parseCoordinateString(text);
+                          if (parsed) {
+                            e.preventDefault();
                             handleSettingsChange({
                               destinationLat: parsed.lat,
                               destinationLon: parsed.lon,
@@ -1711,7 +1713,7 @@ export default function AdminPage() {
                         style={{ width: '100%', fontSize: '0.9em' }}
                       />
                       <span style={{ fontSize: '0.75em', opacity: 0.7, marginTop: '4px', display: 'block' }}>
-                        Paste any Google Maps format (DMS or Decimal) to auto-fill Destination Latitude & Longitude below!
+                        Paste any Google Maps format e.g. (40.755601, -73.985850) to auto-fill Destination Latitude & Longitude immediately!
                       </span>
                     </div>
 
@@ -1728,6 +1730,17 @@ export default function AdminPage() {
                               step="any"
                               value={settings.destinationLat ?? 40.763621}
                               onChange={(e) => handleSettingsChange({ destinationLat: parseFloat(e.target.value) || 0 })}
+                              onPaste={(e) => {
+                                const text = e.clipboardData.getData('text');
+                                const parsed = parseCoordinateString(text);
+                                if (parsed) {
+                                  e.preventDefault();
+                                  handleSettingsChange({
+                                    destinationLat: parsed.lat,
+                                    destinationLon: parsed.lon,
+                                  });
+                                }
+                              }}
                               className="text-input"
                               style={{ width: '100%', fontSize: '0.9em' }}
                             />
@@ -1739,6 +1752,17 @@ export default function AdminPage() {
                               step="any"
                               value={settings.destinationLon ?? -73.828090}
                               onChange={(e) => handleSettingsChange({ destinationLon: parseFloat(e.target.value) || 0 })}
+                              onPaste={(e) => {
+                                const text = e.clipboardData.getData('text');
+                                const parsed = parseCoordinateString(text);
+                                if (parsed) {
+                                  e.preventDefault();
+                                  handleSettingsChange({
+                                    destinationLat: parsed.lat,
+                                    destinationLon: parsed.lon,
+                                  });
+                                }
+                              }}
                               className="text-input"
                               style={{ width: '100%', fontSize: '0.9em' }}
                             />
@@ -2623,12 +2647,6 @@ export default function AdminPage() {
                     type="number"
                     className="text-input"
                     value={settings.totalSubCurrent ?? 0}
-                    disabled={!!settings.twitchToken}
-                    style={{ 
-                      opacity: settings.twitchToken ? 0.5 : 1, 
-                      cursor: settings.twitchToken ? 'not-allowed' : 'text',
-                      backgroundColor: settings.twitchToken ? 'rgba(255,255,255,0.05)' : undefined
-                    }}
                     onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
                   />
                 </div>
@@ -3659,8 +3677,8 @@ export default function AdminPage() {
             </div>
 
             <div className="setting-group">
-              <div className="url-input-group" style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
+              <div className="url-input-group">
+                <div className="url-input-col type-col">
                   <label className="input-label" style={{ fontSize: '0.8em' }}>Type</label>
                   <select
                     className="text-input"
@@ -3672,7 +3690,20 @@ export default function AdminPage() {
                     <option value="embed">Embed (Browser Source)</option>
                   </select>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '120px' }}>
+                <div className="url-input-col res-col" style={{ flex: 1, minWidth: '110px' }}>
+                  <label className="input-label" style={{ fontSize: '0.8em' }}>Resolution</label>
+                  <select
+                    className="text-input"
+                    value={urlResolutionInput}
+                    onChange={(e) => setUrlResolutionInput(e.target.value as '800x600' | '720p' | '1080p')}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="1080p">1080p (1920x1080)</option>
+                    <option value="720p">720p (1280x720)</option>
+                    <option value="800x600">800x600 (800x600)</option>
+                  </select>
+                </div>
+                <div className="url-input-col label-col">
                   <label className="input-label" style={{ fontSize: '0.8em' }}>Label</label>
                   <input
                     type="text"
@@ -3683,7 +3714,7 @@ export default function AdminPage() {
                     style={{ width: '100%' }}
                   />
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 2, minWidth: '200px' }}>
+                <div className="url-input-col url-col">
                   <label className="input-label" style={{ fontSize: '0.8em' }}>URL</label>
                   <input
                     type="text"
@@ -3693,8 +3724,6 @@ export default function AdminPage() {
                     onChange={(e) => {
                       const val = e.target.value;
                       setUrlAddressInput(val);
-                      // Auto-detect embeddable URLs based on common keywords
-                      // This works for any site (Streamelements, Streamlabs, Stromno, etc.) that uses these terms
                       const lowerVal = val.toLowerCase();
                       if ((lowerVal.includes('widget') ||
                         lowerVal.includes('overlay') ||
@@ -3708,18 +3737,15 @@ export default function AdminPage() {
                   />
                 </div>
                 <button
-                  className="btn btn-primary btn-small"
-                  style={{ marginTop: '23px' }}
+                  className="btn btn-primary btn-small url-add-btn"
                   onClick={() => {
                     if (urlLabelInput.trim() && urlAddressInput.trim()) {
                       let finalUrl = urlAddressInput.trim();
 
-                      // Auto-fix YouTube watch links to embed links
                       if ((finalUrl.includes('youtube.com/watch') || finalUrl.includes('youtu.be/')) && !finalUrl.includes('/embed/')) {
                         const videoId = finalUrl.match(/(?:v=|youtu\.be\/)([\w-]+)/)?.[1];
                         if (videoId) {
                           finalUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-                          // Force type to embed if it wasn't already
                           if (urlTypeInput === 'text') setUrlTypeInput('embed');
                         }
                       }
@@ -3730,6 +3756,7 @@ export default function AdminPage() {
                         url: finalUrl,
                         active: true,
                         type: urlTypeInput,
+                        resolution: urlResolutionInput,
                         scale: 1,
                         x: 0,
                         y: 0
@@ -3739,6 +3766,7 @@ export default function AdminPage() {
                       setUrlLabelInput('');
                       setUrlAddressInput('');
                       setUrlTypeInput('text');
+                      setUrlResolutionInput('1080p');
                     }
                   }}
                   disabled={!urlLabelInput.trim() || !urlAddressInput.trim()}
@@ -3750,133 +3778,221 @@ export default function AdminPage() {
               {settings.urls && settings.urls.length > 0 && (
                 <div className="url-list">
                   {settings.urls.map((urlItem) => (
-                    <div key={urlItem.id} className="todo-item-admin" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px', borderBottom: '1px solid var(--border-color)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, overflow: 'hidden' }}>
-                        <label className="todo-checkbox-label" style={{ marginBottom: 0 }}>
-                          <input
-                            type="checkbox"
-                            checked={urlItem.active}
-                            onChange={() => {
+                    <div key={urlItem.id} className="url-item-card">
+                      {editingUrlId === urlItem.id ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', padding: '4px 0' }}>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ flex: 1, minWidth: '120px' }}>
+                              <label className="input-label" style={{ fontSize: '0.75em' }}>Label</label>
+                              <input
+                                type="text"
+                                className="text-input"
+                                value={editingUrlLabel}
+                                onChange={(e) => setEditingUrlLabel(e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', fontSize: '0.85em' }}
+                              />
+                            </div>
+                            <div style={{ flex: 2, minWidth: '200px' }}>
+                              <label className="input-label" style={{ fontSize: '0.75em' }}>URL</label>
+                              <input
+                                type="text"
+                                className="text-input"
+                                value={editingUrlAddress}
+                                onChange={(e) => setEditingUrlAddress(e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', fontSize: '0.85em' }}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              onClick={() => setEditingUrlId(null)}
+                              style={{ padding: '4px 12px', fontSize: '0.8em' }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              className="btn btn-primary btn-small"
+                              onClick={() => {
+                                if (editingUrlLabel.trim() && editingUrlAddress.trim()) {
+                                  const updatedUrls = settings.urls!.map(u =>
+                                    u.id === urlItem.id ? { ...u, label: editingUrlLabel.trim(), url: editingUrlAddress.trim() } : u
+                                  );
+                                  handleSettingsChange({ urls: updatedUrls });
+                                  setEditingUrlId(null);
+                                }
+                              }}
+                              disabled={!editingUrlLabel.trim() || !editingUrlAddress.trim()}
+                              style={{ padding: '4px 12px', fontSize: '0.8em' }}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="url-item-header">
+                          <div className="url-item-info">
+                            <div className="url-item-title-row">
+                              <label className="todo-checkbox-label" style={{ marginBottom: 0 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={urlItem.active}
+                                  onChange={() => {
+                                    const updatedUrls = settings.urls!.map(u =>
+                                      u.id === urlItem.id ? { ...u, active: !u.active } : u
+                                    );
+                                    handleSettingsChange({ urls: updatedUrls });
+                                  }}
+                                  className="todo-checkbox"
+                                />
+                              </label>
+                              <span className="url-item-label">{urlItem.label}</span>
+                              <span className={`url-item-badge ${(urlItem.type || 'text') === 'embed' ? 'embed' : 'text'}`}>
+                                {(urlItem.type || 'text') === 'embed' ? 'EMBED' : 'TEXT'}
+                              </span>
+                              <span style={{ fontSize: '0.7em', padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', color: '#94a3b8' }}>
+                                {urlItem.resolution || '1080p'}
+                              </span>
+                            </div>
+                            <span className="url-item-link-text">{urlItem.url}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              style={{ padding: '4px 8px', fontSize: '0.8em', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => {
+                                setEditingUrlId(urlItem.id);
+                                setEditingUrlLabel(urlItem.label);
+                                setEditingUrlAddress(urlItem.url);
+                              }}
+                              title="Edit Link"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              className="todo-delete-btn"
+                              onClick={() => {
+                                const updatedUrls = settings.urls!.filter(u => u.id !== urlItem.id);
+                                handleSettingsChange({ urls: updatedUrls });
+                              }}
+                              aria-label="Delete URL"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Controls for Resolution, Scale and Position */}
+                      <div className="url-controls-container">
+                        {/* Resolution Control */}
+                        <div className="url-control-col">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <label style={{ fontSize: '0.75em', opacity: 0.8 }}>Resolution</label>
+                          </div>
+                          <select
+                            className="text-input"
+                            value={urlItem.resolution || '1080p'}
+                            onChange={(e) => {
+                              const val = e.target.value as '800x600' | '720p' | '1080p';
                               const updatedUrls = settings.urls!.map(u =>
-                                u.id === urlItem.id ? { ...u, active: !u.active } : u
+                                u.id === urlItem.id ? { ...u, resolution: val } : u
                               );
                               handleSettingsChange({ urls: updatedUrls });
                             }}
-                            className="todo-checkbox"
-                          />
-                        </label>
-                        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <span style={{ fontWeight: 'bold' }}>{urlItem.label}</span>
-                            <span style={{ fontSize: '0.7em', padding: '2px 6px', borderRadius: '4px', background: (urlItem.type || 'text') === 'embed' ? 'var(--accent-color)' : 'var(--bg-secondary)', color: 'white' }}>{(urlItem.type || 'text') === 'embed' ? 'EMBED' : 'TEXT'}</span>
-                          </div>
-                          <span style={{ fontSize: '0.8em', opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '8px' }}>{urlItem.url}</span>
-
-                          {/* Controls for Scale and Position */}
-                          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
-                            {/* Scale Control */}
-                            <div style={{ flex: 1, minWidth: '120px' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                                <label style={{ fontSize: '0.75em', opacity: 0.8 }}>Scale</label>
-                                <span style={{ fontSize: '0.75em' }}>{Math.round((urlItem.scale || 1) * 100)}%</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="0.1"
-                                max="2.0"
-                                step="0.1"
-                                value={urlItem.scale || 1}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value);
-                                  const updatedUrls = settings.urls!.map(u =>
-                                    u.id === urlItem.id ? { ...u, scale: val } : u
-                                  );
-                                  handleSettingsChange({ urls: updatedUrls });
-                                }}
-                                style={{ width: '100%' }}
-                              />
-                            </div>
-
-                            {/* Position Controls (D-Pad) */}
-                            <div style={{ flex: 1, minWidth: '150px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                              <label style={{ fontSize: '0.75em', opacity: 0.8, marginBottom: '2px' }}>Position ({urlItem.x || 0}, {urlItem.y || 0})</label>
-
-                              {/* Up Button */}
-                              <button
-                                className="btn btn-secondary btn-small"
-                                style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                                onClick={() => {
-                                  const updatedUrls = settings.urls!.map(u =>
-                                    u.id === urlItem.id ? { ...u, y: (u.y || 0) - 10 } : u
-                                  );
-                                  handleSettingsChange({ urls: updatedUrls });
-                                }}
-                                title="Move Up"
-                              >
-                                ⬆️
-                              </button>
-
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                {/* Left Button */}
-                                <button
-                                  className="btn btn-secondary btn-small"
-                                  style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                                  onClick={() => {
-                                    const updatedUrls = settings.urls!.map(u =>
-                                      u.id === urlItem.id ? { ...u, x: (u.x || 0) - 10 } : u
-                                    );
-                                    handleSettingsChange({ urls: updatedUrls });
-                                  }}
-                                  title="Move Left"
-                                >
-                                  ⬅️
-                                </button>
-
-                                {/* Right Button */}
-                                <button
-                                  className="btn btn-secondary btn-small"
-                                  style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                                  onClick={() => {
-                                    const updatedUrls = settings.urls!.map(u =>
-                                      u.id === urlItem.id ? { ...u, x: (u.x || 0) + 10 } : u
-                                    );
-                                    handleSettingsChange({ urls: updatedUrls });
-                                  }}
-                                  title="Move Right"
-                                >
-                                  ➡️
-                                </button>
-                              </div>
-
-                              {/* Down Button */}
-                              <button
-                                className="btn btn-secondary btn-small"
-                                style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                                onClick={() => {
-                                  const updatedUrls = settings.urls!.map(u =>
-                                    u.id === urlItem.id ? { ...u, y: (u.y || 0) + 10 } : u
-                                  );
-                                  handleSettingsChange({ urls: updatedUrls });
-                                }}
-                                title="Move Down"
-                              >
-                                ⬇️
-                              </button>
-                            </div>
-                          </div>
+                            style={{ width: '100%', padding: '4px 8px', fontSize: '0.8em' }}
+                          >
+                            <option value="1080p">1080p (1920x1080)</option>
+                            <option value="720p">720p (1280x720)</option>
+                            <option value="800x600">800x600 (800x600)</option>
+                          </select>
                         </div>
-                      </div>
-                      <div className="todo-actions">
-                        <button
-                          className="todo-delete-btn"
-                          onClick={() => {
-                            const updatedUrls = settings.urls!.filter(u => u.id !== urlItem.id);
-                            handleSettingsChange({ urls: updatedUrls });
-                          }}
-                          aria-label="Delete URL"
-                        >
-                          ✕
-                        </button>
+
+                        {/* Scale Control */}
+                        <div className="url-control-col">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <label style={{ fontSize: '0.75em', opacity: 0.8 }}>Scale</label>
+                            <span style={{ fontSize: '0.75em', fontWeight: 'bold' }}>{Math.round((urlItem.scale || 1) * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.1"
+                            max="2.0"
+                            step="0.1"
+                            value={urlItem.scale || 1}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              const updatedUrls = settings.urls!.map(u =>
+                                u.id === urlItem.id ? { ...u, scale: val } : u
+                              );
+                              handleSettingsChange({ urls: updatedUrls });
+                            }}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+
+                        {/* Position Controls (D-Pad) */}
+                        <div className="url-control-col" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                          <label style={{ fontSize: '0.75em', opacity: 0.8, marginBottom: '2px' }}>Position ({urlItem.x || 0}, {urlItem.y || 0})</label>
+
+                          <button
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 10px', fontSize: '1.1em', lineHeight: 1 }}
+                            onClick={() => {
+                              const updatedUrls = settings.urls!.map(u =>
+                                u.id === urlItem.id ? { ...u, y: (u.y || 0) - 10 } : u
+                              );
+                              handleSettingsChange({ urls: updatedUrls });
+                            }}
+                            title="Move Up"
+                          >
+                            ⬆️
+                          </button>
+
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              style={{ padding: '2px 10px', fontSize: '1.1em', lineHeight: 1 }}
+                              onClick={() => {
+                                const updatedUrls = settings.urls!.map(u =>
+                                  u.id === urlItem.id ? { ...u, x: (u.x || 0) - 10 } : u
+                                );
+                                handleSettingsChange({ urls: updatedUrls });
+                              }}
+                              title="Move Left"
+                            >
+                              ⬅️
+                            </button>
+
+                            <button
+                              className="btn btn-secondary btn-small"
+                              style={{ padding: '2px 10px', fontSize: '1.1em', lineHeight: 1 }}
+                              onClick={() => {
+                                const updatedUrls = settings.urls!.map(u =>
+                                  u.id === urlItem.id ? { ...u, x: (u.x || 0) + 10 } : u
+                                );
+                                handleSettingsChange({ urls: updatedUrls });
+                              }}
+                              title="Move Right"
+                            >
+                              ➡️
+                            </button>
+                          </div>
+
+                          <button
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 10px', fontSize: '1.1em', lineHeight: 1 }}
+                            onClick={() => {
+                              const updatedUrls = settings.urls!.map(u =>
+                                u.id === urlItem.id ? { ...u, y: (u.y || 0) + 10 } : u
+                              );
+                              handleSettingsChange({ urls: updatedUrls });
+                            }}
+                            title="Move Down"
+                          >
+                            ⬇️
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

@@ -89,6 +89,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
               label: String(urlObj.label).slice(0, 100), // Limit label length
               active: typeof urlObj.active === 'boolean' ? urlObj.active : true,
               type: (urlObj.type === 'embed' || urlObj.type === 'text') ? urlObj.type : 'text',
+              resolution: (urlObj.resolution === '800x600' || urlObj.resolution === '720p' || urlObj.resolution === '1080p') ? urlObj.resolution : '1080p',
               scale: typeof urlObj.scale === 'number' ? urlObj.scale : 1,
               x: typeof urlObj.x === 'number' ? urlObj.x : 0,
               y: typeof urlObj.y === 'number' ? urlObj.y : 0
