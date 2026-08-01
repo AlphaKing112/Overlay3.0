@@ -27,8 +27,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fetch the current settings
-    const currentSettings = (await kv.get('overlay_settings')) as OverlaySettings | null;
+    // Fetch the current settings from KV or memory fallback
+    let currentSettings: OverlaySettings | null = typeof globalThis !== 'undefined' ? (globalThis.__cachedOverlaySettings as OverlaySettings) : null;
+    try {
+      const kvSettings = (await kv.get('overlay_settings')) as OverlaySettings | null;
+      if (kvSettings) currentSettings = kvSettings;
+    } catch (err) {
+      OverlayLogger.warn('KV read failed in record-donation (using in-memory fallback):', err);
+    }
+
     if (!currentSettings) {
       return NextResponse.json({ error: 'Settings not initialized' }, { status: 404 });
     }
@@ -71,14 +78,22 @@ export async function POST(request: NextRequest) {
       dailyTipLastReset: newDailyTipLastReset
     };
 
-    // Save and broadcast
-    await Promise.all([
-      kv.set('overlay_settings', updatedSettings),
-      kv.set('overlay_settings_modified', Date.now())
-    ]);
+    // Update in-memory cache immediately
+    if (typeof globalThis !== 'undefined') {
+      globalThis.__cachedOverlaySettings = updatedSettings;
+      globalThis.__cachedOverlaySettingsTime = Date.now();
+      globalThis.__cachedOverlayModifiedTime = Date.now();
+      globalThis.sseCacheInvalidated = Date.now();
+    }
 
-    if (typeof global !== 'undefined') {
-      global.sseCacheInvalidated = Date.now();
+    // Try saving to KV
+    try {
+      await Promise.all([
+        kv.set('overlay_settings', updatedSettings),
+        kv.set('overlay_settings_modified', Date.now())
+      ]);
+    } catch (err) {
+      OverlayLogger.warn('KV save failed in record-donation (using memory cache):', err);
     }
 
     await broadcastSettings(updatedSettings);

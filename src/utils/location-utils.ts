@@ -793,8 +793,8 @@ export function calculateDistanceProgress({
     const destLat = settings.destinationLat ?? 40.7577;
     const destLon = settings.destinationLon ?? -73.8252;
 
-    const startLat = settings.startLat ?? (sessionStartCoords ? sessionStartCoords[0] : destLat - 0.05);
-    const startLon = settings.startLon ?? (sessionStartCoords ? sessionStartCoords[1] : destLon - 0.05);
+    const startLat = settings.startLat ?? (sessionStartCoords ? sessionStartCoords[0] : (currentGpsCoords ? currentGpsCoords[0] : destLat));
+    const startLon = settings.startLon ?? (sessionStartCoords ? sessionStartCoords[1] : (currentGpsCoords ? currentGpsCoords[1] : destLon));
 
     const totalMeters = distanceInMeters(startLat, startLon, destLat, destLon);
     goal = Math.round((totalMeters * unitFactor) * 10) / 10;

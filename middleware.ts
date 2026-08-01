@@ -29,10 +29,14 @@ export function middleware(request: NextRequest) {
     '/api/login',
     '/overlay',
     '/api/get-settings',
+    '/api/save-settings',
     '/api/settings-stream',
     '/api/health',
     '/api/record-donation',
-    '/api/bitrate'
+    '/api/bitrate',
+    '/api/obs-switch-scene',
+    '/api/auto-switch-service',
+    '/api/twitch-subs'
   ];
   
   if (publicRoutes.includes(pathname)) {

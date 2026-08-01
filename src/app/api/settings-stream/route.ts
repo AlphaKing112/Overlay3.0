@@ -71,21 +71,50 @@ export async function GET(request: NextRequest): Promise<Response> {
       // Allow unauthenticated read access for overlay (public read-only access)
       const checkForUpdates = async () => {
         try {
-          // Get both settings and modification timestamp
-          // Allow unauthenticated access - this is read-only, so it's safe
-          const [settings, modifiedTimestamp] = await Promise.all([
-            kv.get('overlay_settings'),
-            kv.get('overlay_settings_modified')
-          ]);
+          const now = Date.now();
+          let settings = typeof globalThis !== 'undefined' ? globalThis.__cachedOverlaySettings : null;
+          let modifiedTimestamp = typeof globalThis !== 'undefined' ? globalThis.__cachedOverlayModifiedTime : null;
+          const cacheTime = typeof globalThis !== 'undefined' ? (globalThis.__cachedOverlaySettingsTime || 0) : 0;
+
+          // Only query KV if cache is missing or older than 5000ms
+          if (!settings || (now - cacheTime > 5000)) {
+            try {
+              const [kvSettings, kvModified] = await Promise.all([
+                kv.get('overlay_settings'),
+                kv.get('overlay_settings_modified')
+              ]);
+              if (kvSettings && typeof kvSettings === 'object') {
+                settings = kvSettings;
+                modifiedTimestamp = (kvModified as number) || now;
+                if (typeof globalThis !== 'undefined') {
+                  globalThis.__cachedOverlaySettings = settings;
+                  globalThis.__cachedOverlaySettingsTime = now;
+                  globalThis.__cachedOverlayModifiedTime = modifiedTimestamp;
+                }
+              }
+            } catch (kvErr: any) {
+              const isQuotaError = kvErr?.message?.includes('max requests limit exceeded');
+              if (!settings && typeof globalThis !== 'undefined') {
+                settings = globalThis.__cachedOverlaySettings;
+              }
+              if (!settings) {
+                const { DEFAULT_OVERLAY_SETTINGS } = await import('@/types/settings');
+                settings = DEFAULT_OVERLAY_SETTINGS;
+                if (typeof globalThis !== 'undefined') {
+                  globalThis.__cachedOverlaySettings = settings;
+                  // Backoff KV checks for 60 seconds if rate limited
+                  globalThis.__cachedOverlaySettingsTime = now + (isQuotaError ? 60000 : 5000);
+                }
+              }
+            }
+          }
           
-          if (settings && typeof settings === 'object' && modifiedTimestamp) {
-            const currentModified = modifiedTimestamp as number;
+          if (settings && typeof settings === 'object') {
+            const currentModified = (modifiedTimestamp as number) || cacheTime || now;
             
             if (currentModified > lastModified) {
               lastModified = currentModified;
               
-              // Send settings with proper format
-              // This is read-only access - unauthenticated users can receive but not modify
               const settingsUpdate = {
                 ...settings,
                 type: 'settings_update',
@@ -96,7 +125,7 @@ export async function GET(request: NextRequest): Promise<Response> {
             }
           }
         } catch (error) {
-          console.error('Error checking settings:', error);
+          // Silent error handling
         }
       };
       
@@ -109,18 +138,27 @@ export async function GET(request: NextRequest): Promise<Response> {
           checkForUpdates();
         }, 100);
       
-      // Gracefully close the connection after 9 seconds to prevent Vercel Serverless Function timeouts (10s limit)
-      // This avoids "Gateway Timeout" (504) entries on the Vercel Dashboard
+      // Send periodic heartbeat to keep SSE connection alive without reconnecting
+      const heartbeatInterval = setInterval(() => {
+        try {
+          if (connections.has(connectionId)) {
+            controller.enqueue(encoder.encode(': heartbeat\n\n'));
+          }
+        } catch {}
+      }, 15000);
+
+      // Gracefully close the connection after 45 seconds to stay comfortably within Vercel execution limits
       const graceTimeout = setTimeout(() => {
         clearInterval(interval);
+        clearInterval(heartbeatInterval);
         removeConnection(connectionId);
         try {
           controller.close();
         } catch {}
-      }, 9000);
+      }, 45000);
       
-      // Check for updates every 2 seconds for more responsive updates
-      const interval = setInterval(checkForUpdates, 2000);
+      // Check for updates every 3 seconds for responsive updates
+      const interval = setInterval(checkForUpdates, 3000);
       
       // Cleanup on close
       request.signal.addEventListener('abort', () => {
@@ -128,6 +166,7 @@ export async function GET(request: NextRequest): Promise<Response> {
           console.log(`[SSE] Connection closed: ${connectionId}`);
         }
         clearInterval(interval);
+        clearInterval(heartbeatInterval);
         clearTimeout(graceTimeout);
         removeConnection(connectionId);
         try {

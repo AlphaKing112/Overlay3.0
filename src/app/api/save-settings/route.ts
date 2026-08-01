@@ -10,12 +10,14 @@ export const dynamic = 'force-dynamic';
 // Invalidate SSE cache when settings are updated
 declare global {
   var sseCacheInvalidated: number | undefined;
+  var __cachedOverlaySettings: any | undefined;
+  var __cachedOverlaySettingsTime: number | undefined;
+  var __cachedOverlayModifiedTime: number | undefined;
 }
 
 function invalidateSSECache() {
-  // This will force the SSE route to fetch fresh data on next request
-  if (typeof global !== 'undefined') {
-    global.sseCacheInvalidated = Date.now();
+  if (typeof globalThis !== 'undefined') {
+    globalThis.sseCacheInvalidated = Date.now();
   }
 }
 
@@ -29,12 +31,15 @@ async function handlePOST(request: NextRequest) {
       updates = body.settings;
     }
 
-    // Retrieve existing settings from KV to merge updates and prevent resetting fields to defaults
-    let existingSettings: any = null;
+    // Retrieve existing settings from KV or memory cache
+    let existingSettings: any = globalThis.__cachedOverlaySettings || null;
     try {
-      existingSettings = await kv.get('overlay_settings');
+      const kvExisting = await kv.get('overlay_settings');
+      if (kvExisting && typeof kvExisting === 'object') {
+        existingSettings = kvExisting;
+      }
     } catch (err) {
-      OverlayLogger.error('Failed to get existing settings from KV:', err);
+      OverlayLogger.warn('Failed to get existing settings from KV (using memory cache if available):', err);
     }
 
     const mergedRawSettings = existingSettings ? { ...existingSettings, ...updates } : updates;
@@ -67,23 +72,30 @@ async function handlePOST(request: NextRequest) {
     }
     
     const startTime = Date.now();
+    const nowTime = Date.now();
+
+    // Always update global in-memory cache immediately
+    if (typeof globalThis !== 'undefined') {
+      globalThis.__cachedOverlaySettings = settings;
+      globalThis.__cachedOverlaySettingsTime = nowTime;
+      globalThis.__cachedOverlayModifiedTime = nowTime;
+      invalidateSSECache();
+    }
     
-    // Batch KV operations to reduce calls
-    const kvResult = await Promise.allSettled([
-      Promise.all([
+    // Batch KV operations to reduce calls, wrap in try/catch to avoid crash if KV rate limited
+    let kvSuccess = false;
+    try {
+      await Promise.all([
         kv.set('overlay_settings', settings),
-        kv.set('overlay_settings_modified', Date.now())
-      ]).then(() => {
-        logKVUsage('write');
-        invalidateSSECache(); // Invalidate cache after successful save
-        return true;
-      }).catch((error) => {
-        OverlayLogger.error('KV operation failed', error);
-        throw error;
-      })
-    ]);
+        kv.set('overlay_settings_modified', nowTime)
+      ]);
+      logKVUsage('write');
+      kvSuccess = true;
+    } catch (error) {
+      OverlayLogger.warn('KV save operation failed or limit reached (using memory cache):', error);
+    }
     
-    // SSE broadcast handles real-time updates
+    // SSE broadcast handles real-time updates to all connected clients
     const broadcastResult = await Promise.allSettled([
       broadcastSettings(settings)
     ]);
@@ -92,14 +104,6 @@ async function handlePOST(request: NextRequest) {
                             broadcastResult[0].value?.success;
     
     const saveTime = Date.now() - startTime;
-    
-    // Check results
-    const kvSuccess = kvResult[0].status === 'fulfilled';
-    
-    if (!kvSuccess) {
-      OverlayLogger.error('KV save failed', kvResult[0].status === 'rejected' ? 
-        kvResult[0].reason : 'Unknown error');
-    }
     
     return NextResponse.json({ 
       success: true, 
@@ -115,12 +119,25 @@ async function handlePOST(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Verify authentication - require it for admin access
   const isAuthenticated = await verifyAuth();
   
   if (!isAuthenticated) {
-    OverlayLogger.warn('Unauthenticated access attempt to save settings');
-    return new NextResponse('Unauthorized', { status: 401 });
+    // Check if body only contains safe overlay updates (startLat, startLon, distanceCurrent, donationGoals)
+    try {
+      const cloned = request.clone();
+      const body = await cloned.json();
+      const updates = body?.settings || body || {};
+      const allowedKeys = ['startLat', 'startLon', 'distanceCurrent', 'donationGoals'];
+      const updateKeys = Object.keys(updates);
+      const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));
+      
+      if (!isOverlayAllowedUpdate) {
+        OverlayLogger.warn('Unauthenticated access attempt to save non-overlay settings', updateKeys);
+        return new NextResponse('Unauthorized', { status: 401 });
+      }
+    } catch {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
   }
   
   return handlePOST(request);

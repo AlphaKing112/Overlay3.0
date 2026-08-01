@@ -170,6 +170,7 @@ function OverlayPage() {
 
   useEffect(() => {
     if (!settings.startLat) {
+      sessionStartCoordsRef.current = null;
       hasAutoSetStartCoordsRef.current = false;
       if (currentGpsCoords) {
         const capturedLat = parseFloat(currentGpsCoords[0].toFixed(5));
@@ -187,10 +188,12 @@ function OverlayPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ settings: { startLat: capturedLat, startLon: capturedLon, distanceCurrent: 0 } })
         }).catch(err => OverlayLogger.error('Failed to auto-set reset start coords:', err));
-      } else {
-        sessionStartCoordsRef.current = null;
       }
       setTotalDistanceTracked(0);
+    } else {
+      // Server has startLat, sync sessionStartCoordsRef
+      sessionStartCoordsRef.current = [settings.startLat, settings.startLon || settings.startLat];
+      hasAutoSetStartCoordsRef.current = true;
     }
   }, [settings.destinationLat, settings.destinationLon, settings.startLat]);
 
@@ -1847,16 +1850,71 @@ function OverlayPage() {
     };
   }, []); // Empty dependency array - we want this to run once on mount
 
-  // OBS Auto-Switch: Use server-side API to avoid dual-connection conflict.
-  // The Admin Panel holds the persistent WebSocket. The overlay calls a local
-  // API route that connects to OBS briefly, switches the scene, then disconnects.
+  // Local OBS WebSocket instance for direct scene switching inside OBS Browser Source
+  const localObsRef = useRef<OBSWebSocket | null>(null);
+
   useEffect(() => {
-    // Mark as "connected" (API-based) if toggle is on and settings exist
-    if (settings.obsAutoSwitchSceneToggle && settings.obsWebsocketUrl) {
-      setObsConnected(true);
-    } else {
+    let isActive = true;
+    let retryTimer: NodeJS.Timeout;
+
+    if (!settings.obsAutoSwitchSceneToggle || !settings.obsWebsocketUrl) {
+      if (localObsRef.current) {
+        try { localObsRef.current.disconnect(); } catch {}
+        localObsRef.current = null;
+      }
       setObsConnected(false);
+      return;
     }
+
+    const connectLocalOBS = async () => {
+      if (!isActive) return;
+      try {
+        if (localObsRef.current) {
+          try { localObsRef.current.disconnect(); } catch {}
+          localObsRef.current = null;
+        }
+
+        const obs = new OBSWebSocket();
+        obs.on('ConnectionClosed', () => {
+          if (!isActive) return;
+          setObsConnected(false);
+          localObsRef.current = null;
+          retryTimer = setTimeout(connectLocalOBS, 5000);
+        });
+        obs.on('ConnectionError', () => {
+          if (!isActive) return;
+          setObsConnected(false);
+          localObsRef.current = null;
+        });
+
+        const connectPromise = obs.connect(settings.obsWebsocketUrl, settings.obsWebsocketPassword || undefined);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000));
+        await Promise.race([connectPromise, timeoutPromise]);
+
+        if (isActive) {
+          localObsRef.current = obs;
+          setObsConnected(true);
+          console.log('📡 OBS Browser Source connected directly to local OBS WebSocket!');
+        }
+      } catch (err) {
+        if (isActive) {
+          console.warn('📡 Direct OBS WebSocket connection failed, retrying in 5s...', err);
+          setObsConnected(true);
+          retryTimer = setTimeout(connectLocalOBS, 5000);
+        }
+      }
+    };
+
+    connectLocalOBS();
+
+    return () => {
+      isActive = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (localObsRef.current) {
+        try { localObsRef.current.disconnect(); } catch {}
+        localObsRef.current = null;
+      }
+    };
   }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsWebsocketPassword]);
 
 
@@ -1882,9 +1940,51 @@ function OverlayPage() {
       return;
     }
     
-    // Call the server-side API to switch scene
-    const switchSceneViaApi = async (sceneName: string) => {
-      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔄 Calling API for: ${sceneName}`);
+    // Switch scene via direct local WebSocket first, then fallback to API
+    const switchSceneViaApi = async (sceneName: string): Promise<boolean> => {
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔄 Switching scene to: ${sceneName}`);
+      
+      // 1. Attempt on-demand connection if disconnected
+      if (!localObsRef.current && settings.obsWebsocketUrl) {
+        try {
+          const obs = new OBSWebSocket();
+          await obs.connect(settings.obsWebsocketUrl, settings.obsWebsocketPassword || undefined);
+          localObsRef.current = obs;
+        } catch (connErr) {
+          console.warn('On-demand OBS WebSocket connection failed:', connErr);
+        }
+      }
+
+      // 2. Try direct local WebSocket connection (Fastest & 100% reliable inside OBS)
+      if (localObsRef.current) {
+        try {
+          await localObsRef.current.call('SetCurrentProgramScene', { sceneName });
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Switched via Local WebSocket: ${sceneName}`);
+          console.log(`📡 Scene switched via direct local WebSocket: ${sceneName}`);
+          return true;
+        } catch (directErr) {
+          console.warn('Direct SetCurrentProgramScene failed, trying case-insensitive scene lookup:', directErr);
+          try {
+            const sceneListData = await localObsRef.current.call('GetSceneList');
+            const scenes = (sceneListData.scenes as any[]) || [];
+            const matchedScene = scenes.find((s: any) => 
+              String(s.sceneName || s.name || '').toLowerCase() === sceneName.toLowerCase()
+            );
+            if (matchedScene) {
+              const matchedName = String(matchedScene.sceneName || matchedScene.name);
+              await localObsRef.current.call('SetCurrentProgramScene', { sceneName: matchedName });
+              setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Switched via Matched Scene: ${matchedName}`);
+              console.log(`📡 Scene switched via case-insensitive match: ${matchedName}`);
+              return true;
+            }
+          } catch (fallbackErr) {
+            console.warn('Scene list lookup fallback failed:', fallbackErr);
+          }
+          localObsRef.current = null;
+        }
+      }
+
+      // 3. Fallback to API route if direct WS fails
       try {
         console.log(`📡 Calling /api/obs-switch-scene for: ${sceneName}`);
         const res = await fetch('/api/obs-switch-scene', {
@@ -1900,13 +2000,16 @@ function OverlayPage() {
         if (data.success) {
           setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Switched to: ${sceneName}`);
           console.log(`📡 Scene switched to: ${sceneName}`);
+          return true;
         } else {
           setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ❌ Failed: ${data.error}`);
           console.warn(`📡 Scene switch failed: ${data.error}`);
+          return false;
         }
       } catch (err) {
         setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ❌ API Error: ${String(err)}`);
         console.warn(`📡 Scene switch API error:`, err);
+        return false;
       }
     };
 
@@ -1914,8 +2017,9 @@ function OverlayPage() {
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
       if (isOffline && lastBitrateStateRef.current !== 'offline') {
         console.log(`📡 Stream is offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
-        switchSceneViaApi(settings.obsOfflineSceneName);
-        lastBitrateStateRef.current = 'offline';
+        switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
+          if (success) lastBitrateStateRef.current = 'offline';
+        });
       }
     }
 
@@ -1923,8 +2027,9 @@ function OverlayPage() {
     if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
       if (!isOffline && lastBitrateStateRef.current !== 'live') {
         console.log(`📡 Stream is live (bitrate=${currentBitrate}), switching to: ${settings.obsLiveSceneName}`);
-        switchSceneViaApi(settings.obsLiveSceneName);
-        lastBitrateStateRef.current = 'live';
+        switchSceneViaApi(settings.obsLiveSceneName).then(success => {
+          if (success) lastBitrateStateRef.current = 'live';
+        });
       }
     }
     
@@ -2913,32 +3018,36 @@ function OverlayPage() {
       const stats = await fetchBitrateStats(bitrateUrl, publisherKey);
 
       if (isActive) {
-        if (stats) {
-          // Success case - no need to spam console
+        const isAutoSwitchOn = settings.obsAutoSwitchSceneToggle;
+        const isLive = stats && stats.bitrateKbps > 0;
+
+        const liveInterval = settings.bitratePollIntervalLive ?? 3000;
+        const offlineInterval = settings.bitratePollIntervalOffline ?? 10000;
+
+        let pollInterval: number;
+        if (typeof document !== 'undefined' && document.hidden) {
+          pollInterval = Math.max(15000, offlineInterval);
+        } else if (isLive) {
+          pollInterval = isAutoSwitchOn ? liveInterval : Math.max(5000, liveInterval);
+        } else {
+          pollInterval = offlineInterval;
+        }
+
+        if (isLive) {
+          // Success case - stream is LIVE
           setCurrentBitrate(stats.bitrateKbps);
           setCurrentRtt(stats.rttMs ?? null);
           setBitrateUpdateTimestamp(Date.now());
           consecutiveBitrateFailuresRef.current = 0;
         } else {
-          // Failure or No Data - increment failures
+          // Failure or No Data - stream is OFFLINE
           consecutiveBitrateFailuresRef.current++;
-
-          // If we have 3 consecutive failures (approx 6-10 seconds), clear the display
-          // This ensures "auto" mode disappears when you end your stream
-          if (consecutiveBitrateFailuresRef.current >= 3) {
-            setCurrentBitrate(0);
-            setCurrentRtt(null);
-          }
-
-          // Important: Even on failure, update the timestamp so the component re-renders.
-          // This ensures the scene-switcher instantly knows we failed our first fetch
-          // and can switch to the offline scene immediately.
+          setCurrentBitrate(0);
+          setCurrentRtt(null);
           setBitrateUpdateTimestamp(Date.now());
-
-          console.warn('📡 Bitrate debugger: Fetch attempted but returned no data. Check if your stream is LIVE and the stats URL is reachable.');
         }
 
-        timer = setTimeout(fetchStats, BITRATE_UPDATE_INTERVAL);
+        timer = setTimeout(fetchStats, pollInterval);
       }
     };
 

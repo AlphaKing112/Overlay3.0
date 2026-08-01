@@ -15,6 +15,13 @@ export function validateEnvironment(): EnvValidationResult {
   const warnings: string[] = [];
   const errors: string[] = [];
   
+  // Automatically sanitize & trim KV environment variables to remove any trailing whitespace or newlines
+  ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'].forEach(key => {
+    if (process.env[key]) {
+      process.env[key] = process.env[key]!.trim();
+    }
+  });
+
   // Required environment variables
   const required = [
     'ADMIN_PASSWORD',

@@ -98,8 +98,8 @@ export interface OverlaySettings {
   destinationLat?: number;
   destinationLon?: number;
   destinationName?: string;
-  startLat?: number;
-  startLon?: number;
+  startLat?: number | null;
+  startLon?: number | null;
   autoSetStartOnGps?: boolean;
   isTestingFill?: boolean;
   testFillProgress?: number;
@@ -170,6 +170,10 @@ export interface OverlaySettings {
   obsOfflineSceneName?: string;
   obsLiveSceneName?: string;
   obsAutoSwitchDebugger?: boolean;
+  enableResourceOptimization?: boolean;
+  bitratePollIntervalLive?: number;
+  bitratePollIntervalOffline?: number;
+  bitrateCacheTtlMs?: number;
 }
 
 // Default settings (single source of truth)
@@ -248,30 +252,30 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   minimapPosition: 'left',
   minimapShape: 'circle',
   showSocials: false,
-  socialName: '',
-  socialKickEnabled: false,
-  socialTwitchEnabled: false,
-  socialXEnabled: false,
-  socialYoutubeEnabled: false,
+  socialName: 'streamer',
+  socialKickEnabled: true,
+  socialTwitchEnabled: true,
+  socialXEnabled: true,
+  socialYoutubeEnabled: true,
   socialInstagramEnabled: false,
   socialTiktokEnabled: false,
   socialPosition: 'top-middle',
   socialX: 0,
   socialY: 0,
-  socialScale: 1,
-  socialTextTheme: 'impact',
+  socialScale: 1.0,
+  socialTextTheme: 'default',
   socialShowBackground: true,
-  socialFontFamily: 'Impact',
+  socialFontFamily: 'default',
   socialLoopAnimation: false,
-  socialLoopShowDuration: 15,
-  socialLoopHideDuration: 15,
+  socialLoopShowDuration: 10,
+  socialLoopHideDuration: 5,
   donationGoals: [],
   showDonationGoals: false,
   donationGoalsX: 0,
   donationGoalsY: 0,
-  donationGoalsScale: 1,
+  donationGoalsScale: 1.0,
   donoShowBackground: true,
-  donoGoalText: 'DONO GOAL:',
+  donoGoalText: 'Goal',
   streamElementsEnabled: false,
   streamElementsToken: '',
   belaboxUrl: '',
@@ -281,24 +285,24 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   timeWeatherLocationScale: 1.0,
   totalTipGoal: 100,
   totalTipCurrent: 0,
-  dailyTipGoal: 10,
+  dailyTipGoal: 50,
   dailyTipCurrent: 0,
   dailyTipLastReset: '',
   showSubGoals: false,
   showTotalSubGoal: true,
-  showDailySubGoal: true,
-  totalSubGoal: 50,
+  showDailySubGoal: false,
+  totalSubGoal: 100,
   totalSubCurrent: 0,
   dailySubGoal: 10,
   dailySubCurrent: 0,
   dailySubLastReset: '',
   subGoalsX: 0,
-  subGoalsY: 100,
+  subGoalsY: 0,
   subGoalsScale: 1.0,
   subGoalsStyle: 'default',
   subGoalsFont: 'default',
   subGoalsShowStroke: true,
-  seAutoSyncTotals: true,
+  seAutoSyncTotals: false,
   twitchClientId: '',
   twitchToken: '',
   twitchBroadcasterId: '',
@@ -307,9 +311,13 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsWebsocketUrl: 'ws://127.0.0.1:4455',
   obsWebsocketPassword: '',
   obsAutoSwitchSceneToggle: false,
-  obsOfflineSceneName: '',
-  obsLiveSceneName: '',
+  obsOfflineSceneName: 'offline',
+  obsLiveSceneName: 'live',
   obsAutoSwitchDebugger: false,
+  enableResourceOptimization: true,
+  bitratePollIntervalLive: 3000,
+  bitratePollIntervalOffline: 20000,
+  bitrateCacheTtlMs: 5000,
 };
 
 // Valid settings schema for validation
@@ -448,6 +456,10 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsOfflineSceneName: 'string',
   obsLiveSceneName: 'string',
   obsAutoSwitchDebugger: 'boolean',
+  enableResourceOptimization: 'boolean',
+  bitratePollIntervalLive: 'number',
+  bitratePollIntervalOffline: 'number',
+  bitrateCacheTtlMs: 'number',
 };
 
 // SSE message types

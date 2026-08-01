@@ -5,43 +5,33 @@ import { validateEnvironment } from '@/lib/env-validator';
 import { OverlayLogger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 30; // CDN cache: serve stale for up to 30s, revalidate in background
+export const revalidate = 0;
 
 async function handleGET() {
+  let settings: any = null;
+  
   try {
     logKVUsage('read');
-    const settings = await kv.get('overlay_settings');
-    
-    // Only log in development
-    if (process.env.NODE_ENV === 'development') {
-      OverlayLogger.settings('Raw settings from KV', settings);
-    }
-    
-    // Import the default settings to ensure all properties are included
-    const { DEFAULT_OVERLAY_SETTINGS } = await import('@/types/settings');
-    
-    const combinedSettings = {
-      ...DEFAULT_OVERLAY_SETTINGS,
-      ...(settings || {})
-    };
-    
-    
-    if (process.env.NODE_ENV === 'development') {
-      OverlayLogger.settings('Final combined settings', combinedSettings);
-    }
-    
-    return NextResponse.json(combinedSettings, {
-      headers: {
-        // Allow CDN/edge to cache for 30s, serve stale while revalidating.
-        // This means repeated polls within 30s are served from edge cache — zero function invocations.
-        // A fresh save-settings naturally busts this via SSE; the poll is a fallback only.
-        'Cache-Control': 's-maxage=30, stale-while-revalidate=60',
-      }
-    });
-  } catch {
-    return NextResponse.json({ error: 'Failed to load settings' },
-      { status: 500 });
+    settings = await kv.get('overlay_settings');
+  } catch (err: any) {
+    OverlayLogger.warn('KV read failed in get-settings:', err);
   }
+
+  // Import default settings to ensure all fields exist
+  const { DEFAULT_OVERLAY_SETTINGS } = await import('@/types/settings');
+  
+  const combinedSettings = {
+    ...DEFAULT_OVERLAY_SETTINGS,
+    ...(settings || {})
+  };
+
+  return NextResponse.json(combinedSettings, {
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    }
+  });
 }
 
 export async function GET(): Promise<NextResponse> {

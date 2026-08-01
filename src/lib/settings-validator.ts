@@ -32,12 +32,14 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     const value = settings[key];
 
     if (value !== undefined) {
-      if (expectedType === 'boolean' && typeof value === 'boolean') {
+      if (value === null) {
+        (cleanSettings as Record<string, unknown>)[key] = null;
+      } else if (expectedType === 'boolean' && typeof value === 'boolean') {
         (cleanSettings as Record<string, unknown>)[key] = value;
       } else if (expectedType === 'string' && typeof value === 'string') {
         (cleanSettings as Record<string, unknown>)[key] = value;
-      } else if (expectedType === 'number' && typeof value === 'number') {
-        (cleanSettings as Record<string, unknown>)[key] = value;
+      } else if (expectedType === 'number' && (typeof value === 'number' || !isNaN(Number(value)))) {
+        (cleanSettings as Record<string, unknown>)[key] = Number(value);
       } else {
         console.warn(`Invalid type for ${key}: expected ${expectedType}, got ${typeof value}`);
         rejectedKeys.push(key);
@@ -412,8 +414,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     destinationLat: typeof cleanSettings.destinationLat === 'number' ? cleanSettings.destinationLat : DEFAULT_OVERLAY_SETTINGS.destinationLat,
     destinationLon: typeof cleanSettings.destinationLon === 'number' ? cleanSettings.destinationLon : DEFAULT_OVERLAY_SETTINGS.destinationLon,
     destinationName: cleanSettings.destinationName ?? DEFAULT_OVERLAY_SETTINGS.destinationName,
-    startLat: typeof cleanSettings.startLat === 'number' ? cleanSettings.startLat : undefined,
-    startLon: typeof cleanSettings.startLon === 'number' ? cleanSettings.startLon : undefined,
+    startLat: typeof cleanSettings.startLat === 'number' ? cleanSettings.startLat : (cleanSettings.startLat === null ? null : undefined),
+    startLon: typeof cleanSettings.startLon === 'number' ? cleanSettings.startLon : (cleanSettings.startLon === null ? null : undefined),
     autoSetStartOnGps: cleanSettings.autoSetStartOnGps ?? DEFAULT_OVERLAY_SETTINGS.autoSetStartOnGps,
     isTestingFill: typeof cleanSettings.isTestingFill === 'boolean' ? cleanSettings.isTestingFill : undefined,
     testFillProgress: typeof cleanSettings.testFillProgress === 'number' ? cleanSettings.testFillProgress : undefined,

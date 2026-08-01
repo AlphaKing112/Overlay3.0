@@ -169,6 +169,44 @@ export default function AdminPage() {
       }
       const data = await res.json();
       if (data) {
+        // LocalStorage backup check & auto-restore if server data lost custom items
+        try {
+          const storedBackupStr = typeof window !== 'undefined' ? localStorage.getItem('overlay_settings_backup') : null;
+          if (storedBackupStr) {
+            const storedBackup = JSON.parse(storedBackupStr);
+            const serverHasNoUrls = !data.urls || data.urls.length === 0;
+            const backupHasUrls = storedBackup.urls && storedBackup.urls.length > 0;
+            const serverHasNoSocials = !data.socialName;
+            const backupHasSocials = storedBackup.socialName;
+
+            if ((serverHasNoUrls && backupHasUrls) || (serverHasNoSocials && backupHasSocials)) {
+              console.log('🔄 Auto-restoring settings backup from localStorage to server...');
+              const restoredSettings = {
+                ...data,
+                ...(backupHasUrls ? { urls: storedBackup.urls, showUrls: storedBackup.showUrls ?? true } : {}),
+                ...(backupHasSocials ? { socialName: storedBackup.socialName, showSocials: storedBackup.showSocials ?? true } : {})
+              };
+
+              // Re-save restored settings back to KV server
+              authenticatedFetch('/api/save-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(restoredSettings)
+              }).catch(err => console.error('Failed to sync restored settings to server:', err));
+
+              setSettings(restoredSettings);
+              setSyncStatus('connected');
+              return;
+            }
+          }
+          // Save fresh server settings as local backup
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('overlay_settings_backup', JSON.stringify(data));
+          }
+        } catch (backupErr) {
+          console.warn('LocalStorage backup error:', backupErr);
+        }
+
         setSettings(data);
         setSyncStatus('connected');
       }
@@ -277,6 +315,9 @@ export default function AdminPage() {
         throw new Error(`HTTP ${res.status}: ${errorText}`);
       }
 
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('overlay_settings_backup', JSON.stringify(mergedSettings));
+      }
       setToast({ type: 'saved', message: 'Settings saved successfully!' });
       setSyncStatus('connected');
       setTimeout(() => setToast(null), 2000);
@@ -575,14 +616,54 @@ export default function AdminPage() {
   }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsLiveSceneName, settings.obsOfflineSceneName, settings.belaboxPublisherKey]);
 
   useEffect(() => {
-    // 2. Poll the backend for the current status to display in the UI
+    // 2. Client-side & Backend OBS Auto-Switching loop
     let isActive = true;
-    const pollBackend = async () => {
+    let lastAutoSwitchState: 'live' | 'offline' | null = null;
+
+    const pollAutoSwitch = async () => {
       if (!isActive) return;
       if (!settings.obsAutoSwitchSceneToggle) {
         setAutoSwitchStatus('Toggle is OFF');
         return;
       }
+
+      // If Admin UI has an active WebSocket to local OBS
+      if (obsStatus === 'connected' && obsRef.current) {
+        try {
+          const statsUrl = settings.belaboxUrl || (settings.belaboxPublisherKey ? `https://stats.srt.belabox.net/${settings.belaboxPublisherKey}` : '');
+          if (statsUrl) {
+            const stats = await fetchBitrateStats(statsUrl, '');
+            const isLive = stats && stats.bitrateKbps > 0;
+            const targetScene = isLive ? settings.obsLiveSceneName : settings.obsOfflineSceneName;
+
+            if (targetScene && (obsCurrentScene !== targetScene || lastAutoSwitchState !== (isLive ? 'live' : 'offline'))) {
+              try {
+                await obsRef.current.call('SetCurrentProgramScene', { sceneName: targetScene });
+                setObsCurrentScene(targetScene);
+                lastAutoSwitchState = isLive ? 'live' : 'offline';
+                setAutoSwitchStatus(`✅ ${isLive ? `LIVE (${stats?.bitrateKbps} kbps)` : 'OFFLINE'} → Switched OBS to: "${targetScene}"`);
+              } catch (obsErr: any) {
+                console.warn('Failed to switch OBS scene:', obsErr);
+                setAutoSwitchStatus(`⚠️ OBS Switch Error: ${obsErr?.message || 'Scene not found'}`);
+              }
+            } else {
+              setAutoSwitchStatus(`✅ OBS Connected (${isLive ? `LIVE ${stats?.bitrateKbps} kbps` : 'OFFLINE'}) → Scene: "${obsCurrentScene || targetScene}"`);
+            }
+          } else {
+            setAutoSwitchStatus('⚠️ Enter Belabox Publisher Key to enable Auto-Switching');
+          }
+        } catch (e) {
+          setAutoSwitchStatus('⚠️ Error checking bitrate for auto-switch');
+        }
+
+        if (isActive) {
+          const dashboardPollInterval = (typeof document !== 'undefined' && document.hidden) ? 20000 : 10000;
+          setTimeout(pollAutoSwitch, dashboardPollInterval);
+        }
+        return;
+      }
+
+      // Fallback to checking backend service status if not directly connected via WS
       try {
         const res = await fetch('/api/auto-switch-service');
         if (res.ok) {
@@ -593,12 +674,13 @@ export default function AdminPage() {
         setAutoSwitchStatus('Backend unreachable');
       }
       if (isActive) {
-        setTimeout(pollBackend, 3000);
+        setTimeout(pollAutoSwitch, 5000);
       }
     };
-    pollBackend();
+
+    pollAutoSwitch();
     return () => { isActive = false; };
-  }, [settings.obsAutoSwitchSceneToggle]);
+  }, [settings.obsAutoSwitchSceneToggle, settings.obsLiveSceneName, settings.obsOfflineSceneName, settings.belaboxPublisherKey, settings.belaboxUrl, obsStatus, obsCurrentScene]);
   // ===== END OBS AUTO-SWITCH BACKEND INTEGRATION =====
 
 
@@ -1824,8 +1906,8 @@ export default function AdminPage() {
                           className="btn btn-primary btn-small"
                           onClick={() => {
                             handleSettingsChange({
-                              startLat: undefined,
-                              startLon: undefined,
+                              startLat: null,
+                              startLon: null,
                               distanceCurrent: 0,
                             });
                             setToast({ type: 'saved', message: '🚀 Journey reset! Next GPS signal will auto-set your new start location.' });
@@ -2620,73 +2702,210 @@ export default function AdminPage() {
                 </div>
                 
                 <div className="settings-grid">
+                  {/* Total Sub Goal */}
                   <div className="setting-group">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <label style={{ margin: 0 }}>Total Sub Goal:</label>
-                    <label className="checkbox-label" style={{ fontSize: '0.85em' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <label style={{ margin: 0, fontWeight: 'bold' }}>Total Sub Goal:</label>
+                      <label className="checkbox-label" style={{ fontSize: '0.85em' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.showTotalSubGoal ?? true}
+                          onChange={(e) => handleSettingsChange({ showTotalSubGoal: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        Show
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0 }}
+                        onClick={() => handleSettingsChange({ totalSubGoal: Math.max(1, (settings.totalSubGoal || 100) - 1) })}
+                      >-</button>
                       <input
-                        type="checkbox"
-                        checked={settings.showTotalSubGoal ?? true}
-                        onChange={(e) => handleSettingsChange({ showTotalSubGoal: e.target.checked })}
-                        className="checkbox-input"
+                        type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className="text-input"
+                        style={{ textAlign: 'center', fontSize: '1.1em', fontWeight: 'bold', height: '42px', flex: 1 }}
+                        value={settings.totalSubGoal === 0 ? '' : (settings.totalSubGoal ?? 50)}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          handleSettingsChange({ totalSubGoal: v === '' ? 0 : Math.max(0, parseInt(v, 10) || 0) });
+                        }}
                       />
-                      Show
-                    </label>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0 }}
+                        onClick={() => handleSettingsChange({ totalSubGoal: (settings.totalSubGoal || 50) + 1 })}
+                      >+</button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-small"
+                        style={{ padding: '0 10px', height: '42px', fontSize: '0.85em', fontWeight: 'bold', background: 'rgba(145, 70, 255, 0.2)', border: '1px solid #9146FF', color: '#a970ff' }}
+                        onClick={() => handleSettingsChange({ totalSubGoal: (settings.totalSubGoal || 50) + 5 })}
+                      >+5</button>
+                    </div>
                   </div>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.totalSubGoal ?? 100}
-                    onChange={(e) => handleSettingsChange({ totalSubGoal: Math.max(1, parseInt(e.target.value) || 100) })}
-                  />
-                </div>
-                 <div className="setting-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <label style={{ margin: 0 }}>Current Total Subs:</label>
-                  </div>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.totalSubCurrent ?? 0}
-                    onChange={(e) => handleSettingsChange({ totalSubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                  />
-                </div>
-                <div className="setting-group">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <label style={{ margin: 0 }}>Daily Sub Goal:</label>
-                    <label className="checkbox-label" style={{ fontSize: '0.85em' }}>
+
+                  {/* Current Total Subs */}
+                  <div className="setting-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label style={{ margin: 0, fontWeight: 'bold' }}>Current Total Subs:</label>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!!settings.twitchToken}
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0, opacity: settings.twitchToken ? 0.5 : 1 }}
+                        onClick={() => handleSettingsChange({ totalSubCurrent: Math.max(0, (settings.totalSubCurrent || 0) - 1) })}
+                      >-</button>
                       <input
-                        type="checkbox"
-                        checked={settings.showDailySubGoal ?? true}
-                        onChange={(e) => handleSettingsChange({ showDailySubGoal: e.target.checked })}
-                        className="checkbox-input"
+                        type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className="text-input"
+                        value={settings.totalSubCurrent === 0 ? '' : (settings.totalSubCurrent ?? 0)}
+                        disabled={!!settings.twitchToken}
+                        style={{ 
+                          textAlign: 'center',
+                          fontSize: '1.1em',
+                          fontWeight: 'bold',
+                          height: '42px',
+                          flex: 1,
+                          opacity: settings.twitchToken ? 0.5 : 1, 
+                          cursor: settings.twitchToken ? 'not-allowed' : 'text',
+                          backgroundColor: settings.twitchToken ? 'rgba(255,255,255,0.05)' : undefined
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          handleSettingsChange({ totalSubCurrent: v === '' ? 0 : Math.max(0, parseInt(v, 10) || 0) });
+                        }}
                       />
-                      Show
-                    </label>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!!settings.twitchToken}
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0, opacity: settings.twitchToken ? 0.5 : 1 }}
+                        onClick={() => handleSettingsChange({ totalSubCurrent: (settings.totalSubCurrent || 0) + 1 })}
+                      >+</button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-small"
+                        disabled={!!settings.twitchToken}
+                        style={{ padding: '0 10px', height: '42px', fontSize: '0.85em', fontWeight: 'bold', background: 'rgba(145, 70, 255, 0.2)', border: '1px solid #9146FF', color: '#a970ff', opacity: settings.twitchToken ? 0.5 : 1 }}
+                        onClick={() => handleSettingsChange({ totalSubCurrent: (settings.totalSubCurrent || 0) + 5 })}
+                      >+5</button>
+                    </div>
                   </div>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.dailySubGoal ?? 10}
-                    onChange={(e) => handleSettingsChange({ dailySubGoal: Math.max(1, parseInt(e.target.value) || 10) })}
-                  />
+
+                  {/* Daily Sub Goal */}
+                  <div className="setting-group">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <label style={{ margin: 0, fontWeight: 'bold' }}>Daily Sub Goal:</label>
+                      <label className="checkbox-label" style={{ fontSize: '0.85em' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.showDailySubGoal ?? true}
+                          onChange={(e) => handleSettingsChange({ showDailySubGoal: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        Show
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0 }}
+                        onClick={() => handleSettingsChange({ dailySubGoal: Math.max(1, (settings.dailySubGoal || 10) - 1) })}
+                      >-</button>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className="text-input"
+                        style={{ textAlign: 'center', fontSize: '1.1em', fontWeight: 'bold', height: '42px', flex: 1 }}
+                        value={settings.dailySubGoal === 0 ? '' : (settings.dailySubGoal ?? 10)}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          handleSettingsChange({ dailySubGoal: v === '' ? 0 : Math.max(0, parseInt(v, 10) || 0) });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0 }}
+                        onClick={() => handleSettingsChange({ dailySubGoal: (settings.dailySubGoal || 10) + 1 })}
+                      >+</button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-small"
+                        style={{ padding: '0 10px', height: '42px', fontSize: '0.85em', fontWeight: 'bold', background: 'rgba(145, 70, 255, 0.2)', border: '1px solid #9146FF', color: '#a970ff' }}
+                        onClick={() => handleSettingsChange({ dailySubGoal: (settings.dailySubGoal || 10) + 5 })}
+                      >+5</button>
+                    </div>
+                  </div>
+
+                  {/* Current Daily Subs */}
+                  <div className="setting-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label style={{ margin: 0, fontWeight: 'bold' }}>Current Daily Subs:</label>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!!settings.twitchToken}
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0, opacity: settings.twitchToken ? 0.5 : 1 }}
+                        onClick={() => handleSettingsChange({ dailySubCurrent: Math.max(0, (settings.dailySubCurrent || 0) - 1) })}
+                      >-</button>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className="text-input"
+                        value={settings.dailySubCurrent === 0 ? '' : (settings.dailySubCurrent ?? 0)}
+                        disabled={!!settings.twitchToken}
+                        style={{ 
+                          textAlign: 'center',
+                          fontSize: '1.1em',
+                          fontWeight: 'bold',
+                          height: '42px',
+                          flex: 1,
+                          opacity: settings.twitchToken ? 0.5 : 1, 
+                          cursor: settings.twitchToken ? 'not-allowed' : 'text',
+                          backgroundColor: settings.twitchToken ? 'rgba(255,255,255,0.05)' : undefined
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          handleSettingsChange({ dailySubCurrent: v === '' ? 0 : Math.max(0, parseInt(v, 10) || 0) });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!!settings.twitchToken}
+                        style={{ minWidth: '40px', height: '42px', fontSize: '1.2em', fontWeight: 'bold', padding: 0, opacity: settings.twitchToken ? 0.5 : 1 }}
+                        onClick={() => handleSettingsChange({ dailySubCurrent: (settings.dailySubCurrent || 0) + 1 })}
+                      >+</button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-small"
+                        disabled={!!settings.twitchToken}
+                        style={{ padding: '0 10px', height: '42px', fontSize: '0.85em', fontWeight: 'bold', background: 'rgba(145, 70, 255, 0.2)', border: '1px solid #9146FF', color: '#a970ff', opacity: settings.twitchToken ? 0.5 : 1 }}
+                        onClick={() => handleSettingsChange({ dailySubCurrent: (settings.dailySubCurrent || 0) + 5 })}
+                      >+5</button>
+                    </div>
+                  </div>
                 </div>
-                <div className="setting-group">
-                  <label>Current Daily Subs:</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    value={settings.dailySubCurrent ?? 0}
-                    disabled={!!settings.twitchToken}
-                    style={{ 
-                      opacity: settings.twitchToken ? 0.5 : 1, 
-                      cursor: settings.twitchToken ? 'not-allowed' : 'text',
-                      backgroundColor: settings.twitchToken ? 'rgba(255,255,255,0.05)' : undefined
-                    }}
-                    onChange={(e) => handleSettingsChange({ dailySubCurrent: Math.max(0, parseInt(e.target.value) || 0) })}
-                  />
-                </div>
-              </div>
               
               {/* Scale & Position Controls */}
               <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
