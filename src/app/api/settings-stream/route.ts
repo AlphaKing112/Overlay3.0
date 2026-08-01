@@ -157,8 +157,8 @@ export async function GET(request: NextRequest): Promise<Response> {
         } catch {}
       }, 45000);
       
-      // Check for updates every 3 seconds for responsive updates
-      const interval = setInterval(checkForUpdates, 3000);
+      // Check for updates every 5 seconds for fallback sync (instant updates sent via SSE broadcast)
+      const interval = setInterval(checkForUpdates, 5000);
       
       // Cleanup on close
       request.signal.addEventListener('abort', () => {
