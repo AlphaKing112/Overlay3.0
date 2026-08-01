@@ -36,8 +36,7 @@ export function middleware(request: NextRequest) {
     '/api/bitrate',
     '/api/obs-switch-scene',
     '/api/auto-switch-service',
-    '/api/twitch-subs',
-    '/api/bot'
+    '/api/twitch-subs'
   ];
   
   if (publicRoutes.includes(pathname)) {
