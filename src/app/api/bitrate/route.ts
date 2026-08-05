@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
         for (const url of variations) {
             try {
                 const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 4000); // 4s timeout per attempt
+                const timeout = setTimeout(() => controller.abort(), 6000); // 6s timeout per attempt
 
                 const response = await fetch(url, {
                     headers: {
@@ -133,7 +133,9 @@ export async function GET(req: NextRequest) {
                     lastStatus = response.status;
                 }
             } catch (err: any) {
-                lastError = err.message || 'Connection failed';
+                lastError = err.name === 'AbortError' 
+                    ? 'Connection timed out (stream offline or stats server unreachable)' 
+                    : (err.message || 'Connection failed');
                 lastStatus = err.name === 'AbortError' ? 504 : 502;
             }
         }

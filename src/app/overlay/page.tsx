@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAnimatedValue } from '@/hooks/useAnimatedValue';
 import dynamic from 'next/dynamic';
-import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS } from '@/types/settings';
+import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, ShoutoutData } from '@/types/settings';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useRenderPerformance } from '@/lib/performance';
 import { OverlayLogger } from '@/lib/logger';
@@ -252,6 +252,29 @@ function OverlayPage() {
   // Always-current settings ref so the socket handler reads fresh values without reconnecting
   const seSettingsRef = useRef(settings);
   useEffect(() => { seSettingsRef.current = settings; }, [settings]);
+
+  // Shoutout auto-dismiss effect
+  const [shoutoutExiting, setShoutoutExiting] = useState(false);
+
+  useEffect(() => {
+    if (settings.shoutout && settings.shoutout.active) {
+      OverlayLogger.overlay(`Shoutout active on overlay for @${settings.shoutout.displayName}`);
+      setShoutoutExiting(false);
+      const durationMs = (settings.shoutout.durationSeconds || 15) * 1000;
+
+      const timer = setTimeout(() => {
+        setShoutoutExiting(true);
+        setTimeout(() => {
+          setSettings(prev => ({
+            ...prev,
+            shoutout: prev.shoutout ? { ...prev.shoutout, active: false } : null
+          }));
+        }, 400);
+      }, durationMs);
+
+      return () => clearTimeout(timer);
+    }
+  }, [settings.shoutout?.triggeredAt, settings.shoutout?.active]);
 
   // Set up second tick for countdown timers and auto-delete expired goals
   useEffect(() => {
@@ -956,6 +979,22 @@ function OverlayPage() {
             100% { transform: skewX(-20deg) translateX(150%); }
           }
         `}</style>
+
+        {/* Live Donation / Sub / Cheer Alert Toast */}
+        {donationToast && (
+          <div
+            className={`dono-toast ${donationToast.phase}`}
+            style={{
+              marginBottom: '4px',
+            }}
+          >
+            <span className="dono-toast-icon">{donationToast.icon}</span>
+            <div className="dono-toast-body">
+              <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
+              <span className="dono-toast-amount">{donationToast.amount}</span>
+            </div>
+          </div>
+        )}
         {visibleGoals.map(goal => {
           const goalTarget = goal.goal || 100;
           const goalCurrent = goal.current || 0;
@@ -1091,7 +1130,7 @@ function OverlayPage() {
     settings.showDonationGoals, settings.showSubGoals, settings.todoListPosition,
     settings.donationGoalsX, settings.donationGoalsY, settings.donationGoalsScale,
     settings.showBackground, settings.donoShowBackground, settings.globalTheme,
-    settings.donationGoals, timeTick,
+    settings.donationGoals, timeTick, donationToast,
   ]);
 
 
@@ -1263,12 +1302,14 @@ function OverlayPage() {
         if (!rawEvent) return;
         
         // Normalize: production events place details in rawEvent.data, test/replays place them in rawEvent.event
-        const data = rawEvent.data || rawEvent.event;
+        const data = rawEvent.data || rawEvent.event || rawEvent;
         if (!data) return;
 
-        const eventType = (rawEvent.type || '').toLowerCase() || (rawEvent.listener || '').toLowerCase();
-        const username = data.username || data.name || 'Anonymous';
-        const dedupKey = rawEvent._id || data._id || `${eventType}-${data.amount}-${username}`;
+        const eventType = (rawEvent.type || '').toLowerCase() || (rawEvent.listener || '').toLowerCase() || (rawEvent.event || '').toLowerCase();
+        const username = data.username || data.name || data.nick || 'Anonymous';
+        const chatText = (data.text || data.message || data.comment || data.body || '').trim();
+        
+        const dedupKey = rawEvent._id || data._id || `${eventType}-${data.amount || ''}-${chatText || ''}-${username}`;
         
         if (recentEventIds.has(dedupKey)) {
           OverlayLogger.overlay(`SE duplicate ignored: ${dedupKey}`);
@@ -1489,6 +1530,9 @@ function OverlayPage() {
 
       socket.on('event', handleSEEvent);
       socket.on('event:test', handleSEEvent);
+      socket.on('event:const', handleSEEvent);
+      socket.on('message', handleSEEvent);
+      socket.on('chat:message', handleSEEvent);
 
       socket.on('disconnect', () => {
         OverlayLogger.overlay('Disconnected from StreamElements');
@@ -1539,9 +1583,160 @@ function OverlayPage() {
     };
 
     syncTwitchSubs();
-    const interval = setInterval(syncTwitchSubs, 180000); // Poll Twitch API every 3 minutes to save invocations
+    const interval = setInterval(syncTwitchSubs, 60000); // Poll Twitch API every 60 seconds (cuts Vercel requests in half)
     return () => clearInterval(interval);
   }, [settings.twitchToken, settings.twitchBroadcasterId]);
+
+  // Direct Twitch IRC Chat Listener for !so & !shoutout commands
+  // Connects via Twitch WebSocket IRC (wss://irc-ws.chat.twitch.tv:443) using anonymous access
+  useEffect(() => {
+    // Channel name from logged-in Twitch user
+    const channelName = (settings.twitchUsername || '').toLowerCase().trim();
+    if (!channelName) return;
+
+    let ws: WebSocket | null = null;
+    let isCleanedUp = false;
+
+    const connectIRC = () => {
+      if (isCleanedUp) return;
+
+      OverlayLogger.overlay(`Connecting to Twitch IRC Chat for channel #${channelName}...`);
+      try {
+        ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+      } catch (e) {
+        OverlayLogger.warn('WebSocket init failed:', e);
+        return;
+      }
+
+      ws.onopen = () => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+        ws.send('PASS SCHMOOPIIE');
+        const anonNick = `justinfan${Math.floor(10000 + Math.random() * 90000)}`;
+        ws.send(`NICK ${anonNick}`);
+        ws.send(`JOIN #${channelName}`);
+        OverlayLogger.overlay(`Connected to Twitch Chat! Joined #${channelName} as ${anonNick}`);
+      };
+
+      ws.onmessage = (event) => {
+        const raw = String(event.data || '');
+
+        // Handle PING keeping connection alive
+        if (raw.startsWith('PING')) {
+          ws?.send('PONG :tmi.twitch.tv');
+          return;
+        }
+
+        // Parse Twitch IRC PRIVMSG
+        if (raw.includes('PRIVMSG')) {
+          const match = raw.match(/PRIVMSG #[^ ]+ :(.*)/);
+          if (match && match[1]) {
+            const chatText = match[1].trim();
+            if (chatText.toLowerCase().startsWith('!so ') || chatText.toLowerCase().startsWith('!shoutout ')) {
+              // Permission check
+              const permBroadcaster = seSettingsRef.current.shoutoutPermBroadcaster ?? true;
+              const permMods = seSettingsRef.current.shoutoutPermMods ?? true;
+              const permVips = seSettingsRef.current.shoutoutPermVips ?? false;
+              const permEveryone = seSettingsRef.current.shoutoutPermEveryone ?? false;
+
+              const isBroadcaster = /badges=[^;]*broadcaster\//i.test(raw);
+              const isMod = raw.includes('mod=1') || /badges=[^;]*moderator\//i.test(raw);
+              const isVip = /badges=[^;]*vip\//i.test(raw);
+
+              const isAllowed = permEveryone ||
+                (permBroadcaster && isBroadcaster) ||
+                (permMods && isMod) ||
+                (permVips && isVip);
+
+              if (!isAllowed) {
+                OverlayLogger.overlay(`Twitch IRC !so command ignored (user lacks required role permission)`);
+                return;
+              }
+
+              const parts = chatText.split(/\s+/);
+              const target = parts[1] ? parts[1].replace(/^@/, '').trim() : '';
+              if (target) {
+                OverlayLogger.overlay(`Twitch IRC received !so command for @${target}`);
+                const clientId = API_KEYS.TWITCH_CLIENT_ID;
+                const freshToken = seSettingsRef.current.twitchToken;
+
+                fetch(`/api/twitch-user?username=${encodeURIComponent(target)}&token=${freshToken || ''}&clientId=${clientId}`)
+                  .then(res => res.json())
+                  .then(userData => {
+                    const displayName = userData.displayName || target;
+
+                    // Post highlighted Twitch Chat Announcement / Message API
+                    const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
+                    const token = seSettingsRef.current.twitchToken;
+                    if (broadcasterId && token) {
+                      const tpl = seSettingsRef.current.shoutoutAnnouncementTemplate || '📣 Shoutout to @{username} {game}at {url} !';
+                      const url = `https://twitch.tv/${target.toLowerCase()}`;
+                      const gameStr = userData.gameName ? `playing ${userData.gameName} ` : '';
+                      const announcementMsg = tpl
+                        .replace(/\{username\}/gi, displayName)
+                        .replace(/\{name\}/gi, displayName)
+                        .replace(/\{game\}/gi, gameStr)
+                        .replace(/\{url\}/gi, url);
+
+                      fetch('/api/twitch-announcement', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          broadcasterId,
+                          token,
+                          clientId,
+                          message: announcementMsg,
+                          color: 'primary'
+                        })
+                      }).catch(err => OverlayLogger.error('Failed to post Twitch chat announcement:', err));
+                    }
+
+                    // Save shoutout overlay card to KV so the overlay displays it with correct duration
+                    const shoutoutDuration = seSettingsRef.current.shoutoutDuration || 15;
+                    const shoutoutPayload = {
+                      username: target.toLowerCase(),
+                      displayName,
+                      avatarUrl: userData.avatarUrl || `https://decapi.me/twitch/avatar/${target}`,
+                      gameName: userData.gameName,
+                      title: userData.title,
+                      customText: 'Collab Streamer',
+                      active: true,
+                      triggeredAt: Date.now(),
+                      durationSeconds: shoutoutDuration
+                    };
+                    fetch('/api/save-settings', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ settings: { shoutout: shoutoutPayload } })
+                    }).catch(err => OverlayLogger.error('Failed to save !so shoutout to KV:', err));
+                  })
+                  .catch(err => OverlayLogger.error('Error fetching user for chat shoutout:', err));
+              }
+            }
+          }
+        }
+      };
+
+      ws.onerror = (err) => {
+        OverlayLogger.warn('Twitch IRC WebSocket error:', err);
+      };
+
+      ws.onclose = () => {
+        if (!isCleanedUp) {
+          setTimeout(connectIRC, 5000);
+        }
+      };
+    };
+
+    connectIRC();
+
+    return () => {
+      isCleanedUp = true;
+      if (ws) {
+        try { ws.close(); } catch {}
+      }
+    };
+  }, [settings.twitchUsername]);
 
 
   // Persist completed todo timestamps to localStorage whenever they change
@@ -3022,7 +3217,7 @@ function OverlayPage() {
         const isLive = stats && stats.bitrateKbps > 0;
 
         const liveInterval = settings.bitratePollIntervalLive ?? 3000;
-        const offlineInterval = settings.bitratePollIntervalOffline ?? 10000;
+        const offlineInterval = settings.bitratePollIntervalOffline ?? 6000;
 
         let pollInterval: number;
         if (typeof document !== 'undefined' && document.hidden) {
@@ -3244,20 +3439,29 @@ function OverlayPage() {
             </div>
           )}
           {settings.todoListPosition === 'left' && donationGoalsJSX}
-          {settings.todoListPosition === 'left' && settings.showDonationGoals && donationToast && (
+          {settings.todoListPosition === 'left' && !donationGoalsJSX && settings.showDonationGoals && donationToast && (
             <div
-              className={`dono-toast ${donationToast.phase}`}
+              className={`overlay-box donation-goals-box ${(!settings.showBackground || settings.donoShowBackground === false) ? 'no-background' : ''}`}
               style={{
-                marginTop: '8px',
+                marginTop: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: '220px',
+                maxWidth: '320px',
+                alignSelf: 'flex-start',
                 transform: `translate(${settings.donationGoalsX || 0}px, ${settings.donationGoalsY || 0}px) scale(${settings.donationGoalsScale || 1})`,
                 transformOrigin: 'top left',
-                alignSelf: 'flex-start',
+                pointerEvents: 'none',
+                padding: '12px 16px',
+                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4))',
               }}
             >
-              <span className="dono-toast-icon">{donationToast.icon}</span>
-              <div className="dono-toast-body">
-                <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
-                <span className="dono-toast-amount">{donationToast.amount}</span>
+              <div className={`dono-toast ${donationToast.phase}`}>
+                <span className="dono-toast-icon">{donationToast.icon}</span>
+                <div className="dono-toast-body">
+                  <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
+                  <span className="dono-toast-amount">{donationToast.amount}</span>
+                </div>
               </div>
             </div>
           )}
@@ -3335,20 +3539,29 @@ function OverlayPage() {
             </div>
           )}
           {settings.todoListPosition === 'right' && donationGoalsJSX}
-          {settings.todoListPosition === 'right' && settings.showDonationGoals && donationToast && (
+          {settings.todoListPosition === 'right' && !donationGoalsJSX && settings.showDonationGoals && donationToast && (
             <div
-              className={`dono-toast ${donationToast.phase}`}
+              className={`overlay-box donation-goals-box ${(!settings.showBackground || settings.donoShowBackground === false) ? 'no-background' : ''}`}
               style={{
-                marginTop: '8px',
+                marginTop: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: '220px',
+                maxWidth: '320px',
+                alignSelf: 'flex-end',
                 transform: `translate(${settings.donationGoalsX || 0}px, ${settings.donationGoalsY || 0}px) scale(${settings.donationGoalsScale || 1})`,
                 transformOrigin: 'top right',
-                alignSelf: 'flex-end',
+                pointerEvents: 'none',
+                padding: '12px 16px',
+                filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4))',
               }}
             >
-              <span className="dono-toast-icon">{donationToast.icon}</span>
-              <div className="dono-toast-body">
-                <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
-                <span className="dono-toast-amount">{donationToast.amount}</span>
+              <div className={`dono-toast ${donationToast.phase}`}>
+                <span className="dono-toast-icon">{donationToast.icon}</span>
+                <div className="dono-toast-body">
+                  <span className="dono-toast-name">{donationToast.username} {donationToast.label}</span>
+                  <span className="dono-toast-amount">{donationToast.amount}</span>
+                </div>
               </div>
             </div>
           )}
@@ -3358,40 +3571,40 @@ function OverlayPage() {
         {settings.showSocials !== false && activeSocials.length > 0 && (
           <div className={settings.socialPosition === 'bottom-middle' ? 'bottom-middle' : 'top-middle'} style={{ transform: `translate(${settings.socialX || 0}px, ${-(settings.socialY || 0)}px) scale(${settings.socialScale || 1})`, transformOrigin: settings.socialPosition === 'bottom-middle' ? 'bottom center' : 'top center', opacity: socialVisible ? 1 : 0, transition: 'opacity 1.5s ease-in-out', pointerEvents: socialVisible ? 'auto' : 'none' }}>
             <div className={`overlay-box social-box ${!(settings.socialShowBackground ?? true) ? 'no-background' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', minWidth: '150px' }}>
-              <div className="social-item kick-style-text" data-theme={settings.socialTextTheme || 'default'} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'var(--font-size-sm)' }}>
+              <div className="social-item kick-style-text" data-theme={settings.socialTextTheme || 'default'} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div className="social-icons-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {activeSocials.includes('kick') && (
-                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#53FC19', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
-                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>
+                    <span className="social-icon social-icon-kick" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#53FC19', color: '#000000', borderRadius: '8px', width: '32px', height: '32px', boxShadow: '0 3px 8px rgba(0,0,0,0.5)', transition: 'transform 0.2s ease' }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>
                     </span>
                   )}
                   {activeSocials.includes('twitch') && (
-                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#9146FF', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
-                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg>
+                    <span className="social-icon social-icon-twitch" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#9146FF', color: '#FFFFFF', borderRadius: '8px', width: '32px', height: '32px', boxShadow: '0 3px 8px rgba(0,0,0,0.5)', transition: 'transform 0.2s ease' }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg>
                     </span>
                   )}
                   {activeSocials.includes('x') && (
-                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'white', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
-                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>
+                    <span className="social-icon social-icon-x" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '8px', width: '32px', height: '32px', boxShadow: '0 3px 8px rgba(0,0,0,0.5)', transition: 'transform 0.2s ease' }}>
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                     </span>
                   )}
                   {activeSocials.includes('youtube') && (
-                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#FF0000', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
-                      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    <span className="social-icon social-icon-youtube" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FF0000', color: '#FFFFFF', borderRadius: '8px', width: '32px', height: '32px', boxShadow: '0 3px 8px rgba(0,0,0,0.5)', transition: 'transform 0.2s ease' }}>
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                     </span>
                   )}
                   {activeSocials.includes('instagram') && (
-                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#FF0069', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
-                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>
+                    <span className="social-icon social-icon-instagram" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)', color: '#FFFFFF', borderRadius: '8px', width: '32px', height: '32px', boxShadow: '0 3px 8px rgba(0,0,0,0.5)', transition: 'transform 0.2s ease' }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
                     </span>
                   )}
                   {activeSocials.includes('tiktok') && (
-                    <span className="social-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'white', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderRadius: '6px', width: '32px', height: '32px' }}>
-                      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                    <span className="social-icon social-icon-tiktok" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000', color: '#25F4EE', border: '1px solid rgba(37, 244, 238, 0.4)', borderRadius: '8px', width: '32px', height: '32px', boxShadow: '0 3px 8px rgba(0,0,0,0.5)', transition: 'transform 0.2s ease' }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
                     </span>
                   )}
                 </div>
-                <span className="social-name" style={{ fontFamily: settings.socialFontFamily || 'Impact' }}>{settings.socialName}</span>
+                <span className="social-name" style={{ fontFamily: settings.socialFontFamily || 'Impact', fontSize: '1.4em', lineHeight: 1 }}>{settings.socialName}</span>
               </div>
             </div>
           </div>
@@ -3442,7 +3655,7 @@ function OverlayPage() {
         {/* Calorie Tracker */}
         {/* Twitch Sub Goals */}
         {settings.showSubGoals && (settings.showTotalSubGoal !== false || settings.showDailySubGoal !== false) && (() => {
-          const hideBg = !settings.showBackground || settings.donoShowBackground === false || settings.subGoalsStyle === 'no-background';
+          const hideBg = !settings.showBackground || (settings.subGoalsShowBackground ?? true) === false || settings.subGoalsStyle === 'no-background';
           const hideBars = settings.subGoalsStyle === 'text-only' || settings.subGoalsStyle === 'no-bars';
 
           const totalGoal = settings.totalSubGoal || 100;
@@ -3706,6 +3919,57 @@ function OverlayPage() {
             </div>
           );
         })()}
+
+        {/* Twitch Collab Shoutout Card Overlay */}
+        {settings.shoutout && settings.shoutout.active && (
+          <div
+            style={{
+              position: 'fixed',
+              bottom: '60px',
+              left: '50%',
+              transform: `translate(calc(-50% + ${settings.shoutoutX || 0}px), ${-(settings.shoutoutY || 0)}px) scale(${settings.shoutoutScale || 1})`,
+              transformOrigin: 'center bottom',
+              zIndex: 9999,
+              pointerEvents: 'none'
+            }}
+          >
+            <div className={`shoutout-overlay-card ${shoutoutExiting ? 'exiting' : ''}`}>
+              <div className="shoutout-avatar-wrapper">
+                <img
+                  src={settings.shoutout.avatarUrl || `https://unavatar.io/twitch/${settings.shoutout.username}`}
+                  alt={settings.shoutout.displayName}
+                  className="shoutout-avatar-img"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (!target.dataset.triedUnavatar) {
+                      target.dataset.triedUnavatar = 'true';
+                      target.src = `https://unavatar.io/twitch/${settings.shoutout?.username}`;
+                    } else if (!target.dataset.triedStatic) {
+                      target.dataset.triedStatic = 'true';
+                      target.src = `https://api.ivr.fi/v2/twitch/avatar/${settings.shoutout?.username}`;
+                    }
+                  }}
+                />
+                <span className="shoutout-live-badge">LIVE</span>
+              </div>
+              <div className="shoutout-content-body">
+                <div className="shoutout-top-row">
+                  <span className="shoutout-tag-badge">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/>
+                    </svg>
+                    TWITCH COLLAB
+                  </span>
+                  {settings.shoutout.gameName && (
+                    <span className="shoutout-game-badge">🎮 {settings.shoutout.gameName}</span>
+                  )}
+                </div>
+                <div className="shoutout-username">@{settings.shoutout.displayName}</div>
+                <div className="shoutout-message">{settings.shoutout.customText || 'Collab Streamer'} &bull; twitch.tv/{settings.shoutout.username}</div>
+              </div>
+            </div>
+          </div>
+        )}
       </div >
     </ErrorBoundary >
   );

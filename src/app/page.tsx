@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { authenticatedFetch } from '@/lib/client-auth';
-import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoomLevel, DisplayMode, TodoItem, UrlItem } from '@/types/settings';
+import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoomLevel, DisplayMode, TodoItem, UrlItem, ShoutoutData } from '@/types/settings';
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import { API_KEYS } from '@/utils/overlay-constants';
@@ -42,6 +42,9 @@ export default function AdminPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isStreamingToggling, setIsStreamingToggling] = useState(false);
 
+  // Collapsible API Keys dropdown state
+  const [showApiKeys, setShowApiKeys] = useState(false);
+
   // Custom location input state (for debouncing)
   const [customLocationInput, setCustomLocationInput] = useState('');
   const customLocationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -69,6 +72,117 @@ export default function AdminPage() {
 
   // Fill animation test state
   const [isTestingFillAnimation, setIsTestingFillAnimation] = useState(false);
+
+  // Debounce save ref
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestMergedSettingsRef = useRef<OverlaySettings | null>(null);
+
+  // Shoutout state
+  const [shoutoutUsername, setShoutoutUsername] = useState('');
+  const [shoutoutMessage, setShoutoutMessage] = useState('Collab Streamer');
+  const [shoutoutDuration, setShoutoutDuration] = useState(15);
+  const [isTriggeringShoutout, setIsTriggeringShoutout] = useState(false);
+
+  const handleTestChatAnnouncement = async () => {
+    if (!settings.twitchToken || !settings.twitchBroadcasterId) {
+      setToast({ type: 'error', message: 'Twitch is not connected! Please click the Twitch Login button at the top to connect.' });
+      setTimeout(() => setToast(null), 4500);
+      return;
+    }
+
+    setToast({ type: 'saving', message: 'Testing Twitch Chat Announcement...' });
+    try {
+      const clientId = API_KEYS.TWITCH_CLIENT_ID;
+      const tpl = settings.shoutoutAnnouncementTemplate || '📣 Shoutout to @{username} {game}at {url} !';
+      const testMsg = tpl
+        .replace(/\{username\}/gi, 'xQc')
+        .replace(/\{name\}/gi, 'xQc')
+        .replace(/\{game\}/gi, 'playing Just Chatting ')
+        .replace(/\{url\}/gi, 'https://twitch.tv/xqc');
+
+      const res = await fetch('/api/twitch-announcement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          broadcasterId: settings.twitchBroadcasterId,
+          token: settings.twitchToken,
+          clientId,
+          message: testMsg,
+          color: 'primary'
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setToast({ type: 'saved', message: '✅ Test Chat Announcement posted to your Twitch chat!' });
+      } else {
+        console.warn('Twitch announcement test response:', data);
+        setToast({ type: 'error', message: `Twitch API: ${data.error || data.reason || 'Failed to post message. Disconnect & Reconnect Twitch Login at the top.'}` });
+      }
+      setTimeout(() => setToast(null), 5000);
+    } catch (err) {
+      console.error('Test announcement error:', err);
+      setToast({ type: 'error', message: 'Failed to test chat announcement. Check network or reconnect Twitch.' });
+      setTimeout(() => setToast(null), 5000);
+    }
+  };
+
+  const handleTriggerShoutout = async (userToShoutout?: string) => {
+    const targetUser = (userToShoutout || shoutoutUsername || '').trim().replace(/^@/, '');
+    if (!targetUser) {
+      setToast({ type: 'error', message: 'Please enter a Twitch username to shoutout.' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+
+    setIsTriggeringShoutout(true);
+    setToast({ type: 'saving', message: `Fetching @${targetUser} profile from Twitch...` });
+
+    try {
+      const clientId = API_KEYS.TWITCH_CLIENT_ID;
+      const res = await fetch(`/api/twitch-user?username=${encodeURIComponent(targetUser)}&token=${settings.twitchToken || ''}&clientId=${clientId}`);
+      const userData = await res.json();
+
+      const newShoutout: ShoutoutData = {
+        username: targetUser.toLowerCase(),
+        displayName: userData.displayName || targetUser,
+        avatarUrl: userData.avatarUrl,
+        gameName: userData.gameName,
+        title: userData.title,
+        customText: shoutoutMessage || 'Collab Streamer',
+        active: true,
+        triggeredAt: Date.now(),
+        durationSeconds: settings.shoutoutDuration || shoutoutDuration || 15
+      };
+
+      await handleSettingsChange({ shoutout: newShoutout });
+
+      setToast({ type: 'saved', message: `Shoutout for @${userData.displayName || targetUser} sent to overlay!` });
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      console.error('Shoutout error:', err);
+      const fallbackShoutout: ShoutoutData = {
+        username: targetUser.toLowerCase(),
+        displayName: targetUser,
+        avatarUrl: `https://decapi.me/twitch/avatar/${targetUser}`,
+        customText: shoutoutMessage || 'Collab Streamer',
+        active: true,
+        triggeredAt: Date.now(),
+        durationSeconds: settings.shoutoutDuration || shoutoutDuration || 15
+      };
+      await handleSettingsChange({ shoutout: fallbackShoutout });
+      setToast({ type: 'saved', message: `Shoutout sent for @${targetUser}!` });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsTriggeringShoutout(false);
+    }
+  };
+
+  const handleClearShoutout = async () => {
+    await handleSettingsChange({ shoutout: null });
+    setToast({ type: 'saved', message: 'Shoutout cleared from overlay.' });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   // Countdown timer tick state for Donation Goals countdown
   const [timeTick, setTimeTick] = useState(Date.now());
@@ -280,54 +394,59 @@ export default function AdminPage() {
     const mergedSettings = { ...settings, ...updates };
 
     // Handle minimap logic conflicts
-    if (updates.showMinimap !== undefined) {
-      if (updates.showMinimap) {
-        mergedSettings.minimapSpeedBased = false;
-      }
+    if (updates.showMinimap !== undefined && updates.showMinimap) {
+      mergedSettings.minimapSpeedBased = false;
+    }
+    if (updates.minimapSpeedBased !== undefined && updates.minimapSpeedBased) {
+      mergedSettings.showMinimap = false;
     }
 
-    if (updates.minimapSpeedBased !== undefined) {
-      if (updates.minimapSpeedBased) {
-        mergedSettings.showMinimap = false;
-      }
-    }
-
+    // 1. Update UI state IMMEDIATELY for 0ms lag on sliders & position buttons
     setSettings(mergedSettings);
-    setToast({ type: 'saving', message: 'Saving settings...' });
-    setSyncStatus('syncing');
+    latestMergedSettingsRef.current = mergedSettings;
 
-    try {
-      const res = await authenticatedFetch('/api/save-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mergedSettings),
-      });
-
-      if (!res.ok) {
-        // Session expired — redirect to login so they can re-authenticate
-        if (res.status === 401) {
-          setToast({ type: 'error', message: 'Session expired. Redirecting to login...' });
-          setTimeout(() => router.push('/login'), 1500);
-          return;
-        }
-        const errorText = await res.text();
-        console.error('Save settings failed:', res.status, errorText);
-        throw new Error(`HTTP ${res.status}: ${errorText}`);
-      }
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('overlay_settings_backup', JSON.stringify(mergedSettings));
-      }
-      setToast({ type: 'saved', message: 'Settings saved successfully!' });
-      setSyncStatus('connected');
-      setTimeout(() => setToast(null), 2000);
-    } catch (error) {
-      console.error('Save settings error:', error);
-      setToast({ type: 'error', message: `Failed to save settings: ${error instanceof Error ? error.message : 'Unknown error'}` });
-      setSyncStatus('disconnected');
-      setTimeout(() => setToast(null), 5000);
+    // 2. Debounce HTTP save requests (300ms) to prevent server log spam when dragging sliders
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
     }
-  }, [settings]);
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      const settingsToSave = latestMergedSettingsRef.current || mergedSettings;
+      setToast({ type: 'saving', message: 'Saving settings...' });
+      setSyncStatus('syncing');
+
+      try {
+        const res = await authenticatedFetch('/api/save-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settingsToSave),
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) {
+            setToast({ type: 'error', message: 'Session expired. Redirecting to login...' });
+            setTimeout(() => router.push('/login'), 1500);
+            return;
+          }
+          const errorText = await res.text();
+          console.error('Save settings failed:', res.status, errorText);
+          throw new Error(`HTTP ${res.status}: ${errorText}`);
+        }
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('overlay_settings_backup', JSON.stringify(settingsToSave));
+        }
+        setToast({ type: 'saved', message: 'Settings saved!' });
+        setSyncStatus('connected');
+        setTimeout(() => setToast(null), 2000);
+      } catch (error) {
+        console.error('Save settings error:', error);
+        setToast({ type: 'error', message: `Failed to save settings: ${error instanceof Error ? error.message : 'Unknown error'}` });
+        setSyncStatus('disconnected');
+        setTimeout(() => setToast(null), 5000);
+      }
+    }, 300);
+  }, [settings, router]);
 
   const runTestFillAnimation = useCallback(() => {
     if (isTestingFillAnimation) return;
@@ -541,60 +660,6 @@ export default function AdminPage() {
     setObsCurrentScene('');
   };
 
-  // Auto-connect to OBS on initial load if settings are present.
-  // IMPORTANT: obsStatus is intentionally NOT in the dependency array.
-  // Adding it caused a reconnect loop: ConnectionClosed → obsStatus='disconnected'
-  // → effect re-fires → connect() on a stale socket → onclose call stack error.
-  // This effect fires only when the URL/password/syncStatus change (i.e. initial load).
-  useEffect(() => {
-    if (!settings.obsWebsocketUrl || syncStatus !== 'connected') return;
-
-    const autoConnect = async () => {
-      // Always tear down the old instance before creating a fresh one.
-      // Reusing a stale OBSWebSocket whose socket already closed triggers the
-      // internal onclose handler on the dead socket → call stack error in OBS.
-      if (obsRef.current) {
-        try { obsRef.current.removeAllListeners(); } catch { /* ignore */ }
-        try { await obsRef.current.disconnect(); } catch { /* ignore */ }
-        obsRef.current = null;
-      }
-
-      const obs = new OBSWebSocket();
-      // Register listeners BEFORE connecting so onclose is always handled.
-      obs.on('ConnectionClosed', () => setObsStatus('disconnected'));
-      obs.on('ConnectionError', () => setObsStatus('disconnected'));
-      obs.on('CurrentProgramSceneChanged', (data) => {
-        setObsCurrentScene(data.sceneName);
-      });
-      obs.on('SceneListChanged', (data) => {
-        setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
-      });
-      obsRef.current = obs;
-
-      try {
-        const connectPromise = obs.connect(settings.obsWebsocketUrl, settings.obsWebsocketPassword || undefined);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out.")), 5000));
-        await Promise.race([connectPromise, timeoutPromise]);
-        setObsStatus('connected');
-        setObsErrorLog(null);
-        try {
-          const data = await obs.call('GetSceneList');
-          setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
-          setObsCurrentScene(data.currentProgramSceneName);
-        } catch (err: any) {
-          console.warn("Failed to fetch initial scenes", err?.message || err);
-        }
-      } catch (error: any) {
-        // Silent fail on auto-connect — surface error for debugging only
-        setObsErrorLog(error?.message || String(error) || 'Unknown connection error');
-        setObsStatus('disconnected');
-      }
-    };
-
-    autoConnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.obsWebsocketUrl, settings.obsWebsocketPassword, syncStatus]);
-
   // ===== OBS AUTO-SWITCH BACKEND INTEGRATION =====
   const [autoSwitchStatus, setAutoSwitchStatus] = useState<string>('Idle');
 
@@ -674,7 +739,8 @@ export default function AdminPage() {
         setAutoSwitchStatus('Backend unreachable');
       }
       if (isActive) {
-        setTimeout(pollAutoSwitch, 5000);
+        const fallbackPollInterval = (typeof document !== 'undefined' && document.hidden) ? 60000 : 30000;
+        setTimeout(pollAutoSwitch, fallbackPollInterval);
       }
     };
 
@@ -754,6 +820,40 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="header-actions">
+            {settings.twitchToken ? (
+              <button
+                className="btn"
+                style={{ background: 'rgba(145, 70, 255, 0.2)', border: '1px solid #9146FF', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}
+                onClick={() => {
+                  if (confirm(`Disconnect from Twitch (@${settings.twitchUsername || 'User'})?`)) {
+                    handleSettingsChange({ twitchToken: '', twitchBroadcasterId: '', twitchUsername: '' });
+                  }
+                }}
+                title="Click to Disconnect Twitch"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                </svg>
+                {settings.twitchUsername ? `@${settings.twitchUsername}` : 'Twitch Connected'}
+              </button>
+            ) : (
+              <button
+                className="btn"
+                style={{ background: '#9146FF', color: 'white', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => {
+                  const clientId = API_KEYS.TWITCH_CLIENT_ID;
+                  const redirectUri = window.location.origin + '/twitch-auth';
+                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read');
+                  const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
+                  window.location.href = authUrl;
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                </svg>
+                Twitch Login
+              </button>
+            )}
             <button className="btn btn-primary" onClick={openPreview}>
               👁️ Preview
             </button>
@@ -792,6 +892,100 @@ export default function AdminPage() {
       {/* Main Content */}
       <main className="main-content">
         <div className="settings-container">
+
+          {/* Collapsible API & Integration Keys Section */}
+          <section className="settings-section" style={{ border: '1px solid rgba(145, 70, 255, 0.3)', background: 'rgba(145, 70, 255, 0.04)', borderRadius: '12px', marginBottom: '24px', overflow: 'hidden' }}>
+            <div 
+              className="section-header" 
+              onClick={() => setShowApiKeys(!showApiKeys)}
+              style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                cursor: 'pointer',
+                padding: '16px 20px',
+                userSelect: 'none',
+                background: 'rgba(255, 255, 255, 0.03)',
+                margin: 0
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '1.5em' }}>🔑</span>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.2em', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    API & Integration Keys
+                  </h2>
+                  <span style={{ fontSize: '0.8em', opacity: 0.7, marginTop: '2px', display: 'block' }}>
+                    Belabox & StreamElements Credentials
+                  </span>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="btn btn-secondary"
+                style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85em', fontWeight: 'bold' }}
+              >
+                {showApiKeys ? '▲ Hide Keys' : '▼ Expand Keys'}
+              </button>
+            </div>
+
+            {showApiKeys && (
+              <div style={{ padding: '20px', borderTop: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* 1. Belabox Publisher Key */}
+                <div style={{ padding: '16px', background: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(83, 252, 25, 0.2)' }}>
+                  <h3 style={{ fontSize: '1em', marginBottom: '12px', color: '#53FC19', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    📡 Belabox Publisher Key
+                  </h3>
+                  <div>
+                    <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#ffffff' }}>Publisher Key</label>
+                    <input
+                      type="password"
+                      placeholder="Enter your Belabox publisher key..."
+                      className="text-input"
+                      value={settings.belaboxPublisherKey || ''}
+                      onChange={(e) => handleSettingsChange({ belaboxPublisherKey: e.target.value })}
+                      style={{ width: '100%', fontFamily: 'monospace', marginTop: '4px' }}
+                    />
+                    <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                      Automatically fetches bitrate stats from https://stats.srt.belabox.net
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. StreamElements JWT Token */}
+                <div style={{ padding: '16px', background: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(169, 112, 255, 0.2)' }}>
+                  <h3 style={{ fontSize: '1em', marginBottom: '12px', color: '#a970ff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    💰 StreamElements Webhook / Tips Token
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <label className="checkbox-label" style={{ cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.streamElementsEnabled ?? false}
+                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text" style={{ fontSize: '0.9em', fontWeight: 'bold' }}>Enable StreamElements Integration</span>
+                    </label>
+                    <div>
+                      <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#ffffff' }}>StreamElements JWT Token</label>
+                      <input
+                        type="password"
+                        placeholder="Paste StreamElements JWT token..."
+                        className="text-input"
+                        value={settings.streamElementsToken || ''}
+                        onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
+                        style={{ width: '100%', fontFamily: 'monospace', marginTop: '4px' }}
+                      />
+                      <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                        Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
 
           {/* OBS Connection Section */}
           <section className="settings-section">
@@ -2349,63 +2543,6 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {/* StreamElements Integration */}
-                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>StreamElements Integration</h3>
-                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={settings.streamElementsEnabled ?? false}
-                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
-                        className="checkbox-input"
-                      />
-                      <span className="checkbox-text">Enable StreamElements Webhook / Tips</span>
-                    </label>
-                  </div>
-
-                  {settings.streamElementsEnabled && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <label className="input-label" style={{ fontSize: '0.85em' }}>StreamElements JWT Token</label>
-                        <input
-                          type="password"
-                          placeholder="Paste StreamElements JWT token..."
-                          className="text-input"
-                          value={settings.streamElementsToken || ''}
-                          onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
-                          style={{ width: '100%', fontFamily: 'monospace' }}
-                        />
-                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
-                          Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <label className="input-label" style={{ fontSize: '0.85em', marginBottom: 0 }}>Twitch Revenue Split (Streamer Cut)</label>
-                          <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'var(--accent-color)' }}>
-                            {settings.twitchRevenueSplit ?? 50}%
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="5"
-                          value={settings.twitchRevenueSplit ?? 50}
-                          onChange={(e) => handleSettingsChange({ twitchRevenueSplit: parseInt(e.target.value) })}
-                          style={{ width: '100%' }}
-                        />
-                        <span style={{ fontSize: '0.75em', opacity: 0.6 }}>
-                          Percentage of Twitch subscription revenue that goes to the streamer (typically 50% for standard affiliates, higher for partner status or special contracts). Bits are always calculated at 100% split ($0.01 per bit).
-                        </span>
-                      </div>
-
-                    </div>
-                  )}
-                </div>
-
 
 
                 {/* Goals List & Creator */}
@@ -2643,63 +2780,6 @@ export default function AdminPage() {
 
             {settings.showSubGoals && (
               <>
-                {/* Twitch API Integration */}
-                <div className="setting-group" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Twitch API Integration</h3>
-                  
-                  {settings.twitchToken ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(46, 204, 113, 0.1)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(46, 204, 113, 0.2)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <span style={{ fontSize: '1.2em', marginRight: '8px' }}>✅</span>
-                          <span style={{ fontWeight: 'bold' }}>Connected to Twitch</span>
-                          {settings.twitchUsername && (
-                            <div style={{ fontSize: '0.85em', opacity: 0.8, marginTop: '4px', marginLeft: '32px' }}>
-                              Logged in as <span style={{ color: '#9146FF', fontWeight: 'bold' }}>{settings.twitchUsername}</span>
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '8px 16px', fontSize: '0.85em' }}
-                          onClick={() => {
-                            if (confirm('Are you sure you want to disconnect from Twitch?')) {
-                              handleSettingsChange({
-                                twitchToken: '',
-                                twitchBroadcasterId: '',
-                                twitchUsername: ''
-                              });
-                            }
-                          }}
-                        >
-                          Disconnect
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <p style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '8px' }}>
-                        Connect your Twitch account to automatically sync your live subscriber count.
-                      </p>
-                      <button
-                        className="btn btn-primary"
-                        style={{ background: '#9146FF', color: 'white', padding: '12px', fontSize: '1em', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                        onClick={() => {
-                          const clientId = API_KEYS.TWITCH_CLIENT_ID;
-                          const redirectUri = window.location.origin + '/twitch-auth';
-                          const scope = 'channel:read:subscriptions';
-                          const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
-                          window.location.href = authUrl;
-                        }}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
-                        </svg>
-                        Connect with Twitch
-                      </button>
-                    </div>
-                  )}
-                </div>
                 
                 <div className="settings-grid">
                   {/* Total Sub Goal */}
@@ -2912,55 +2992,69 @@ export default function AdminPage() {
                 <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Layout & Scale</h3>
                 <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                   {/* Style Control */}
-                  <div style={{ flex: 1, minWidth: '150px' }}>
+                  <div style={{ flex: '1 1 180px', minWidth: '175px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                       <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Display Style</label>
                     </div>
                     <select
                       value={settings.subGoalsStyle || 'default'}
                       onChange={(e) => handleSettingsChange({ subGoalsStyle: e.target.value as any })}
-                      className="text-input"
-                      style={{ width: '100%', padding: '8px 10px', fontSize: '0.9em', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: '#fff' }}
+                      className="custom-select-input"
+                      style={{ width: '100%', height: '38px' }}
                     >
-                      <option value="default" style={{ background: '#1a1a1a', color: '#fff' }}>Show Bars & Background</option>
-                      <option value="no-bars" style={{ background: '#1a1a1a', color: '#fff' }}>Hide Bars (Background Only)</option>
-                      <option value="no-background" style={{ background: '#1a1a1a', color: '#fff' }}>Hide Background (Bars Only)</option>
-                      <option value="text-only" style={{ background: '#1a1a1a', color: '#fff' }}>Text Only (Hide Bars & Background)</option>
+                      <option value="default">Show Bars</option>
+                      <option value="no-bars">Hide Bars (Text Only)</option>
                     </select>
                   </div>
 
                   {/* Font Control */}
-                  <div style={{ flex: 1, minWidth: '150px' }}>
+                  <div style={{ flex: '1 1 170px', minWidth: '165px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                       <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Font Style</label>
                     </div>
                     <select
                       value={settings.subGoalsFont || 'default'}
                       onChange={(e) => handleSettingsChange({ subGoalsFont: e.target.value as any })}
-                      className="text-input"
-                      style={{ width: '100%', padding: '8px 10px', fontSize: '0.9em', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: '#fff' }}
+                      className="custom-select-input"
+                      style={{ width: '100%', height: '38px' }}
                     >
-                      <option value="default" style={{ background: '#1a1a1a', color: '#fff' }}>Default Font</option>
-                      <option value="neon" style={{ background: '#1a1a1a', color: '#fff', fontFamily: '"Comic Sans MS", cursive, sans-serif' }}>Playful (Comic)</option>
-                      <option value="retro" style={{ background: '#1a1a1a', color: '#fff', fontFamily: '"Courier New", Courier, monospace' }}>Retro (Monospace)</option>
-                      <option value="bold" style={{ background: '#1a1a1a', color: '#fff', fontWeight: 'bold' }}>Bold (Thick)</option>
-                      <option value="impact" style={{ background: '#1a1a1a', color: '#fff', fontFamily: 'Impact, sans-serif' }}>Impact (Condensed)</option>
+                      <option value="default">Default Font</option>
+                      <option value="neon" style={{ fontFamily: '"Comic Sans MS", cursive, sans-serif' }}>Playful (Comic)</option>
+                      <option value="retro" style={{ fontFamily: '"Courier New", Courier, monospace' }}>Retro (Monospace)</option>
+                      <option value="bold" style={{ fontWeight: 'bold' }}>Bold (Thick)</option>
+                      <option value="impact" style={{ fontFamily: 'Impact, sans-serif' }}>Impact (Condensed)</option>
                     </select>
                   </div>
 
+                  {/* Background Toggle for Sub Goals */}
+                  <div style={{ flex: '0 0 140px', minWidth: '130px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Background</label>
+                    </div>
+                    <label className="checkbox-label" style={{ padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', height: '38px' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.subGoalsShowBackground ?? true}
+                        onChange={(e) => handleSettingsChange({ subGoalsShowBackground: e.target.checked })}
+                        className="checkbox-input"
+                      />
+                      <span className="checkbox-text" style={{ fontSize: '0.88em', color: '#fff' }}>Show Box</span>
+                    </label>
+                  </div>
+
                   {/* Text Stroke Control */}
-                  <div style={{ flex: 1, minWidth: '150px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ flex: '0 0 140px', minWidth: '130px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                       <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Text Outline</label>
                     </div>
-                    <label className="checkbox-label" style={{ padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', display: 'flex', alignItems: 'center', cursor: 'pointer', height: '36px' }}>
+                    <label className="checkbox-label" style={{ padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', height: '38px' }}>
                       <input
                         type="checkbox"
                         checked={settings.subGoalsShowStroke ?? true}
                         onChange={(e) => handleSettingsChange({ subGoalsShowStroke: e.target.checked })}
                         className="checkbox-input"
                       />
-                      <span className="checkbox-text" style={{ fontSize: '0.9em', color: '#fff' }}>Drop Shadow</span>
+                      <span className="checkbox-text" style={{ fontSize: '0.88em', color: '#fff' }}>Drop Shadow</span>
                     </label>
                   </div>
 
@@ -3034,26 +3128,289 @@ export default function AdminPage() {
             )}
           </section>
 
+          {/* Stream Commands & Collab Shoutouts Section */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>📣 Chat Commands & Collab Shoutouts</h2>
+            </div>
+
+            <div style={{ padding: '12px 16px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.3)', borderRadius: '8px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <span style={{ fontSize: '1.2em' }}>💬</span>
+                <strong style={{ color: '#d8b4fe', fontSize: '0.95em' }}>Twitch Chat Commands</strong>
+              </div>
+              <p style={{ fontSize: '0.85em', opacity: 0.85, margin: 0, lineHeight: 1.4 }}>
+                Type <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!so username</code> or <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!shoutout username</code> in your Twitch chat (or trigger manually below) to promote a collab streamer with a high-end Twitch profile card on stream!
+              </p>
+            </div>
+
+            {/* Active Shoutout Banner */}
+            {settings.shoutout && settings.shoutout.active && (
+              <div style={{ padding: '16px', background: 'rgba(83, 252, 25, 0.12)', border: '1px solid rgba(83, 252, 25, 0.4)', borderRadius: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {settings.shoutout.avatarUrl ? (
+                    <img src={settings.shoutout.avatarUrl} alt={settings.shoutout.displayName} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid #53FC19', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#9146FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2em' }}>🟣</div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#53FC19', fontWeight: 'bold' }}>⚡ Active Shoutout On Stream</div>
+                    <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#ffffff' }}>@{settings.shoutout.displayName}</div>
+                    {settings.shoutout.gameName && (
+                      <div style={{ fontSize: '0.8em', opacity: 0.8 }}>Playing <span style={{ color: '#d8b4fe' }}>{settings.shoutout.gameName}</span></div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-small"
+                  style={{ padding: '8px 14px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 'bold' }}
+                  onClick={handleClearShoutout}
+                >
+                  🚫 Hide Shoutout
+                </button>
+              </div>
+            )}
+
+            {/* Manual Shoutout Trigger Controls */}
+            <div className="setting-group">
+              <label className="input-label" style={{ fontSize: '0.9em', fontWeight: 'bold' }}>Twitch Username to Shoutout</label>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="e.g. xQc, Pokimane..."
+                  className="text-input"
+                  value={shoutoutUsername}
+                  onChange={(e) => setShoutoutUsername(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleTriggerShoutout(); }}
+                  style={{ flex: 1, fontFamily: 'monospace', fontSize: '1em' }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={isTriggeringShoutout}
+                  onClick={() => handleTriggerShoutout()}
+                  style={{ background: '#9146FF', color: 'white', padding: '0 20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  {isTriggeringShoutout ? 'Fetching...' : '📣 Shoutout'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleTestChatAnnouncement}
+                  style={{ padding: '0 16px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  title="Post a test announcement message to your Twitch chat"
+                >
+                  🧪 Test Chat Response
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '12px' }}>
+              {/* Custom Subtitle Message */}
+              <div style={{ flex: '1 1 220px' }}>
+                <label className="input-label" style={{ fontSize: '0.85em', opacity: 0.85 }}>Custom Card Label / Message</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Collab Streamer or Check them out!"
+                  className="text-input"
+                  value={shoutoutMessage}
+                  onChange={(e) => setShoutoutMessage(e.target.value)}
+                  style={{ width: '100%', marginTop: '4px' }}
+                />
+              </div>
+
+              {/* Display Duration Slider */}
+              <div style={{ flex: '1 1 180px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '0.85em', opacity: 0.85 }}>Display Duration</label>
+                  <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#9146FF' }}>{settings.shoutoutDuration || 15}s</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="60"
+                  step="5"
+                  value={settings.shoutoutDuration || 15}
+                  onChange={(e) => {
+                    const dur = parseInt(e.target.value);
+                    setShoutoutDuration(dur);
+                    handleSettingsChange({ shoutoutDuration: dur });
+                  }}
+                  style={{ width: '100%', marginTop: '6px' }}
+                />
+              </div>
+            </div>
+
+            {/* Twitch Chat Announcement Template Input */}
+            <div className="setting-group" style={{ marginTop: '16px' }}>
+              <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#d8b4fe' }}>
+                💬 Twitch Chat Announcement Message Template
+              </label>
+              <div style={{ fontSize: '0.75em', opacity: 0.75, marginBottom: '6px', lineHeight: 1.4 }}>
+                Variables available: <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{username}"}</code>, <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{game}"}</code>, <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{url}"}</code>
+              </div>
+              <input
+                type="text"
+                className="text-input"
+                value={settings.shoutoutAnnouncementTemplate ?? '📣 Shoutout to @{username} {game}at {url} !'}
+                onChange={(e) => handleSettingsChange({ shoutoutAnnouncementTemplate: e.target.value })}
+                placeholder="📣 Shoutout to @{username} {game}at {url} !"
+                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.9em' }}
+              />
+            </div>
+
+            {/* Scale & Position Controls */}
+            <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Alert Scale & Position</h3>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                {/* Scale Control */}
+                <div style={{ flex: '1 1 180px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Alert Scale</label>
+                    <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#9146FF' }}>
+                      {Math.round((settings.shoutoutScale || 1.0) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2.0"
+                    step="0.05"
+                    value={settings.shoutoutScale || 1.0}
+                    onChange={(e) => handleSettingsChange({ shoutoutScale: parseFloat(e.target.value) })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* Position Controls (Nudge Buttons) */}
+                <div style={{ flex: '1 1 200px' }}>
+                  <label style={{ fontSize: '0.85em', opacity: 0.8, display: 'block', marginBottom: '4px' }}>Position Nudge (Pixels)</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    {/* Up Button */}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ shoutoutY: (settings.shoutoutY || 0) + 10 })}
+                    >
+                      ▲
+                    </button>
+
+                    {/* Left, Reset, Right */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ shoutoutX: (settings.shoutoutX || 0) - 10 })}
+                      >
+                        ◀
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ shoutoutX: 0, shoutoutY: 0 })}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-small"
+                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                        onClick={() => handleSettingsChange({ shoutoutX: (settings.shoutoutX || 0) + 10 })}
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Down Button */}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-small"
+                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                      onClick={() => handleSettingsChange({ shoutoutY: (settings.shoutoutY || 0) - 10 })}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Command Role Permissions */}
+            <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <h3 style={{ fontSize: '1.05em', marginBottom: '6px', opacity: 0.9 }}>👥 Who Can Use !so / !shoutout in Chat?</h3>
+              <p style={{ fontSize: '0.8em', opacity: 0.7, marginBottom: '12px' }}>
+                Select which Twitch chat roles are allowed to trigger the collab shoutout command:
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
+                {/* Broadcaster */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.shoutoutPermBroadcaster ?? true}
+                    onChange={(e) => handleSettingsChange({ shoutoutPermBroadcaster: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '0.9em', display: 'block' }}>👑 Broadcaster</strong>
+                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Channel Owner</span>
+                  </div>
+                </label>
+
+                {/* Moderators */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.shoutoutPermMods ?? true}
+                    onChange={(e) => handleSettingsChange({ shoutoutPermMods: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '0.9em', display: 'block' }}>🛡️ Moderators</strong>
+                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Channel Mods / Editors</span>
+                  </div>
+                </label>
+
+                {/* VIPs */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.shoutoutPermVips ?? false}
+                    onChange={(e) => handleSettingsChange({ shoutoutPermVips: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '0.9em', display: 'block' }}>💎 VIPs</strong>
+                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>VIP Badge Holders</span>
+                  </div>
+                </label>
+
+                {/* Everyone */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.shoutoutPermEveryone ?? false}
+                    onChange={(e) => handleSettingsChange({ shoutoutPermEveryone: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '0.9em', display: 'block' }}>🌐 Everyone</strong>
+                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>All Viewers & Chatters</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </section>
+
           {/* Bitrate Section */}
           <section className="settings-section">
             <div className="section-header">
               <h2>📡 Bitrate & Network</h2>
             </div>
 
-            <div className="setting-group" style={{ marginBottom: '24px' }}>
-              <label className="group-label">Belabox Publisher Key</label>
-              <input
-                type="password"
-                placeholder="Enter your publisher key"
-                className="text-input"
-                value={settings.belaboxPublisherKey || ''}
-                onChange={(e) => handleSettingsChange({ belaboxPublisherKey: e.target.value })}
-                style={{ width: '100%' }}
-              />
-              <div style={{ fontSize: '0.8em', opacity: 0.7, marginTop: '8px' }}>
-                Automatically fetches from https://stats.srt.belabox.net
-              </div>
-            </div>
             <div className="setting-group">
               <label className="group-label">Bitrate Display</label>
               <RadioGroup
@@ -3755,7 +4112,7 @@ export default function AdminPage() {
 
                 {/* Position and Background */}
                 <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
-                  <div style={{ flex: 1, minWidth: '200px' }}>
+                  <div style={{ flex: '1 1 250px', minWidth: '250px' }}>
                     <label className="group-label">Position</label>
                     <RadioGroup
                       value={settings.socialPosition || 'top-middle'}

@@ -132,6 +132,28 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     }
   }
 
+  // Validate shoutout object
+  if (settings.shoutout !== undefined) {
+    if (settings.shoutout === null) {
+      cleanSettings.shoutout = null;
+    } else if (typeof settings.shoutout === 'object') {
+      const s = settings.shoutout as Record<string, unknown>;
+      if (typeof s.username === 'string' && typeof s.displayName === 'string') {
+        cleanSettings.shoutout = {
+          username: String(s.username).slice(0, 100),
+          displayName: String(s.displayName).slice(0, 100),
+          avatarUrl: typeof s.avatarUrl === 'string' ? String(s.avatarUrl).slice(0, 500) : undefined,
+          gameName: typeof s.gameName === 'string' ? String(s.gameName).slice(0, 100) : undefined,
+          title: typeof s.title === 'string' ? String(s.title).slice(0, 200) : undefined,
+          customText: typeof s.customText === 'string' ? String(s.customText).slice(0, 200) : undefined,
+          active: typeof s.active === 'boolean' ? s.active : true,
+          triggeredAt: typeof s.triggeredAt === 'number' ? s.triggeredAt : Date.now(),
+          durationSeconds: typeof s.durationSeconds === 'number' ? Math.min(Math.max(5, s.durationSeconds), 120) : 15
+        };
+      }
+    }
+  }
+
   // Validate showTodoList (it's in SETTINGS_CONFIG but handle explicitly for clarity)
   if (settings.showTodoList !== undefined) {
     if (typeof settings.showTodoList === 'boolean') {
@@ -206,7 +228,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -387,6 +409,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     subGoalsStyle: (cleanSettings.subGoalsStyle === 'default' || cleanSettings.subGoalsStyle === 'no-bars' || cleanSettings.subGoalsStyle === 'no-background' || cleanSettings.subGoalsStyle === 'text-only') ? cleanSettings.subGoalsStyle : DEFAULT_OVERLAY_SETTINGS.subGoalsStyle,
     subGoalsFont: (cleanSettings.subGoalsFont === 'default' || cleanSettings.subGoalsFont === 'neon' || cleanSettings.subGoalsFont === 'retro' || cleanSettings.subGoalsFont === 'bold' || cleanSettings.subGoalsFont === 'impact') ? cleanSettings.subGoalsFont : DEFAULT_OVERLAY_SETTINGS.subGoalsFont,
     subGoalsShowStroke: cleanSettings.subGoalsShowStroke ?? DEFAULT_OVERLAY_SETTINGS.subGoalsShowStroke,
+    subGoalsShowBackground: cleanSettings.subGoalsShowBackground ?? DEFAULT_OVERLAY_SETTINGS.subGoalsShowBackground,
     seAutoSyncTotals: cleanSettings.seAutoSyncTotals ?? DEFAULT_OVERLAY_SETTINGS.seAutoSyncTotals,
     twitchClientId: cleanSettings.twitchClientId ?? DEFAULT_OVERLAY_SETTINGS.twitchClientId,
     twitchToken: cleanSettings.twitchToken ?? DEFAULT_OVERLAY_SETTINGS.twitchToken,
@@ -427,6 +450,16 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     minimapShape: (cleanSettings.minimapShape === 'circle' || cleanSettings.minimapShape === 'square') ? cleanSettings.minimapShape : DEFAULT_OVERLAY_SETTINGS.minimapShape,
     distanceFont: cleanSettings.distanceFont ?? DEFAULT_OVERLAY_SETTINGS.distanceFont,
     distanceShowCurrentLocation: cleanSettings.distanceShowCurrentLocation ?? DEFAULT_OVERLAY_SETTINGS.distanceShowCurrentLocation,
+    shoutout: cleanSettings.shoutout ?? DEFAULT_OVERLAY_SETTINGS.shoutout,
+    shoutoutAnnouncementTemplate: cleanSettings.shoutoutAnnouncementTemplate ?? DEFAULT_OVERLAY_SETTINGS.shoutoutAnnouncementTemplate,
+    shoutoutX: typeof cleanSettings.shoutoutX === 'number' ? cleanSettings.shoutoutX : DEFAULT_OVERLAY_SETTINGS.shoutoutX,
+    shoutoutY: typeof cleanSettings.shoutoutY === 'number' ? cleanSettings.shoutoutY : DEFAULT_OVERLAY_SETTINGS.shoutoutY,
+    shoutoutScale: typeof cleanSettings.shoutoutScale === 'number' ? cleanSettings.shoutoutScale : DEFAULT_OVERLAY_SETTINGS.shoutoutScale,
+    shoutoutDuration: typeof cleanSettings.shoutoutDuration === 'number' ? Math.min(Math.max(cleanSettings.shoutoutDuration, 5), 120) : DEFAULT_OVERLAY_SETTINGS.shoutoutDuration,
+    shoutoutPermBroadcaster: typeof cleanSettings.shoutoutPermBroadcaster === 'boolean' ? cleanSettings.shoutoutPermBroadcaster : DEFAULT_OVERLAY_SETTINGS.shoutoutPermBroadcaster,
+    shoutoutPermMods: typeof cleanSettings.shoutoutPermMods === 'boolean' ? cleanSettings.shoutoutPermMods : DEFAULT_OVERLAY_SETTINGS.shoutoutPermMods,
+    shoutoutPermVips: typeof cleanSettings.shoutoutPermVips === 'boolean' ? cleanSettings.shoutoutPermVips : DEFAULT_OVERLAY_SETTINGS.shoutoutPermVips,
+    shoutoutPermEveryone: typeof cleanSettings.shoutoutPermEveryone === 'boolean' ? cleanSettings.shoutoutPermEveryone : DEFAULT_OVERLAY_SETTINGS.shoutoutPermEveryone,
   };
 
   return completeSettings;
@@ -444,7 +477,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'showSubGoals' && key !== 'totalSubGoal' && key !== 'totalSubCurrent' && key !== 'dailySubGoal' && key !== 'dailySubCurrent' && key !== 'dailySubLastReset' && key !== 'subGoalsX' && key !== 'subGoalsY' && key !== 'subGoalsScale' && key !== 'totalTipGoal' && key !== 'totalTipCurrent' && key !== 'dailyTipGoal' && key !== 'dailyTipCurrent' && key !== 'dailyTipLastReset' && key !== 'subGoalsStyle' && key !== 'subGoalsFont' && key !== 'subGoalsShowStroke' && key !== 'seAutoSyncTotals' && key !== 'twitchClientId' && key !== 'twitchToken' && key !== 'twitchBroadcasterId' && key !== 'twitchUsername' && key !== 'combineDateTimeWithLocation' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'showSubGoals' && key !== 'totalSubGoal' && key !== 'totalSubCurrent' && key !== 'dailySubGoal' && key !== 'dailySubCurrent' && key !== 'dailySubLastReset' && key !== 'subGoalsX' && key !== 'subGoalsY' && key !== 'subGoalsScale' && key !== 'totalTipGoal' && key !== 'totalTipCurrent' && key !== 'dailyTipGoal' && key !== 'dailyTipCurrent' && key !== 'dailyTipLastReset' && key !== 'subGoalsStyle' && key !== 'subGoalsFont' && key !== 'subGoalsShowStroke' && key !== 'subGoalsShowBackground' && key !== 'seAutoSyncTotals' && key !== 'twitchClientId' && key !== 'twitchToken' && key !== 'twitchBroadcasterId' && key !== 'twitchUsername' && key !== 'combineDateTimeWithLocation' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'shoutoutDuration' && key !== 'shoutoutPermBroadcaster' && key !== 'shoutoutPermMods' && key !== 'shoutoutPermVips' && key !== 'shoutoutPermEveryone') { // valid keys
       maliciousKeys.push(key);
     }
   }

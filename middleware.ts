@@ -10,7 +10,6 @@ export function middleware(request: NextRequest) {
     
     if (!hasVersion) {
       // Generate a build-time version (use timestamp at build time, or current timestamp as fallback)
-      // In production, this should be set as an environment variable at build time
       const buildVersion = process.env.NEXT_PUBLIC_BUILD_VERSION || Date.now().toString();
       
       // Rewrite URL to include version parameter (internal rewrite, not redirect)
@@ -20,14 +19,12 @@ export function middleware(request: NextRequest) {
     }
   }
   
-  // Skip authentication for public routes
-  // - Login page and login API
-  // - Overlay page (public, used by OBS)
-  // - Public API endpoints needed by overlay (get-settings, settings-stream, health)
+  // Skip authentication for public routes & overlay API endpoints
   const publicRoutes = [
     '/login',
     '/api/login',
     '/overlay',
+    '/twitch-auth',
     '/api/get-settings',
     '/api/save-settings',
     '/api/settings-stream',
@@ -37,6 +34,8 @@ export function middleware(request: NextRequest) {
     '/api/obs-switch-scene',
     '/api/auto-switch-service',
     '/api/twitch-subs',
+    '/api/twitch-user',
+    '/api/twitch-announcement',
     '/api/time'
   ];
   
@@ -66,5 +65,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/api/:path*', '/login', '/overlay']
-}; 
+  matcher: ['/', '/api/:path*', '/login', '/overlay', '/twitch-auth']
+};

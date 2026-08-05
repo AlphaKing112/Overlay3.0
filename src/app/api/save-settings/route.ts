@@ -127,7 +127,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const cloned = request.clone();
       const body = await cloned.json();
       const updates = body?.settings || body || {};
-      const allowedKeys = ['startLat', 'startLon', 'distanceCurrent', 'donationGoals'];
+      const allowedKeys = [
+        'startLat', 'startLon', 'distanceCurrent', 'donationGoals',
+        'shoutout', 'shoutoutDuration', 'shoutoutX', 'shoutoutY', 'shoutoutScale',
+        'shoutoutPermBroadcaster', 'shoutoutPermMods', 'shoutoutPermVips', 'shoutoutPermEveryone',
+        'totalTipCurrent', 'dailyTipGoal', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent'
+      ];
       const updateKeys = Object.keys(updates);
       const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));
       

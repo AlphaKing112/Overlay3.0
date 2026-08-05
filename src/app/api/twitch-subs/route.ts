@@ -15,7 +15,8 @@ export async function GET(request: Request) {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Client-Id': clientId
-      }
+      },
+      next: { revalidate: 15 } // Cache for 15s so Twitch API is never spammed
     });
 
     if (!response.ok) {

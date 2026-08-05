@@ -33,7 +33,29 @@ export interface DonationGoal {
   lastTriggered?: number;
 }
 
+export interface ShoutoutData {
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  gameName?: string;
+  title?: string;
+  customText?: string;
+  active: boolean;
+  triggeredAt: number;
+  durationSeconds?: number;
+}
+
 export interface OverlaySettings {
+  shoutout?: ShoutoutData | null;
+  shoutoutAnnouncementTemplate?: string;
+  shoutoutX?: number;
+  shoutoutY?: number;
+  shoutoutScale?: number;
+  shoutoutDuration?: number;
+  shoutoutPermBroadcaster?: boolean;
+  shoutoutPermMods?: boolean;
+  shoutoutPermVips?: boolean;
+  shoutoutPermEveryone?: boolean;
   locationDisplay: LocationDisplayMode;
   customLocation?: string;
   showCountryName: boolean;
@@ -158,6 +180,7 @@ export interface OverlaySettings {
   subGoalsStyle?: 'default' | 'no-bars' | 'no-background' | 'text-only';
   subGoalsFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   subGoalsShowStroke?: boolean;
+  subGoalsShowBackground?: boolean;
   seAutoSyncTotals?: boolean;
   twitchClientId?: string;
   twitchToken?: string;
@@ -178,6 +201,16 @@ export interface OverlaySettings {
 
 // Default settings (single source of truth)
 export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
+  shoutout: null,
+  shoutoutAnnouncementTemplate: '📣 Shoutout to @{username} {game}at {url} !',
+  shoutoutX: 0,
+  shoutoutY: 0,
+  shoutoutScale: 1.0,
+  shoutoutDuration: 15,
+  shoutoutPermBroadcaster: true,
+  shoutoutPermMods: true,
+  shoutoutPermVips: false,
+  shoutoutPermEveryone: false,
   locationDisplay: 'neighbourhood',
   customLocation: '',
   showCountryName: true,
@@ -302,6 +335,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   subGoalsStyle: 'default',
   subGoalsFont: 'default',
   subGoalsShowStroke: true,
+  subGoalsShowBackground: true,
   seAutoSyncTotals: false,
   twitchClientId: '',
   twitchToken: '',
@@ -316,13 +350,22 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsAutoSwitchDebugger: false,
   enableResourceOptimization: true,
   bitratePollIntervalLive: 3000,
-  bitratePollIntervalOffline: 20000,
+  bitratePollIntervalOffline: 6000,
   bitrateCacheTtlMs: 5000,
 };
 
 // Valid settings schema for validation
-// Note: 'todos', 'urls', and 'donationGoals' are handled separately in the validator as they are arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', 'donationGoals', and 'shoutout' are handled separately in the validator as they are objects/arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout'>, 'boolean' | 'string' | 'number'> = {
+  shoutoutAnnouncementTemplate: 'string',
+  shoutoutX: 'number',
+  shoutoutY: 'number',
+  shoutoutScale: 'number',
+  shoutoutDuration: 'number',
+  shoutoutPermBroadcaster: 'boolean',
+  shoutoutPermMods: 'boolean',
+  shoutoutPermVips: 'boolean',
+  shoutoutPermEveryone: 'boolean',
   locationDisplay: 'string',
   customLocation: 'string',
   showCountryName: 'boolean',
@@ -444,6 +487,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   subGoalsStyle: 'string',
   subGoalsFont: 'string',
   subGoalsShowStroke: 'boolean',
+  subGoalsShowBackground: 'boolean',
   seAutoSyncTotals: 'boolean',
   twitchClientId: 'string',
   twitchToken: 'string',
