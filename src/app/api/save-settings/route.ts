@@ -43,6 +43,9 @@ async function handlePOST(request: NextRequest) {
     }
 
     const mergedRawSettings = existingSettings ? { ...existingSettings, ...updates } : updates;
+    if (updates && typeof updates.obsStreamCommandsEnabled === 'boolean') {
+      mergedRawSettings.obsStreamCommandsEnabled = updates.obsStreamCommandsEnabled;
+    }
 
     // Detect and log any malicious keys
     const maliciousKeys = detectMaliciousKeys(mergedRawSettings);
@@ -131,7 +134,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         'startLat', 'startLon', 'distanceCurrent', 'donationGoals',
         'shoutout', 'shoutoutDuration', 'shoutoutX', 'shoutoutY', 'shoutoutScale',
         'shoutoutPermBroadcaster', 'shoutoutPermMods', 'shoutoutPermVips', 'shoutoutPermEveryone',
-        'totalTipCurrent', 'dailyTipGoal', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent'
+        'totalTipCurrent', 'dailyTipGoal', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent',
+        'obsStreamCommandSignal', 'obsStreamCommandsEnabled', 'obsTelemetryEnabled', 'obsTelemetryInterval',
+        'discordPicWebhookUrl', 'picCommandEnabled', 'picPointsCost', 'picCooldownSeconds', 'picShowOnOverlay', 'picCustomMessage'
       ];
       const updateKeys = Object.keys(updates);
       const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));

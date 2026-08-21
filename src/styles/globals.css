@@ -408,22 +408,22 @@ body.overlay-page {
 
 /* === TO-DO LIST STYLES === */
 .todo-list-box {
-  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.75));
-  transition: all 0.3s ease;
-}
-
-.todo-list-box.no-background {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 16px rgba(0, 0, 0, 0.85)) !important;
+  padding: 0 !important;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 16px rgba(0, 0, 0, 0.85));
+  transition: all 0.3s ease;
+  max-width: 360px;
+  width: fit-content;
+  box-sizing: border-box;
 }
 
-.todo-list-box.no-background .todo-header-title,
-.todo-list-box.no-background .todo-text,
-.todo-list-box.no-background .todo-checkbox-icon,
-.todo-list-box.no-background .todo-goal-progress {
+.todo-list-box .todo-header-title,
+.todo-list-box .todo-text,
+.todo-list-box .todo-checkbox-icon,
+.todo-list-box .todo-goal-progress {
   text-shadow: 0 2px 4px #000000, 0 0 8px #000000, 0 0 12px rgba(0, 0, 0, 0.9) !important;
 }
 
@@ -434,10 +434,11 @@ body.overlay-page {
   letter-spacing: var(--letter-spacing-compact);
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--gap-sm);
   text-align: left;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+  line-height: 1.35;
 }
 
 .todo-item.completed {
@@ -455,6 +456,7 @@ body.overlay-page {
   flex-shrink: 0;
   font-weight: 700;
   text-shadow: var(--text-shadow);
+  margin-top: 0.08em;
 }
 
 .todo-item.completed .todo-checkbox-icon {
@@ -464,12 +466,12 @@ body.overlay-page {
 .todo-text {
   flex: 1;
   text-align: left;
-  /* Natural left-to-right reading flow */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Multi-line wrapping so long sentences wrap down cleanly */
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  line-height: 1.35;
   max-width: 100%;
-  /* Ensure it respects parent constraints */
 }
 
 /* === TIME DISPLAY STYLES === */
@@ -1570,4 +1572,262 @@ body.overlay-page {
   font-weight: 700;
   color: #53FC19;
   text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+/* === STREAM SNAPSHOT (!PIC) TOAST OVERLAY === */
+.pic-toast-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(10, 15, 24, 0.9);
+  border: 1.5px solid rgba(83, 252, 25, 0.75);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 20px rgba(83, 252, 25, 0.35);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  padding: 12px 22px;
+  animation: picToastIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
+}
+
+.pic-toast-card.exiting {
+  animation: picToastOut 0.4s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+@keyframes picToastIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes picToastOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-15px) scale(0.92);
+  }
+}
+
+.pic-toast-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(83, 252, 25, 0.15);
+  border: 1px solid rgba(83, 252, 25, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(83, 252, 25, 0.3);
+}
+
+.pic-toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pic-toast-title {
+  font-size: 0.82em;
+  font-weight: 900;
+  color: #53FC19;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(83, 252, 25, 0.4);
+}
+
+.pic-toast-desc {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.pic-toast-user {
+  color: #60a5fa;
+  font-weight: 800;
+}
+
+.pic-toast-pts {
+  color: #facc15;
+  font-weight: 800;
+}
+
+/* ==========================================================================
+   Cool Page Transitions & Settings Button Animations
+   ========================================================================== */
+
+/* Enhanced Settings Button */
+.btn-settings-nav {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  padding: 8px 16px;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn-settings-nav:hover {
+  background: rgba(51, 65, 85, 0.95);
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.35), 0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-settings-nav:hover .settings-gear-icon {
+  transform: rotate(60deg);
+  filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.8));
+}
+
+.btn-settings-nav.navigating {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(83, 252, 25, 0.2));
+  border-color: #a855f7;
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.6), inset 0 0 12px rgba(168, 85, 247, 0.3);
+  transform: scale(0.96);
+}
+
+.btn-settings-nav.navigating .settings-gear-icon {
+  animation: gearSpinTurbo 0.45s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  color: #c084fc;
+  filter: drop-shadow(0 0 10px #a855f7);
+}
+
+.settings-gear-icon {
+  display: inline-block;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  font-size: 1.1em;
+}
+
+@keyframes gearSpinTurbo {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Screen Portal Transition Beam & Overlay */
+.page-transition-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.92) 0%, rgba(2, 6, 23, 0.98) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: portalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.portal-laser-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3.5px;
+  width: 100%;
+  background: linear-gradient(90deg, #a855f7, #53FC19, #60a5fa, #a855f7);
+  background-size: 200% 100%;
+  box-shadow: 0 0 14px #a855f7, 0 0 28px #53FC19;
+  animation: laserSweep 0.5s linear infinite;
+}
+
+.portal-content-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: portalContentPop 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.portal-gear-large {
+  font-size: 3em;
+  filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.9));
+  animation: gearSpinTurbo 0.6s linear infinite;
+}
+
+.portal-text {
+  font-size: 1.05em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #c084fc, #53FC19);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+}
+
+@keyframes portalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes portalContentPop {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes laserSweep {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+/* Smooth Page Entrance for /settings and dashboard */
+.page-enter-animation {
+  animation: pageSlideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes pageSlideUpFade {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settings-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.settings-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
 }

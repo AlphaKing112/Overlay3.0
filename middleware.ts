@@ -36,21 +36,25 @@ export function middleware(request: NextRequest) {
     '/api/twitch-subs',
     '/api/twitch-user',
     '/api/twitch-announcement',
+    '/api/obs-telemetry',
+    '/api/obs-stream-control',
+    '/api/auth-check',
+    '/api/pic-command',
     '/api/time'
   ];
-  
+
   if (publicRoutes.includes(pathname)) {
     return NextResponse.next();
   }
   
   // Check if user is trying to access protected routes
-  if (pathname === '/' || pathname.startsWith('/api/')) {
+  if (pathname === '/' || pathname === '/settings' || pathname.startsWith('/api/')) {
     // Check for auth cookie
     const authToken = request.cookies.get('auth-token');
     
     if (!authToken || authToken.value !== 'authenticated') {
       // Redirect to login if not authenticated
-      if (pathname === '/') {
+      if (pathname === '/' || pathname === '/settings') {
         return NextResponse.redirect(new URL('/login', request.url));
       }
       
@@ -65,5 +69,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/api/:path*', '/login', '/overlay', '/twitch-auth']
+  matcher: ['/', '/settings', '/api/:path*', '/login', '/overlay', '/twitch-auth']
 };

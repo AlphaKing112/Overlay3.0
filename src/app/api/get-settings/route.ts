@@ -5,16 +5,37 @@ import { validateEnvironment } from '@/lib/env-validator';
 import { OverlayLogger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export const revalidate = 3;
 
 async function handleGET() {
   let settings: any = null;
+  const now = Date.now();
   
-  try {
-    logKVUsage('read');
-    settings = await kv.get('overlay_settings');
-  } catch (err: any) {
-    OverlayLogger.warn('KV read failed in get-settings:', err);
+  // First check in-memory cache for ultra-fast & fresh reads (within 3s)
+  const isCacheFresh = typeof globalThis !== 'undefined' && 
+    globalThis.__cachedOverlaySettings && 
+    (now - (globalThis.__cachedOverlaySettingsTime || 0) < 3000);
+
+  if (isCacheFresh) {
+    settings = globalThis.__cachedOverlaySettings;
+  } else {
+    try {
+      logKVUsage('read');
+      const kvSettings = await kv.get('overlay_settings');
+      if (kvSettings && typeof kvSettings === 'object') {
+        settings = kvSettings;
+        if (typeof globalThis !== 'undefined') {
+          globalThis.__cachedOverlaySettings = settings;
+          globalThis.__cachedOverlaySettingsTime = now;
+        }
+      }
+    } catch (err: any) {
+      OverlayLogger.warn('KV read failed in get-settings:', err);
+      // Fallback to memory cache if KV fails
+      if (typeof globalThis !== 'undefined' && globalThis.__cachedOverlaySettings) {
+        settings = globalThis.__cachedOverlaySettings;
+      }
+    }
   }
 
   // Import default settings to ensure all fields exist
@@ -27,9 +48,9 @@ async function handleGET() {
 
   return NextResponse.json(combinedSettings, {
     headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-      'Pragma': 'no-cache',
-      'Expires': '0',
+      'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=5',
+      'CDN-Cache-Control': 'public, s-maxage=3, stale-while-revalidate=5',
+      'Vercel-CDN-Cache-Control': 'public, s-maxage=3, stale-while-revalidate=5',
     }
   });
 }

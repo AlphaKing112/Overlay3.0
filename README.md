@@ -1,198 +1,205 @@
 # 🎮 Streaming Overlay 3.0
 
-A modern, real-time streaming overlay and admin dashboard for IRL streams. Built with Next.js 16, featuring live GPS tracking, dynamic minimap, weather integration, Belabox bitrate monitoring with **OBS Auto-Scene Switching**, StreamElements/Twitch sub & donation goals, heart rate monitoring, distance/calorie tracking, social loops, and **Vercel resource optimization**.
+> **A professional, real-time IRL streaming overlay and live admin dashboard built with Next.js 16 (Turbopack), Tailwind-free responsive CSS, Server-Sent Events (SSE), and Upstash KV.**
+
+Designed specifically for IRL streamers using **Belabox**, **RTIRL GPS**, **OBS Studio**, **Twitch**, and **StreamElements**. Features zero-latency instant updates, intelligent auto-scene switching, dynamic WebGL maps, sub/donation goals, chat commands, and fitness tracking.
 
 ---
 
-## ✨ Feature Overview
+## 🌟 Key Highlights
 
-### 📡 Bitrate & OBS Auto-Switching
-- **Belabox Integration**: Real-time stream bitrate (kbps) and RTT latency monitoring directly on your overlay.
-- **OBS Auto-Scene Switcher**: Automatically switches your OBS scene to an `Offline` scene when bitrate drops or stream cuts, and back to your `Live` scene when the connection recovers.
-- **Low Bitrate Alerts**: On-screen alerts with customizable thresholds, positions, scales, fonts, and alert sounds.
-- **Resource Optimized**: Direct browser CORS fetch + edge proxy caching to ensure near-zero serverless CPU usage on Vercel.
-
-### 📍 Smart GPS & Location System
-- **Real-Time GPS**: RTIRL integration with smooth location tracking.
-- **Dynamic Minimap**: Auto-shows when moving (>5 km/h) and hides when stationary. Features day/night MapLibre WebGL map themes (CartoDB tiles).
-- **Location Modes**: 6 precision modes (Neighbourhood, City, State, Country, Custom, Hidden) with intelligent fallback and duplicate name detection.
-- **At-Sea Mode**: Automatic ocean and sea detection with regional flags for cruise/nautical streaming.
-
-### 🎯 Stream Goals & Alerts
-- **Sub Goals**: Combined or separate Total & Daily subscriber goal trackers with Twitch & StreamElements integration.
-- **Donation / Tip Goals**: Real-time tip progress bars (Total & Daily) with customizable goals and automatic daily reset handling.
-- **Custom Styling**: Neon, Retro, Cyberpunk, Impact, and Minimalist typography and themes for all goal bars.
-
-### 🏃 Distance, Speed, Elevation & Fitness
-- **Distance Tracker**: Tracks progress in miles, kilometers, or meters via GPS movement or destination coordinates.
-- **Calorie Tracker**: Customizable daily calorie burn goal widget.
-- **Heart Rate Monitor**: Pulsoid integration with smooth animated heart rate transitions.
-- **Altitude & Speed**: Elevation (m/ft) and speed (km/h / mph) with auto-display when moving or at notable elevations.
-
-### 🎨 Customization & Widgets
-- **Social Media Rotator**: Loop animated widget for Kick, Twitch, YouTube, X, Instagram, and TikTok with configurable timing.
-- **To-Do List Widget**: Interactive task tracker with progress counters and custom positioning.
-- **URL & Web Embeds**: Embed custom websites, HTML widgets, or images into your overlay.
-- **Global Theme & Font Engine**: Select from Neon, Cyberpunk, Retro, Impact, or Bold themes across all widgets.
+- ⚡ **Zero-Lag Admin Panel**: All sliders, toggles, and position controls update overlay instances with **0ms latency** via Server-Sent Events (SSE) and Upstash KV.
+- 📡 **Belabox Bitrate & Auto-Scene Switcher**: Real-time bitrate (kbps) and RTT latency monitoring with automated OBS scene switching (Live ↔ Offline/BRB).
+- 💬 **Twitch Chat Control Engine**: Manage OBS directly from Twitch chat (`!start`, `!end`, `!refresh`, `!so @user`) with broadcaster permission checks and toggle protection.
+- 📍 **Smart GPS & Adaptive WebGL Minimap**: Vector map automatically displays when walking or driving (>5 km/h) and hides when stationary.
+- 🎯 **Goals & Live Alerts**: Automated subscriber and donation goal bars with daily reset support, plus interactive on-screen Twitch shoutout cards.
+- 🏃 **Fitness & Environment**: Live Heart Rate (Pulsoid), Distance traveled, Calorie burn counter, Altitude, Speed, and OpenWeatherMap integration.
+- ☁️ **Vercel Hobby Tier Optimized**: Serverless edge caching and direct client-side fetch bypass reduce serverless invocation overhead by over 70%.
 
 ---
 
-## 🚀 Quick Start Guide
+## 📑 Feature Breakdown
 
-### 1. Prerequisites & Installation
+### 1. 📡 Belabox Bitrate Monitor & OBS Auto-Switching
+- **Real-Time SRT Monitoring**: Polls Belabox cloud server directly for live bitrate (kbps) and network round-trip time (RTT).
+- **Standalone Detection**: Bitrate is fetched continuously from Belabox API even when the admin panel is opened on mobile or disconnected from OBS WebSocket.
+- **Automated Scene Switching**:
+  - Automatically switches OBS to your **Offline / BRB Scene** when bitrate drops to 0 kbps.
+  - Automatically switches back to your **Live Scene** when bitrate recovers.
+- **Low Bitrate Warning Alert**: On-screen warning banner when bitrate drops below customizable thresholds (e.g. 1500 kbps), complete with sound alerts and font styling.
 
-```bash
-# Clone repository
-git clone https://github.com/AlphaKing112/Overlay3.0.git
-cd Overlay3.0
+### 2. ⚡ Remote OBS Stream Commands
+- **Chat Commands**:
+  - `!start` / `!golive` — Starts stream in OBS Studio.
+  - `!end` / `!stop` — Stops stream in OBS Studio.
+  - `!refresh` / `!ref` / `!fixaudio` — Instantly cycles from current scene → refresh scene → back to live scene to fix audio desync or frozen video feeds.
+- **Security & Permissions**: Restrict command execution to Broadcaster only.
+- **Master Toggle Switch**: Instantly disable all chat stream commands with one click from the Admin Dashboard or Settings page.
 
-# Install dependencies
-npm install
-```
+### 3. 📍 GPS, Location & WebGL Minimap
+- **RTIRL Integration**: Real-time coordinate and speed streaming.
+- **6 Location Precision Modes**:
+  1. `Neighbourhood` (e.g., *SoHo*, *Shinjuku*, *Downtown*)
+  2. `City` (e.g., *Austin*, *Tokyo*, *London*)
+  3. `State` (e.g., *California*, *Ontario*)
+  4. `Country` (Shows country name with national flag emoji)
+  5. `Custom` (Custom user-defined text)
+  6. `Hidden`
+- **At-Sea Detection**: Automatically detects when streaming over open oceans, seas, and gulfs with regional nautical flags.
+- **Dynamic Minimap**:
+  - CartoDB Day (Voyager) and Night (Dark Matter) WebGL tiles.
+  - Configurable circle or square shape, position fine-tuning, and customizable speed threshold.
 
-### 2. Configure Environment Variables
+### 4. 🎯 Stream Goals & Shoutouts
+- **Twitch & StreamElements Sub Goals**: Tracks combined or separate **Total Goals** and **Daily Goals**.
+- **Donation & Tip Goals**: Real-time donation progress with target amounts and automatic daily midnight reset.
+- **Interactive Shoutouts (`!so @user`)**:
+  - When you or mods type `!so @username` in Twitch chat, an animated shoutout banner pops up with their Twitch avatar, display name, and last played category.
 
-Create `.env.local` in the project root:
+### 5. 📋 To-Do & Objectives Widget
+- **Interactive Task List**: Add, edit, check off, and delete tasks directly from the Admin Dashboard.
+- **Goal Progress Counters**: Add counters to tasks (e.g., `Eat 5 Tacos (2/5)`).
+- **Custom Header Scale Size**: Dedicated scale size slider (`50%` to `250%`) to customize header title typography.
+- **Flexible Positioning**: Dock on Top Left or Top Right with D-Pad positioning controls.
 
-```env
-# ==========================================
-# REQUIRED - GPS & LOCATION & WEATHER
-# ==========================================
-NEXT_PUBLIC_RTIRL_PULL_KEY=your_rtirl_pull_key
-NEXT_PUBLIC_LOCATIONIQ_KEY=your_locationiq_key
-NEXT_PUBLIC_OPENWEATHERMAP_KEY=your_openweathermap_key
+### 6. 🏃 Health, Fitness & Weather
+- **Pulsoid Heart Rate Monitor**: Live BPM with animated pulse rate transitions and high-BPM color warnings.
+- **Distance Tracker**: Calculates total distance covered in Miles, Kilometers, or Meters. Supports GPS tracking or target destination coordinate mode.
+- **Calorie Tracker**: Daily calorie burn progress bar widget.
+- **Live Weather**: Temperature (°C / °F) and weather condition descriptions from OpenWeatherMap.
 
-# ==========================================
-# OPTIONAL - FITNESS & INTEGRATIONS
-# ==========================================
-NEXT_PUBLIC_PULSOID_TOKEN=your_pulsoid_token
-
-# Twitch API (Sub & Goal Sync)
-TWITCH_CLIENT_ID=your_twitch_client_id
-TWITCH_CLIENT_SECRET=your_twitch_client_secret
-
-# StreamElements Sync
-STREAMELEMENTS_JWT=your_streamelements_jwt_token
-
-# ==========================================
-# ADMIN PANEL & SETTINGS PERSISTENCE
-# ==========================================
-ADMIN_PASSWORD=your_secure_admin_password
-
-# Vercel KV (Redis) for Real-Time Sync & SSE Stream
-KV_REST_API_URL=your_vercel_kv_rest_url
-KV_REST_API_TOKEN=your_vercel_kv_rest_token
-KV_REST_API_READ_ONLY_TOKEN=your_vercel_kv_readonly_token
-```
-
-### 3. Run Development Server
-
-```bash
-npm run dev
-```
-
-- **Admin Dashboard**: `http://localhost:3000` (Login with `ADMIN_PASSWORD`)
-- **OBS Browser Overlay**: `http://localhost:3000/overlay`
+### 7. 🔄 Social Media Rotator & Web Embeds
+- **Social Loop**: Animated carousel displaying handles for Kick, Twitch, YouTube, X (Twitter), Instagram, and TikTok with configurable switch delays.
+- **Custom Web Embeds**: Embed custom URLs, HTML widgets, and transparent images directly into the overlay scene.
 
 ---
 
-## 📹 OBS Studio Setup
+## 🚀 Deployment Guide (Vercel)
 
-1. Add a **Browser Source** in OBS Studio.
-2. **URL**: `https://your-domain.vercel.app/overlay` (or `http://localhost:3000/overlay` for local testing).
-3. **Width**: `1920`, **Height**: `1080`.
-4. ✅ Check **"Shutdown source when not visible"**.
-5. ✅ Check **"Refresh browser when scene becomes active"**.
+### Method 1: Deploy with Vercel CLI (Recommended)
 
-> 💡 **Note**: Cache-busting (`?v=<timestamp>`) is automatically attached server-side via Next.js middleware to guarantee OBS always loads the latest code without manual cache clearing.
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/AlphaKing112/Overlay3.0.git
+   cd Overlay3.0
+   ```
+
+2. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Deploy to Vercel**:
+   ```bash
+   npx vercel --prod
+   ```
+
+4. **Add Upstash KV Storage on Vercel**:
+   - In your [Vercel Dashboard](https://vercel.com/dashboard), open your project.
+   - Go to the **Storage** tab → click **Create Database** → select **KV (Redis)**.
+   - Connect the KV database to your project (Vercel automatically sets `KV_REST_API_URL`, `KV_REST_API_TOKEN`, and `KV_REST_API_READ_ONLY_TOKEN`).
+
+5. **Set Environment Variables**:
+   In Vercel Project Settings → **Environment Variables**, add:
+   - `ADMIN_PASSWORD`: Your password to access `/login` (e.g. `MySecurePassword123`)
+   - `API_SECRET`: A random 64-character string (e.g. generated via `openssl rand -hex 32`)
+   - `NEXT_PUBLIC_API_SECRET`: Same value as `API_SECRET`
+   - `NEXT_PUBLIC_RTIRL_PULL_KEY`: Your RTIRL GPS Pull Key
+   - `NEXT_PUBLIC_LOCATIONIQ_KEY`: Your LocationIQ API Key
+   - `NEXT_PUBLIC_OPENWEATHERMAP_KEY`: Your OpenWeatherMap API Key
+   - `NEXT_PUBLIC_TWITCH_CLIENT_ID`: `xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw` (or your own Twitch Dev Client ID)
 
 ---
 
-## ⚡ OBS WebSocket & Auto-Scene Switcher Setup
+## 🖥️ Local Development Setup
 
-Overlay 3.0 can control OBS Studio directly to automatically switch scenes when your stream connection drops or recovers.
+1. Copy `.env.example` to `.env.local`:
+   ```bash
+   cp .env.example .env.local
+   ```
+2. Fill in your API keys in `.env.local`.
+3. Start the Next.js development server:
+   ```bash
+   npm run dev
+   ```
+4. Open your browser:
+   - **Admin Panel**: [http://localhost:3000](http://localhost:3000) (Login with `ADMIN_PASSWORD`)
+   - **OBS Overlay View**: [http://localhost:3000/overlay](http://localhost:3000/overlay)
 
-1. **Enable OBS WebSocket** in OBS Studio:
-   - Go to **Tools** → **WebSocket Server Settings**.
-   - Check **Enable WebSocket Server**.
-   - Note the **Server Port** (default `4455`) and set a **Server Password**.
-2. **Configure in Admin Panel (`http://localhost:3000`)**:
-   - Enter your **OBS WebSocket URL** (e.g. `ws://127.0.0.1:4455`).
-   - Enter your **OBS WebSocket Password**.
-   - Set **Live Scene Name** (e.g., `IRL Stream`).
-   - Set **Offline Scene Name** (e.g., `BRB / Signal Lost`).
+---
+
+## 📹 OBS Studio Configuration
+
+To add Overlay 3.0 to OBS Studio:
+
+1. In OBS Studio, create a new source: **Sources** → **`+`** → **Browser**.
+2. Set the properties:
+   - **URL**: `https://your-app-name.vercel.app/overlay`
+   - **Width**: `1920`
+   - **Height**: `1080`
+   - ❌ **UNCHECK** **"Shutdown source when not visible"** (Must be unchecked so the overlay stays active in the background)
+   - ❌ **UNCHECK** **"Refresh browser when scene becomes active"** (Must be unchecked to prevent reconnect loops)
+3. Click **OK**.
+
+> ⚠️ **CRITICAL FOR AUTO-SWITCHING & CHAT COMMANDS**:
+> Keeping both options **UNCHECKED** is required so the overlay keeps running continuously in OBS memory. This allows it to monitor Belabox bitrate, execute Twitch chat commands (`!start`, `!end`, `!refresh`), and automatically switch back to your Live scene when signal restores.
+>
+> 💡 **Tip**: Whenever you deploy updates or make code changes, right-click the Browser Source in OBS → **Properties** → click **"Refresh cache of current page"**.
+
+---
+
+## 🔌 OBS WebSocket Connection (For Remote Control & Auto-Switching)
+
+1. In OBS Studio, open **Tools** → **WebSocket Server Settings**.
+2. Check **Enable WebSocket Server**.
+3. Set a **Server Port** (default: `4455`) and set a **Server Password**.
+4. In the **Admin Dashboard** (`/` or `/settings`):
+   - Enter **OBS WebSocket URL**: `ws://127.0.0.1:4455`
+   - Enter **OBS WebSocket Password**: Your configured password.
+   - Set **Live Scene Name** (e.g. `IRL Live`).
+   - Set **Offline Scene Name** (e.g. `BRB / Signal Lost`).
+   - Set **Refresh Scene Name** (e.g. `Refresh Feed`).
    - Enable **OBS Auto-Switch Scene Toggle**.
-3. **Belabox Setup**:
-   - Enter your **Belabox Publisher Key** or **Belabox Stats URL** (`https://stats.srt.belabox.net/your_publisher_key`).
-   - When bitrate drops to 0 kbps, OBS switches to `BRB / Signal Lost`. When bitrate restores, OBS switches back to `IRL Stream`.
 
 ---
 
-## ⚙️ Resource & Performance Optimization Settings
+## 💬 Twitch Chat Commands Reference
 
-Overlay 3.0 features a built-in **Vercel Resource Optimization Engine** to stay well within Vercel Free Hobby Tier limits (1M invocations / 4h CPU):
-
-| Setting Key | Default | Description |
+| Command | Permission | Description |
 | :--- | :--- | :--- |
-| `enableResourceOptimization` | `true` | Enables direct browser CORS fetches & 5s edge caching. |
-| `bitratePollIntervalLive` | `3000` ms | Bitrate checking frequency when stream is **LIVE**. |
-| `bitratePollIntervalOffline` | `20000` ms | Bitrate checking frequency when stream is **OFFLINE** (70% request reduction). |
-| `bitrateCacheTtlMs` | `5000` ms | Server & CDN edge cache duration for `/api/bitrate` responses. |
+| `!start` / `!golive` | Broadcaster | Starts stream in OBS Studio. |
+| `!end` / `!stop` | Broadcaster | Stops stream in OBS Studio. |
+| `!refresh` / `!ref` / `!fixaudio` | Broadcaster | Switches scene to `Refresh` then back to `Live` to fix desynced audio/video feeds. |
+| `!so @username` / `!shoutout @username` | Broadcaster / Mods | Displays an animated on-screen shoutout card for the specified streamer. |
 
-- **Direct Browser CORS Fetch**: Requests to `https://stats.srt.belabox.net/...` bypass Vercel serverless proxy completely when browser CORS is supported.
-- **Server Cache**: Duplicate requests from multiple open tabs or OBS sources share 1 cached response per 5-second window.
-
----
-
-## 📍 Location Display Modes & Hierarchy
-
-Choose between 6 geographic precision levels in the Admin Panel:
-
-1. **Neighbourhood**: Most detailed (e.g., "SoHo", "Shinjuku", "Downtown").
-2. **City**: Municipality level (e.g., "Austin", "Tokyo", "Paris").
-3. **State**: Region/prefecture level (e.g., "California", "Ontario").
-4. **Country**: Shows country name with flag emoji.
-5. **Custom**: Manual custom text (e.g., "Vegas Strip Walking Stream").
-6. **Hidden**: Hides location display section completely.
-
-**Hierarchical Fallback**: `Neighbourhood` → `City` → `State` → `Country`. If a specific neighbourhood is missing from LocationIQ, the overlay automatically falls back to the city without breaking the layout. Duplicate name detection automatically prevents redundant displays like *"Tokyo, Tokyo"*.
+*Note: Stream commands can be toggled on/off in the Admin Dashboard at any time.*
 
 ---
 
-## 📊 API Integrations & Rate Limits
+## 🔑 Obtaining Free API Keys
 
-All APIs are strictly rate-limited client-side to prevent quota exhaustion:
-
-- **LocationIQ**: 1 call/sec max with 18-second minimum time gate (enforces <4,500 calls/day safety limit).
-- **OpenWeatherMap**: Weather updates every 5 minutes (time-based).
-- **CartoDB Map Tiles**: Free WebGL map tiles (CartoDB Voyager for day, Dark Matter for night) with zero API keys required.
-- **Pulsoid**: Real-time heart rate WebSocket feed.
-- **StreamElements**: Tips and donation goal synchronization.
-
----
-
-## 🛠️ Tech Stack
-
-- **Framework**: Next.js 16 (App Router, Turbopack)
-- **Language**: TypeScript
-- **Styling**: Vanilla CSS Modules with dark mode glassmorphism
-- **Map Engine**: MapLibre GL WebGL
-- **Real-Time Sync**: Server-Sent Events (SSE) + Vercel KV (Redis)
-- **OBS Control**: `obs-websocket-js` v5
+| Service | Purpose | Where to get key | Free Tier Limit |
+| :--- | :--- | :--- | :--- |
+| **RTIRL** | Live GPS Movement | [rtirl.com](https://rtirl.com) | Unlimited |
+| **LocationIQ** | Reverse Geocoding (City/Neighbourhood) | [locationiq.com](https://locationiq.com) | 5,000 req/day |
+| **OpenWeatherMap** | Live Weather & Temperature | [openweathermap.org](https://openweathermap.org/api) | 1,000 req/day |
+| **Upstash** | Cloud Redis Storage & SSE Broadcast | [upstash.com](https://upstash.com) | 10,000 commands/day |
+| **Belabox** | Live SRT Bitrate & RTT | [cloud.belabox.net](https://cloud.belabox.net) | Included with Belabox |
+| **Pulsoid** | Live Heart Rate | [pulsoid.net](https://pulsoid.net) | Free tier available |
 
 ---
 
-## 📄 CLI Commands
+## 🛠️ Tech Stack & Architecture
 
-```bash
-npm run dev      # Start development server
-npm run build    # Build optimized production bundle
-npm run start    # Start production server
-npm run lint     # Run ESLint validation
-```
+- **Core**: Next.js 16 (App Router, Turbopack) & React 19
+- **Database & Sync**: Upstash Redis REST API + Server-Sent Events (SSE)
+- **Map Renderer**: MapLibre GL WebGL Engine
+- **OBS Controller**: `obs-websocket-js` v5
+- **Icons & Styling**: Vanilla CSS Modules (Glassmorphism & Cyberpunk Design System)
+- **Deployment**: Vercel Serverless & Edge Network
 
 ---
 
 ## 📄 License
 
-MIT License — Feel free to customize and use for your stream! 🚀
+This project is open-source and available under the [MIT License](LICENSE). Feel free to fork, customize, and use it for your own streams! 🚀

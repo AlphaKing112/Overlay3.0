@@ -60,6 +60,9 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
               text: String(todoObj.text).slice(0, 200), // Limit text length
               completed: Boolean(todoObj.completed)
             };
+            if (todoObj.hidden !== undefined && typeof todoObj.hidden === 'boolean') {
+              validTodo.hidden = todoObj.hidden;
+            }
             if (todoObj.current !== undefined && typeof todoObj.current === 'number') {
               validTodo.current = todoObj.current;
             }
@@ -120,7 +123,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
               goal: Math.max(0, gObj.goal),
               current: Math.max(0, gObj.current),
               duration: typeof gObj.duration === 'number' ? Math.min(Math.max(0, gObj.duration), 1440) : 0,
-              lastTriggered: typeof gObj.lastTriggered === 'number' ? gObj.lastTriggered : 0
+              lastTriggered: typeof gObj.lastTriggered === 'number' ? gObj.lastTriggered : 0,
+              hidden: typeof gObj.hidden === 'boolean' ? gObj.hidden : false
             });
           }
         }
@@ -132,24 +136,32 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     }
   }
 
-  // Validate shoutout object
+  // Validate shoutout object (auto-expire old shoutouts)
   if (settings.shoutout !== undefined) {
     if (settings.shoutout === null) {
       cleanSettings.shoutout = null;
     } else if (typeof settings.shoutout === 'object') {
       const s = settings.shoutout as Record<string, unknown>;
       if (typeof s.username === 'string' && typeof s.displayName === 'string') {
-        cleanSettings.shoutout = {
-          username: String(s.username).slice(0, 100),
-          displayName: String(s.displayName).slice(0, 100),
-          avatarUrl: typeof s.avatarUrl === 'string' ? String(s.avatarUrl).slice(0, 500) : undefined,
-          gameName: typeof s.gameName === 'string' ? String(s.gameName).slice(0, 100) : undefined,
-          title: typeof s.title === 'string' ? String(s.title).slice(0, 200) : undefined,
-          customText: typeof s.customText === 'string' ? String(s.customText).slice(0, 200) : undefined,
-          active: typeof s.active === 'boolean' ? s.active : true,
-          triggeredAt: typeof s.triggeredAt === 'number' ? s.triggeredAt : Date.now(),
-          durationSeconds: typeof s.durationSeconds === 'number' ? Math.min(Math.max(5, s.durationSeconds), 120) : 15
-        };
+        const triggeredAt = typeof s.triggeredAt === 'number' ? s.triggeredAt : 0;
+        const durationSeconds = typeof s.durationSeconds === 'number' ? Math.min(Math.max(5, s.durationSeconds), 120) : 15;
+        const isExpired = !triggeredAt || (Date.now() - triggeredAt) > (durationSeconds * 1000);
+
+        if (isExpired || s.active === false) {
+          cleanSettings.shoutout = null;
+        } else {
+          cleanSettings.shoutout = {
+            username: String(s.username).slice(0, 100),
+            displayName: String(s.displayName).slice(0, 100),
+            avatarUrl: typeof s.avatarUrl === 'string' ? String(s.avatarUrl).slice(0, 500) : undefined,
+            gameName: typeof s.gameName === 'string' ? String(s.gameName).slice(0, 100) : undefined,
+            title: typeof s.title === 'string' ? String(s.title).slice(0, 200) : undefined,
+            customText: typeof s.customText === 'string' ? String(s.customText).slice(0, 200) : undefined,
+            active: true,
+            triggeredAt,
+            durationSeconds
+          };
+        }
       }
     }
   }
@@ -228,7 +240,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'obsStreamCommandSignal') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -359,7 +371,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
             goal: Math.max(0, g.goal),
             current: Math.max(0, g.current),
             duration: typeof g.duration === 'number' ? Math.min(Math.max(0, g.duration), 1440) : 0,
-            lastTriggered: typeof g.lastTriggered === 'number' ? g.lastTriggered : 0
+            lastTriggered: typeof g.lastTriggered === 'number' ? g.lastTriggered : 0,
+            hidden: typeof (g as any).hidden === 'boolean' ? (g as any).hidden : false
           });
         }
       }
@@ -371,7 +384,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     donationGoalsScale: typeof cleanSettings.donationGoalsScale === 'number' ? cleanSettings.donationGoalsScale : DEFAULT_OVERLAY_SETTINGS.donationGoalsScale,
     donoShowBackground: cleanSettings.donoShowBackground ?? DEFAULT_OVERLAY_SETTINGS.donoShowBackground,
     donoGoalText: cleanSettings.donoGoalText ?? DEFAULT_OVERLAY_SETTINGS.donoGoalText,
-    streamElementsEnabled: !!cleanSettings.streamElementsEnabled,
+    streamElementsEnabled: cleanSettings.streamElementsEnabled ?? (typeof cleanSettings.streamElementsToken === 'string' ? !!cleanSettings.streamElementsToken.trim() : DEFAULT_OVERLAY_SETTINGS.streamElementsEnabled),
     streamElementsToken: typeof cleanSettings.streamElementsToken === 'string'
       ? cleanSettings.streamElementsToken
       : DEFAULT_OVERLAY_SETTINGS.streamElementsToken,
@@ -421,6 +434,9 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     obsAutoSwitchSceneToggle: cleanSettings.obsAutoSwitchSceneToggle ?? DEFAULT_OVERLAY_SETTINGS.obsAutoSwitchSceneToggle,
     obsOfflineSceneName: cleanSettings.obsOfflineSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsOfflineSceneName,
     obsLiveSceneName: cleanSettings.obsLiveSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsLiveSceneName,
+    obsRefreshSceneName: cleanSettings.obsRefreshSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsRefreshSceneName,
+    obsTelemetryEnabled: cleanSettings.obsTelemetryEnabled ?? DEFAULT_OVERLAY_SETTINGS.obsTelemetryEnabled,
+    obsTelemetryInterval: typeof cleanSettings.obsTelemetryInterval === 'number' ? Math.max(15, Math.min(300, cleanSettings.obsTelemetryInterval)) : DEFAULT_OVERLAY_SETTINGS.obsTelemetryInterval,
     showDistanceTracker: cleanSettings.showDistanceTracker ?? DEFAULT_OVERLAY_SETTINGS.showDistanceTracker,
     distanceCurrent: typeof cleanSettings.distanceCurrent === 'number' ? cleanSettings.distanceCurrent : DEFAULT_OVERLAY_SETTINGS.distanceCurrent,
     distanceGoal: typeof cleanSettings.distanceGoal === 'number' ? cleanSettings.distanceGoal : DEFAULT_OVERLAY_SETTINGS.distanceGoal,
@@ -443,6 +459,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     isTestingFill: typeof cleanSettings.isTestingFill === 'boolean' ? cleanSettings.isTestingFill : undefined,
     testFillProgress: typeof cleanSettings.testFillProgress === 'number' ? cleanSettings.testFillProgress : undefined,
     todoTitle: cleanSettings.todoTitle ?? DEFAULT_OVERLAY_SETTINGS.todoTitle,
+    todoTitleScale: typeof cleanSettings.todoTitleScale === 'number' ? Math.min(Math.max(cleanSettings.todoTitleScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoTitleScale,
     todoX: typeof cleanSettings.todoX === 'number' ? Math.min(Math.max(cleanSettings.todoX, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoX,
     todoY: typeof cleanSettings.todoY === 'number' ? Math.min(Math.max(cleanSettings.todoY, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoY,
     todoScale: typeof cleanSettings.todoScale === 'number' ? Math.min(Math.max(cleanSettings.todoScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoScale,
@@ -459,11 +476,53 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     shoutoutPermBroadcaster: typeof cleanSettings.shoutoutPermBroadcaster === 'boolean' ? cleanSettings.shoutoutPermBroadcaster : DEFAULT_OVERLAY_SETTINGS.shoutoutPermBroadcaster,
     shoutoutPermMods: typeof cleanSettings.shoutoutPermMods === 'boolean' ? cleanSettings.shoutoutPermMods : DEFAULT_OVERLAY_SETTINGS.shoutoutPermMods,
     shoutoutPermVips: typeof cleanSettings.shoutoutPermVips === 'boolean' ? cleanSettings.shoutoutPermVips : DEFAULT_OVERLAY_SETTINGS.shoutoutPermVips,
-    shoutoutPermEveryone: typeof cleanSettings.shoutoutPermEveryone === 'boolean' ? cleanSettings.shoutoutPermEveryone : DEFAULT_OVERLAY_SETTINGS.shoutoutPermEveryone,
+    obsStreamCommandsEnabled: typeof cleanSettings.obsStreamCommandsEnabled === 'boolean' ? cleanSettings.obsStreamCommandsEnabled : DEFAULT_OVERLAY_SETTINGS.obsStreamCommandsEnabled,
+    obsStreamCommandSignal: (cleanSettings.obsStreamCommandSignal && typeof cleanSettings.obsStreamCommandSignal === 'object') ? cleanSettings.obsStreamCommandSignal : DEFAULT_OVERLAY_SETTINGS.obsStreamCommandSignal,
+    enableResourceOptimization: cleanSettings.enableResourceOptimization ?? DEFAULT_OVERLAY_SETTINGS.enableResourceOptimization,
+    bitratePollIntervalLive: typeof cleanSettings.bitratePollIntervalLive === 'number' ? cleanSettings.bitratePollIntervalLive : DEFAULT_OVERLAY_SETTINGS.bitratePollIntervalLive,
+    bitratePollIntervalOffline: typeof cleanSettings.bitratePollIntervalOffline === 'number' ? cleanSettings.bitratePollIntervalOffline : DEFAULT_OVERLAY_SETTINGS.bitratePollIntervalOffline,
+    bitrateCacheTtlMs: typeof cleanSettings.bitrateCacheTtlMs === 'number' ? cleanSettings.bitrateCacheTtlMs : DEFAULT_OVERLAY_SETTINGS.bitrateCacheTtlMs,
+    saveDebounceDelay: typeof cleanSettings.saveDebounceDelay === 'number' ? cleanSettings.saveDebounceDelay : DEFAULT_OVERLAY_SETTINGS.saveDebounceDelay,
+    customLocationDebounceDelay: typeof cleanSettings.customLocationDebounceDelay === 'number' ? cleanSettings.customLocationDebounceDelay : DEFAULT_OVERLAY_SETTINGS.customLocationDebounceDelay,
+    twitchSyncInterval: typeof cleanSettings.twitchSyncInterval === 'number' ? cleanSettings.twitchSyncInterval : DEFAULT_OVERLAY_SETTINGS.twitchSyncInterval,
+    weatherUpdateInterval: typeof cleanSettings.weatherUpdateInterval === 'number' ? cleanSettings.weatherUpdateInterval : DEFAULT_OVERLAY_SETTINGS.weatherUpdateInterval,
+    bitrateUpdateInterval: typeof cleanSettings.bitrateUpdateInterval === 'number' ? cleanSettings.bitrateUpdateInterval : DEFAULT_OVERLAY_SETTINGS.bitrateUpdateInterval,
+    settingsPollingInterval: typeof cleanSettings.settingsPollingInterval === 'number' ? cleanSettings.settingsPollingInterval : DEFAULT_OVERLAY_SETTINGS.settingsPollingInterval,
+    autoSwitchPollInterval: typeof cleanSettings.autoSwitchPollInterval === 'number' ? cleanSettings.autoSwitchPollInterval : DEFAULT_OVERLAY_SETTINGS.autoSwitchPollInterval,
+    mapMinIntervalSlow: typeof cleanSettings.mapMinIntervalSlow === 'number' ? cleanSettings.mapMinIntervalSlow : DEFAULT_OVERLAY_SETTINGS.mapMinIntervalSlow,
+    mapMinIntervalMed: typeof cleanSettings.mapMinIntervalMed === 'number' ? cleanSettings.mapMinIntervalMed : DEFAULT_OVERLAY_SETTINGS.mapMinIntervalMed,
+    mapMinIntervalFast: typeof cleanSettings.mapMinIntervalFast === 'number' ? cleanSettings.mapMinIntervalFast : DEFAULT_OVERLAY_SETTINGS.mapMinIntervalFast,
+    gpsFreshnessTimeout: typeof cleanSettings.gpsFreshnessTimeout === 'number' ? cleanSettings.gpsFreshnessTimeout : DEFAULT_OVERLAY_SETTINGS.gpsFreshnessTimeout,
+    gpsStaleTimeout: typeof cleanSettings.gpsStaleTimeout === 'number' ? cleanSettings.gpsStaleTimeout : DEFAULT_OVERLAY_SETTINGS.gpsStaleTimeout,
+    minimapHideDelay: typeof cleanSettings.minimapHideDelay === 'number' ? cleanSettings.minimapHideDelay : DEFAULT_OVERLAY_SETTINGS.minimapHideDelay,
+    speedHideDelay: typeof cleanSettings.speedHideDelay === 'number' ? cleanSettings.speedHideDelay : DEFAULT_OVERLAY_SETTINGS.speedHideDelay,
+    minimapSpeedGracePeriod: typeof cleanSettings.minimapSpeedGracePeriod === 'number' ? cleanSettings.minimapSpeedGracePeriod : DEFAULT_OVERLAY_SETTINGS.minimapSpeedGracePeriod,
+    overlayFadeTimeout: typeof cleanSettings.overlayFadeTimeout === 'number' ? cleanSettings.overlayFadeTimeout : DEFAULT_OVERLAY_SETTINGS.overlayFadeTimeout,
+    rtirlPullKey: typeof cleanSettings.rtirlPullKey === 'string' ? cleanSettings.rtirlPullKey : DEFAULT_OVERLAY_SETTINGS.rtirlPullKey,
+    locationIqKey: typeof cleanSettings.locationIqKey === 'string' ? cleanSettings.locationIqKey : DEFAULT_OVERLAY_SETTINGS.locationIqKey,
+    openWeatherKey: typeof cleanSettings.openWeatherKey === 'string' ? cleanSettings.openWeatherKey : DEFAULT_OVERLAY_SETTINGS.openWeatherKey,
+    pulsoidToken: typeof cleanSettings.pulsoidToken === 'string' ? cleanSettings.pulsoidToken : DEFAULT_OVERLAY_SETTINGS.pulsoidToken,
+    discordPicWebhookUrl: typeof cleanSettings.discordPicWebhookUrl === 'string' ? cleanSettings.discordPicWebhookUrl : DEFAULT_OVERLAY_SETTINGS.discordPicWebhookUrl,
+    picCommandEnabled: typeof cleanSettings.picCommandEnabled === 'boolean' ? cleanSettings.picCommandEnabled : DEFAULT_OVERLAY_SETTINGS.picCommandEnabled,
+    picPointsCost: typeof cleanSettings.picPointsCost === 'number' && cleanSettings.picPointsCost >= 0 ? cleanSettings.picPointsCost : DEFAULT_OVERLAY_SETTINGS.picPointsCost,
+    picCooldownSeconds: typeof cleanSettings.picCooldownSeconds === 'number' && cleanSettings.picCooldownSeconds >= 0 ? cleanSettings.picCooldownSeconds : DEFAULT_OVERLAY_SETTINGS.picCooldownSeconds,
+    picShowOnOverlay: typeof cleanSettings.picShowOnOverlay === 'boolean' ? cleanSettings.picShowOnOverlay : DEFAULT_OVERLAY_SETTINGS.picShowOnOverlay,
+    picCustomMessage: typeof cleanSettings.picCustomMessage === 'string' ? cleanSettings.picCustomMessage : DEFAULT_OVERLAY_SETTINGS.picCustomMessage,
   };
 
   return completeSettings;
 }
+
+const VALID_SETTINGS_KEYS = new Set<string>([
+  ...Object.keys(DEFAULT_OVERLAY_SETTINGS),
+  ...Object.keys(SETTINGS_CONFIG),
+  'todos',
+  'urls',
+  'donationGoals',
+  'shoutout',
+  'obsStreamCommandSignal',
+  'settings'
+]);
 
 /**
  * Check if settings object contains any suspicious keys
@@ -477,7 +536,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'calorieTrackerScale' && key !== 'calorieTrackerX' && key !== 'calorieTrackerY' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'showSubGoals' && key !== 'totalSubGoal' && key !== 'totalSubCurrent' && key !== 'dailySubGoal' && key !== 'dailySubCurrent' && key !== 'dailySubLastReset' && key !== 'subGoalsX' && key !== 'subGoalsY' && key !== 'subGoalsScale' && key !== 'totalTipGoal' && key !== 'totalTipCurrent' && key !== 'dailyTipGoal' && key !== 'dailyTipCurrent' && key !== 'dailyTipLastReset' && key !== 'subGoalsStyle' && key !== 'subGoalsFont' && key !== 'subGoalsShowStroke' && key !== 'subGoalsShowBackground' && key !== 'seAutoSyncTotals' && key !== 'twitchClientId' && key !== 'twitchToken' && key !== 'twitchBroadcasterId' && key !== 'twitchUsername' && key !== 'combineDateTimeWithLocation' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'shoutoutDuration' && key !== 'shoutoutPermBroadcaster' && key !== 'shoutoutPermMods' && key !== 'shoutoutPermVips' && key !== 'shoutoutPermEveryone') { // valid keys
+    if (!VALID_SETTINGS_KEYS.has(key)) {
       maliciousKeys.push(key);
     }
   }

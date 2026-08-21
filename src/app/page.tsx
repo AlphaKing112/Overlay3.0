@@ -10,6 +10,8 @@ import { API_KEYS } from '@/utils/overlay-constants';
 import * as workerTimers from 'worker-timers';
 import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
 import { DistanceTracker } from '@/components/DistanceTracker';
+import { safeObsStreamControl, safeObsStreamControlResult, safeObsRefreshCycle, formatObsError } from '@/lib/obs-helper';
+import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
 declare global {
@@ -22,9 +24,78 @@ declare global {
   }
 }
 
+interface CollapsibleSectionProps {
+  id: string;
+  title: string;
+  icon?: string;
+  badge?: React.ReactNode;
+  headerRight?: React.ReactNode;
+  isCollapsed: boolean;
+  onToggle: () => void;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}
+
+function CollapsibleSection({
+  id,
+  title,
+  icon,
+  badge,
+  headerRight,
+  isCollapsed,
+  onToggle,
+  style,
+  children
+}: CollapsibleSectionProps) {
+  return (
+    <section id={`section-${id}`} className={`settings-section ${isCollapsed ? 'collapsed' : ''}`} style={style}>
+      <div
+        className="section-header clickable-header"
+        onClick={onToggle}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          userSelect: 'none',
+          marginBottom: isCollapsed ? 0 : '1.25rem',
+          paddingBottom: isCollapsed ? 0 : '0.875rem',
+          borderBottom: isCollapsed ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {icon && <span style={{ fontSize: '1.2em' }}>{icon}</span>}
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>{title}</h2>
+          {badge}
+          <span style={{
+            fontSize: '0.75em',
+            opacity: 0.6,
+            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s ease',
+            display: 'inline-block'
+          }}>
+            ▼
+          </span>
+        </div>
+        {headerRight && (
+          <div onClick={(e) => e.stopPropagation()}>
+            {headerRight}
+          </div>
+        )}
+      </div>
+      {!isCollapsed && children}
+    </section>
+  );
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
+  const settingsRef = useRef<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [toast, setToast] = useState<{ type: 'saving' | 'saved' | 'error'; message: string } | null>(null);
@@ -41,9 +112,183 @@ export default function AdminPage() {
   const [obsErrorLog, setObsErrorLog] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isStreamingToggling, setIsStreamingToggling] = useState(false);
+  const [detectedLiveBitrate, setDetectedLiveBitrate] = useState<number | null>(null);
+  const [obsTelemetry, setObsTelemetry] = useState<ObsTelemetryStats | null>(null);
+  const [showObsLogs, setShowObsLogs] = useState<boolean>(false);
 
-  // Collapsible API Keys dropdown state
-  const [showApiKeys, setShowApiKeys] = useState(false);
+  // Continuous OBS Telemetry Polling (receives Dropped Frames, Uptime, CPU %, FPS from cloud or direct OBS connection)
+  useEffect(() => {
+    if (settings.obsTelemetryEnabled !== true) {
+      setObsTelemetry(null);
+      return;
+    }
+
+    let isActive = true;
+    let timer: NodeJS.Timeout;
+    let wasStreaming = false;
+
+    const fetchTelemetry = async () => {
+      if (!isActive) return;
+
+      // 1. If Admin has an active direct OBS WebSocket connection, query OBS directly for 0ms lag
+      if (obsRef.current && obsStatus === 'connected') {
+        try {
+          const [streamStatus, recordStatus, stats, currentSceneData] = await Promise.allSettled([
+            obsRef.current.call('GetStreamStatus' as any),
+            obsRef.current.call('GetRecordStatus' as any),
+            obsRef.current.call('GetStats' as any),
+            obsRef.current.call('GetCurrentProgramScene' as any)
+          ]);
+
+          const stream = streamStatus.status === 'fulfilled' ? (streamStatus.value as any) : null;
+          const record = recordStatus.status === 'fulfilled' ? (recordStatus.value as any) : null;
+          const st = stats.status === 'fulfilled' ? (stats.value as any) : null;
+          const scene = currentSceneData.status === 'fulfilled' ? (currentSceneData.value as any) : null;
+
+          const isLive = Boolean(stream?.outputActive);
+          const isRec = Boolean(record?.outputActive);
+
+          if (wasStreaming && !isLive && settingsRef.current.obsTelemetryEnabled) {
+            handleSettingsChange({ obsTelemetryEnabled: false });
+          } else if (!wasStreaming && isLive && !settingsRef.current.obsTelemetryEnabled) {
+            handleSettingsChange({ obsTelemetryEnabled: true });
+          }
+          wasStreaming = isLive;
+
+          const droppedFrames = stream?.outputSkippedFrames ?? 0;
+          const totalFrames = stream?.outputTotalFrames ?? 0;
+          const droppedFramesPercent = totalFrames > 0
+            ? parseFloat(((droppedFrames / totalFrames) * 100).toFixed(1))
+            : 0;
+
+          const cpuUsagePercent = st?.cpuUsage ? parseFloat(st.cpuUsage.toFixed(1)) : 0;
+          const fps = st?.activeFps ? parseFloat(st.activeFps.toFixed(2)) : 60;
+          const currentScene = scene?.currentProgramSceneName || scene?.sceneName || '';
+
+          const localData: ObsTelemetryStats = {
+            online: true,
+            streaming: isLive,
+            recording: isRec,
+            uptimeTimecode: stream?.outputTimecode || (isLive ? '00:00:00' : undefined),
+            uptimeDurationMs: stream?.outputDuration,
+            outputBytes: stream?.outputBytes,
+            droppedFrames,
+            totalFrames,
+            droppedFramesPercent,
+            cpuUsagePercent,
+            memoryUsageMb: st?.memoryUsage ? Math.round(st.memoryUsage) : undefined,
+            fps,
+            renderSkippedFrames: st?.renderSkippedFrames,
+            renderTotalFrames: st?.renderTotalFrames,
+            currentScene,
+            updatedAt: Date.now()
+          };
+
+          if (isActive) {
+            setObsTelemetry(localData);
+          }
+
+          // Push to cloud so mobile admin and remote viewers stay in sync
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(localData)
+          }).catch(() => {});
+
+          if (isActive) {
+            const configuredInterval = (settings.obsTelemetryInterval || 45) * 1000;
+            const pollMs = (typeof document !== 'undefined' && document.hidden) ? Math.max(30000, configuredInterval * 2) : Math.min(10000, configuredInterval);
+            timer = setTimeout(fetchTelemetry, pollMs);
+          }
+          return;
+        } catch {
+          // Fallback to cloud fetch
+        }
+      }
+
+      // 2. Fetch from Cloud API (with cache: 'no-store' to prevent browser caching stale offline state)
+      try {
+        const res = await fetch('/api/obs-telemetry', { cache: 'no-store' });
+        if (res.ok && isActive) {
+          const data: ObsTelemetryStats = await res.json();
+          setObsTelemetry(data);
+
+          const isLive = Boolean(data.streaming);
+          if (wasStreaming && !isLive && settingsRef.current.obsTelemetryEnabled) {
+            handleSettingsChange({ obsTelemetryEnabled: false });
+          } else if (!wasStreaming && isLive && !settingsRef.current.obsTelemetryEnabled) {
+            handleSettingsChange({ obsTelemetryEnabled: true });
+          }
+          wasStreaming = isLive;
+        }
+      } catch {
+        // Ignore telemetry fetch errors
+      }
+
+      if (isActive) {
+        const configuredInterval = (settings.obsTelemetryInterval || 45) * 1000;
+        const pollMs = (typeof document !== 'undefined' && document.hidden) ? Math.max(60000, configuredInterval * 2) : configuredInterval;
+        timer = setTimeout(fetchTelemetry, pollMs);
+      }
+    };
+
+    fetchTelemetry();
+
+    return () => {
+      isActive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [settings.obsTelemetryEnabled, settings.obsTelemetryInterval, obsStatus]);
+
+  // Collapsible Sections dropdown state
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('admin_collapsed_sections');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return {};
+  });
+
+  const toggleSection = (sectionId: string) => {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [sectionId]: !prev[sectionId] };
+      try {
+        localStorage.setItem('admin_collapsed_sections', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const isSectionCollapsed = (sectionId: string) => !!collapsedSections[sectionId];
+
+  const expandAllSections = () => {
+    setCollapsedSections({});
+    try { localStorage.setItem('admin_collapsed_sections', JSON.stringify({})); } catch {}
+  };
+
+  const collapseAllSections = () => {
+    const allCollapsed: Record<string, boolean> = {
+      apiKeys: true,
+      obs: true,
+      global: true,
+      location: true,
+      time: true,
+      minimap: true,
+      bitrate: true,
+      distance: true,
+      donation: true,
+      subgoals: true,
+      calories: true,
+      shoutout: true,
+      todo: true,
+      socials: true,
+      urls: true,
+    };
+    setCollapsedSections(allCollapsed);
+    try { localStorage.setItem('admin_collapsed_sections', JSON.stringify(allCollapsed)); } catch {}
+  };
 
   // Custom location input state (for debouncing)
   const [customLocationInput, setCustomLocationInput] = useState('');
@@ -52,6 +297,18 @@ export default function AdminPage() {
   // Todo editing state
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingTodoText, setEditingTodoText] = useState('');
+
+  // Page Transition State
+  const [isNavigatingToSettings, setIsNavigatingToSettings] = useState(false);
+
+  const handleGoToSettings = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isNavigatingToSettings) return;
+    setIsNavigatingToSettings(true);
+    setTimeout(() => {
+      router.push('/settings');
+    }, 280);
+  };
 
   // URL input state
   const [urlLabelInput, setUrlLabelInput] = useState('');
@@ -179,8 +436,19 @@ export default function AdminPage() {
   };
 
   const handleClearShoutout = async () => {
+    setSettings(prev => ({ ...prev, shoutout: null }));
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('overlay_settings_backup');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.shoutout = null;
+          localStorage.setItem('overlay_settings_backup', JSON.stringify(parsed));
+        }
+      } catch {}
+    }
     await handleSettingsChange({ shoutout: null });
-    setToast({ type: 'saved', message: 'Shoutout cleared from overlay.' });
+    setToast({ type: 'saved', message: 'Shoutout cleared.' });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -351,10 +619,17 @@ export default function AdminPage() {
             // Only sync database updates if the Admin UI is connected (not currently saving or offline)
             setSyncStatus((currentStatus) => {
               if (currentStatus === 'connected') {
-                setSettings(() => {
+                setSettings((prevSettings) => {
+                  const nextObsStreamCommandsEnabled = settingsData.obsStreamCommandsEnabled !== undefined
+                    ? settingsData.obsStreamCommandsEnabled
+                    : (prevSettings.obsStreamCommandsEnabled ?? true);
+
                   return {
                     ...DEFAULT_OVERLAY_SETTINGS,
-                    ...settingsData
+                    ...prevSettings,
+                    ...settingsData,
+                    obsStreamCommandsEnabled: nextObsStreamCommandsEnabled,
+                    shoutout: settingsData.shoutout !== undefined ? settingsData.shoutout : null
                   } as OverlaySettings;
                 });
               }
@@ -391,7 +666,8 @@ export default function AdminPage() {
   }, [loadSettings]);
 
   const handleSettingsChange = useCallback(async (updates: Partial<OverlaySettings>) => {
-    const mergedSettings = { ...settings, ...updates };
+    const base = settingsRef.current || settings;
+    const mergedSettings = { ...base, ...updates };
 
     // Handle minimap logic conflicts
     if (updates.showMinimap !== undefined && updates.showMinimap) {
@@ -403,14 +679,17 @@ export default function AdminPage() {
 
     // 1. Update UI state IMMEDIATELY for 0ms lag on sliders & position buttons
     setSettings(mergedSettings);
+    settingsRef.current = mergedSettings;
     latestMergedSettingsRef.current = mergedSettings;
 
-    // 2. Debounce HTTP save requests (300ms) to prevent server log spam when dragging sliders
+    // Save critical toggle switches immediately (0ms delay) so refreshing instantly loads saved value
+    const isInstantSaveKey = updates.obsStreamCommandsEnabled !== undefined || updates.shoutout !== undefined || updates.obsTelemetryEnabled !== undefined || updates.obsTelemetryInterval !== undefined || updates.picCommandEnabled !== undefined || updates.picShowOnOverlay !== undefined;
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    saveTimeoutRef.current = setTimeout(async () => {
+    const executeSave = async () => {
       const settingsToSave = latestMergedSettingsRef.current || mergedSettings;
       setToast({ type: 'saving', message: 'Saving settings...' });
       setSyncStatus('syncing');
@@ -445,7 +724,13 @@ export default function AdminPage() {
         setSyncStatus('disconnected');
         setTimeout(() => setToast(null), 5000);
       }
-    }, 300);
+    };
+
+    if (isInstantSaveKey) {
+      executeSave();
+    } else {
+      saveTimeoutRef.current = setTimeout(executeSave, 300);
+    }
   }, [settings, router]);
 
   const runTestFillAnimation = useCallback(() => {
@@ -518,15 +803,19 @@ export default function AdminPage() {
   }, [settings.customLocation]);
 
 
-  const syncFromTwitch = useCallback(async () => {
+  const syncFromTwitch = useCallback(async (silent = false) => {
     const clientId = API_KEYS.TWITCH_CLIENT_ID;
     if (!settings.twitchToken || !settings.twitchBroadcasterId) {
-      setToast({ type: 'error', message: 'Please connect to Twitch first.' });
-      setTimeout(() => setToast(null), 3000);
+      if (!silent) {
+        setToast({ type: 'error', message: 'Please connect to Twitch first.' });
+        setTimeout(() => setToast(null), 3000);
+      }
       return;
     }
     
-    setToast({ type: 'saving', message: 'Syncing from Twitch...' });
+    if (!silent) {
+      setToast({ type: 'saving', message: 'Syncing from Twitch...' });
+    }
     
     try {
       const res = await fetch(`/api/twitch-subs?broadcasterId=${settings.twitchBroadcasterId}&token=${settings.twitchToken}&clientId=${clientId}`);
@@ -545,25 +834,31 @@ export default function AdminPage() {
       const result = await res.json();
       const subTotal = typeof result.total === 'number' ? result.total : (result.points ?? 0);
       
-      handleSettingsChange({
-        totalSubCurrent: subTotal
-      });
+      if (subTotal !== settings.totalSubCurrent) {
+        handleSettingsChange({
+          totalSubCurrent: subTotal
+        });
+      }
       
-      setToast({ type: 'saved', message: `Synced successfully! Found ${subTotal} subscribers.` });
-      setTimeout(() => setToast(null), 3000);
+      if (!silent) {
+        setToast({ type: 'saved', message: `Synced successfully! Found ${subTotal} subscribers.` });
+        setTimeout(() => setToast(null), 3000);
+      }
     } catch (error) {
       console.error('Twitch sync error:', error);
-      setToast({ type: 'error', message: `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
-      setTimeout(() => setToast(null), 5000);
+      if (!silent) {
+        setToast({ type: 'error', message: `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
+        setTimeout(() => setToast(null), 5000);
+      }
     }
-  }, [settings.twitchToken, settings.twitchBroadcasterId, handleSettingsChange]);
+  }, [settings.twitchToken, settings.twitchBroadcasterId, settings.totalSubCurrent, handleSettingsChange]);
 
-  // Auto-sync Twitch when token changes (safely)
+  // Auto-sync Twitch when token changes (safely and silently on reload)
   useEffect(() => {
     if (settings.twitchToken && settings.twitchBroadcasterId) {
       if (lastSyncedToken.current !== settings.twitchToken) {
         lastSyncedToken.current = settings.twitchToken;
-        syncFromTwitch();
+        syncFromTwitch(true);
       }
     }
   }, [settings.twitchToken, settings.twitchBroadcasterId, syncFromTwitch]);
@@ -604,7 +899,13 @@ export default function AdminPage() {
       setObsScenes(data.scenes.map((s: any) => ({ sceneName: s.sceneName as string })));
     });
     obs.on('StreamStateChanged' as any, (data: any) => {
-      setIsStreaming(data.outputActive ?? false);
+      const isLive = Boolean(data.outputActive);
+      setIsStreaming(isLive);
+      if (!isLive && settingsRef.current.obsTelemetryEnabled) {
+        handleSettingsChange({ obsTelemetryEnabled: false });
+      } else if (isLive && !settingsRef.current.obsTelemetryEnabled) {
+        handleSettingsChange({ obsTelemetryEnabled: true });
+      }
     });
     obsRef.current = obs;
 
@@ -627,7 +928,7 @@ export default function AdminPage() {
       // Fetch initial stream status
       try {
         const streamStatus = await obs.call('GetStreamStatus' as any) as any;
-        setIsStreaming(streamStatus?.outputActive ?? false);
+        setIsStreaming(Boolean(streamStatus?.outputActive));
       } catch (err) {
         // Older OBS versions may not support this
       }
@@ -660,6 +961,279 @@ export default function AdminPage() {
     setObsCurrentScene('');
   };
 
+  const postTwitchAnnouncement = async (message: string, color: 'primary' | 'blue' | 'green' | 'orange' | 'purple' = 'primary') => {
+    const broadcasterId = settings.twitchBroadcasterId;
+    const token = settings.twitchToken;
+    if (!broadcasterId || !token) return;
+    try {
+      const clientId = API_KEYS.TWITCH_CLIENT_ID;
+      await fetch('/api/twitch-announcement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broadcasterId, token, clientId, message, color })
+      });
+    } catch (err) {
+      console.error('Failed to post Twitch chat announcement:', err);
+    }
+  };
+
+  // OBS Stream Control Commands (!start and !end)
+  const triggerObsStreamCommand = async (action: 'start' | 'stop') => {
+    if (settingsRef.current.obsStreamCommandsEnabled !== true) {
+      setToast({ type: 'error', message: '⚠️ Stream commands (!start & !end) are disabled in settings.' });
+      return;
+    }
+
+    setIsStreamingToggling(true);
+    try {
+      let executedLocally = false;
+      let localError = '';
+
+      // Step 1: Try existing active OBS WebSocket connection in Admin Panel
+      if (obsStatus === 'connected' && obsRef.current) {
+        const localRes = await safeObsStreamControlResult(obsRef.current, action);
+        if (localRes.success) {
+          executedLocally = true;
+        } else {
+          localError = localRes.error || '';
+          console.warn(`Direct OBS WebSocket command returned error: ${localError}. Trying on-demand connection...`);
+        }
+      }
+
+      // Step 2: Try on-demand direct connection to local OBS (ws://127.0.0.1:4455)
+      if (!executedLocally) {
+        try {
+          const targetUrl = obsUrlInput || settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+          const targetPass = obsPasswordInput || settings.obsWebsocketPassword || '';
+          const tempObs = new OBSWebSocket();
+          tempObs.on('ConnectionClosed', () => {});
+          tempObs.on('ConnectionError', () => {});
+
+          const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 2500));
+          await Promise.race([connectPromise, timeoutPromise]);
+
+          const onDemandRes = await safeObsStreamControlResult(tempObs, action);
+          try { await tempObs.disconnect(); } catch {}
+
+          if (onDemandRes.success) {
+            executedLocally = true;
+          } else if (onDemandRes.error) {
+            localError = onDemandRes.error;
+          }
+        } catch (onDemandErr: any) {
+          if (!localError) {
+            localError = onDemandErr?.message || String(onDemandErr);
+          }
+        }
+      }
+
+      if (executedLocally) {
+        setIsStreaming(action === 'start');
+        if (action === 'start' && !settingsRef.current.obsTelemetryEnabled) {
+          handleSettingsChange({ obsTelemetryEnabled: true });
+        } else if (action === 'stop' && settingsRef.current.obsTelemetryEnabled) {
+          handleSettingsChange({ obsTelemetryEnabled: false });
+        }
+        const msg = action === 'start' ? '▶ Command !start executed! OBS Stream starting...' : '🔴 Command !end executed! OBS Stream stopping...';
+        setToast({ type: 'saved', message: msg });
+        postTwitchAnnouncement(action === 'start' ? '▶ OBS Stream Started! 🚀' : '🔴 OBS Stream Ended! 🛑', action === 'start' ? 'green' : 'primary');
+      } else {
+        // Step 3: Send cloud signal via API route / save-settings
+        const res = await fetch('/api/obs-stream-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            obsUrl: obsUrlInput || settings.obsWebsocketUrl,
+            obsPassword: obsPasswordInput || settings.obsWebsocketPassword
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setIsStreaming(action === 'start');
+          setToast({
+            type: 'saved',
+            message: localError
+              ? `⚠️ Direct OBS: ${localError}. Command signal sent to OBS Overlay...`
+              : (action === 'start' ? '▶ Command !start sent! Stream starting via OBS Overlay...' : '🔴 Command !end sent! Stream stopping via OBS Overlay...')
+          });
+          postTwitchAnnouncement(action === 'start' ? '▶ OBS Stream Started! 🚀' : '🔴 OBS Stream Ended! 🛑', action === 'start' ? 'green' : 'primary');
+        } else {
+          const errMsg = data.error || localError || 'Failed to trigger OBS';
+          setToast({ type: 'error', message: `Command !${action} error: ${errMsg}` });
+          postTwitchAnnouncement(action === 'start' ? `❌ Failed to start stream: ${errMsg}` : `❌ Failed to stop stream: ${errMsg}`, 'orange');
+        }
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      setToast({ type: 'error', message: `Command !${action} error: ${errMsg}` });
+      postTwitchAnnouncement(action === 'start' ? `❌ Failed to start stream: ${errMsg}` : `❌ Failed to stop stream: ${errMsg}`, 'orange');
+    } finally {
+      setIsStreamingToggling(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
+
+  // OBS Refresh Command (!refresh) - switches to refresh scene and back to live
+  const triggerObsRefreshCommand = async () => {
+    if (settingsRef.current.obsStreamCommandsEnabled !== true) {
+      setToast({ type: 'error', message: '⚠️ Stream commands (!start, !end & !refresh) are disabled in settings.' });
+      return;
+    }
+
+    const refreshScene = settings.obsRefreshSceneName || 'refresh';
+    const liveScene = settings.obsLiveSceneName || 'live';
+
+    setToast({ type: 'saving', message: `🔄 Refreshing stream feed: switching to "${refreshScene}"...` });
+
+    try {
+      let cycleRes: { success: boolean; error?: string } = { success: false };
+
+      if (obsStatus === 'connected' && obsRef.current) {
+        cycleRes = await safeObsRefreshCycle(obsRef.current, refreshScene, liveScene, 6000, {
+          isLiveBitrate: isStreaming
+        });
+      }
+
+      if (!cycleRes.success && !cycleRes.error) {
+        try {
+          const targetUrl = obsUrlInput || settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+          const targetPass = obsPasswordInput || settings.obsWebsocketPassword || '';
+          const tempObs = new OBSWebSocket();
+          tempObs.on('ConnectionClosed', () => {});
+          tempObs.on('ConnectionError', () => {});
+          await tempObs.connect(targetUrl, targetPass || undefined);
+          cycleRes = await safeObsRefreshCycle(tempObs, refreshScene, liveScene, 6000, {
+            isLiveBitrate: isStreaming
+          });
+          try { await tempObs.disconnect(); } catch {}
+        } catch (onDemandErr: any) {
+          cycleRes = { success: false, error: onDemandErr?.message };
+        }
+      }
+
+      if (!cycleRes.success && !cycleRes.error) {
+        const res = await fetch('/api/obs-stream-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'refresh',
+            obsUrl: obsUrlInput || settings.obsWebsocketUrl,
+            obsPassword: obsPasswordInput || settings.obsWebsocketPassword
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          cycleRes = { success: true };
+        } else {
+          cycleRes = { success: false, error: data.error };
+        }
+      }
+
+      if (cycleRes.success) {
+        setToast({ type: 'saved', message: `✅ Stream feed refreshed! Back to "${liveScene}".` });
+        postTwitchAnnouncement(`✅ Stream feed refreshed & back Live! 🚀`, 'green');
+      } else {
+        const errMsg = cycleRes.error || '⚠️ Cannot refresh: Stream must be LIVE and on the Live scene.';
+        setToast({ type: 'error', message: errMsg });
+        postTwitchAnnouncement(errMsg, 'orange');
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      setToast({ type: 'error', message: `Command !refresh error: ${errMsg}` });
+      postTwitchAnnouncement(`❌ Failed to refresh stream feed: ${errMsg}`, 'orange');
+    } finally {
+      setTimeout(() => setToast(null), 5000);
+    }
+  };
+
+  // ===== TWITCH IRC CHAT LISTENER FOR ADMIN PANEL =====
+  const [twitchIrcStatus, setTwitchIrcStatus] = useState<'connected' | 'disconnected'>('disconnected');
+
+  useEffect(() => {
+    const channelName = (settings.twitchUsername || '').toLowerCase().trim();
+    if (!channelName) {
+      setTwitchIrcStatus('disconnected');
+      return;
+    }
+
+    let ws: WebSocket | null = null;
+    let isCleanedUp = false;
+
+    const connectIRC = () => {
+      if (isCleanedUp) return;
+      try {
+        ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+      } catch (e) {
+        return;
+      }
+
+      ws.onopen = () => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+        ws.send('PASS SCHMOOPIIE');
+        const anonNick = `justinfan${Math.floor(10000 + Math.random() * 90000)}`;
+        ws.send(`NICK ${anonNick}`);
+        ws.send(`JOIN #${channelName}`);
+        setTwitchIrcStatus('connected');
+      };
+
+      ws.onmessage = (event) => {
+        const raw = String(event.data || '');
+
+        if (raw.startsWith('PING')) {
+          ws?.send('PONG :tmi.twitch.tv');
+          return;
+        }
+
+        if (raw.includes('PRIVMSG')) {
+          const match = raw.match(/PRIVMSG #[^ ]+ :(.*)/);
+          if (match && match[1]) {
+            const chatText = match[1].trim();
+            const lowerText = chatText.toLowerCase().trim();
+
+            const userMatch = raw.match(/:([^!]+)![^@]+@/);
+            const senderUser = userMatch ? userMatch[1].toLowerCase() : '';
+            const isBroadcaster = /badges=[^;]*broadcaster\//i.test(raw) || (channelName && senderUser === channelName);
+            const isMod = raw.includes('mod=1') || /badges=[^;]*moderator\//i.test(raw);
+            const isVip = /badges=[^;]*vip\//i.test(raw);
+
+            const currentSettings = settingsRef.current;
+            const permBroadcaster = currentSettings.shoutoutPermBroadcaster ?? true;
+            const permMods = currentSettings.shoutoutPermMods ?? true;
+            const permVips = currentSettings.shoutoutPermVips ?? false;
+            const permEveryone = currentSettings.shoutoutPermEveryone ?? false;
+
+            const isAllowed = permEveryone ||
+              (permBroadcaster && isBroadcaster) ||
+              (permMods && isMod) ||
+              (permVips && isVip);
+
+            // Stream commands (!start, !end, !refresh) are exclusively handled by the OBS Overlay (/overlay)
+            // to avoid duplicate scene switches and duplicate Twitch chat replies.
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        setTwitchIrcStatus('disconnected');
+        if (!isCleanedUp) {
+          setTimeout(connectIRC, 5000);
+        }
+      };
+    };
+
+    connectIRC();
+
+    return () => {
+      isCleanedUp = true;
+      if (ws) {
+        try { ws.close(); } catch {}
+      }
+    };
+  }, [settings.twitchUsername, settings.shoutoutPermBroadcaster, settings.shoutoutPermMods, settings.shoutoutPermVips, settings.shoutoutPermEveryone]);
+
   // ===== OBS AUTO-SWITCH BACKEND INTEGRATION =====
   const [autoSwitchStatus, setAutoSwitchStatus] = useState<string>('Idle');
 
@@ -681,72 +1255,122 @@ export default function AdminPage() {
   }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsLiveSceneName, settings.obsOfflineSceneName, settings.belaboxPublisherKey]);
 
   useEffect(() => {
-    // 2. Client-side & Backend OBS Auto-Switching loop
+    // Continuous Belabox Bitrate Detection (Runs independently of OBS WebSocket connection)
     let isActive = true;
+    let timer: NodeJS.Timeout;
     let lastAutoSwitchState: 'live' | 'offline' | null = null;
+    let consecutiveOfflineCount = 0;
 
-    const pollAutoSwitch = async () => {
+    const pollBitrateAndAutoSwitch = async () => {
       if (!isActive) return;
-      if (!settings.obsAutoSwitchSceneToggle) {
-        setAutoSwitchStatus('Toggle is OFF');
-        return;
-      }
 
-      // If Admin UI has an active WebSocket to local OBS
-      if (obsStatus === 'connected' && obsRef.current) {
+      const rawKey = (settings.belaboxPublisherKey || '').trim();
+      const statsUrl = rawKey
+        ? (rawKey.startsWith('http') ? rawKey : `https://stats.srt.belabox.net/${rawKey}`)
+        : (settings.belaboxUrl || '');
+
+      if (statsUrl) {
         try {
-          const statsUrl = settings.belaboxUrl || (settings.belaboxPublisherKey ? `https://stats.srt.belabox.net/${settings.belaboxPublisherKey}` : '');
-          if (statsUrl) {
-            const stats = await fetchBitrateStats(statsUrl, '');
-            const isLive = stats && stats.bitrateKbps > 0;
-            const targetScene = isLive ? settings.obsLiveSceneName : settings.obsOfflineSceneName;
+          const stats = await fetchBitrateStats(statsUrl, '');
+          if (isActive && stats !== null && typeof stats.bitrateKbps === 'number') {
+            const isLive = stats.bitrateKbps > 0;
 
-            if (targetScene && (obsCurrentScene !== targetScene || lastAutoSwitchState !== (isLive ? 'live' : 'offline'))) {
-              try {
-                await obsRef.current.call('SetCurrentProgramScene', { sceneName: targetScene });
-                setObsCurrentScene(targetScene);
-                lastAutoSwitchState = isLive ? 'live' : 'offline';
-                setAutoSwitchStatus(`✅ ${isLive ? `LIVE (${stats?.bitrateKbps} kbps)` : 'OFFLINE'} → Switched OBS to: "${targetScene}"`);
-              } catch (obsErr: any) {
-                console.warn('Failed to switch OBS scene:', obsErr);
-                setAutoSwitchStatus(`⚠️ OBS Switch Error: ${obsErr?.message || 'Scene not found'}`);
+            if (isLive) {
+              consecutiveOfflineCount = 0;
+              setDetectedLiveBitrate(stats.bitrateKbps);
+              setIsStreaming(true);
+
+              if (!settingsRef.current.obsTelemetryEnabled) {
+                console.log('🟢 Belabox stream is LIVE -> Auto-enabling OBS Telemetry');
+                handleSettingsChange({ obsTelemetryEnabled: true });
+              }
+
+              // If OBS WebSocket is connected and auto-switch is enabled, switch to Live Scene
+              if (settings.obsAutoSwitchSceneToggle && obsStatus === 'connected' && obsRef.current) {
+                const targetScene = settings.obsLiveSceneName;
+                if (targetScene && (obsCurrentScene !== targetScene || lastAutoSwitchState !== 'live')) {
+                  try {
+                    await obsRef.current.call('SetCurrentProgramScene', { sceneName: targetScene });
+                    setObsCurrentScene(targetScene);
+                    lastAutoSwitchState = 'live';
+                    setAutoSwitchStatus(`✅ LIVE (${stats.bitrateKbps} kbps) → Switched OBS to: "${targetScene}"`);
+                  } catch (obsErr: any) {
+                    console.warn('Failed to switch OBS scene:', obsErr);
+                    setAutoSwitchStatus(`⚠️ OBS Switch Error: ${obsErr?.message || 'Scene not found'}`);
+                  }
+                } else {
+                  setAutoSwitchStatus(`✅ OBS Connected (LIVE ${stats.bitrateKbps} kbps) → Scene: "${obsCurrentScene || targetScene}"`);
+                }
+              } else if (obsStatus !== 'connected') {
+                setAutoSwitchStatus(`🟢 Stream is LIVE (${stats.bitrateKbps} kbps from Belabox)`);
               }
             } else {
-              setAutoSwitchStatus(`✅ OBS Connected (${isLive ? `LIVE ${stats?.bitrateKbps} kbps` : 'OFFLINE'}) → Scene: "${obsCurrentScene || targetScene}"`);
+              consecutiveOfflineCount++;
+              // Require at least 2 consecutive confirmed 0 kbps checks before flipping to offline
+              if (consecutiveOfflineCount >= 2) {
+                setDetectedLiveBitrate(0);
+                setIsStreaming(false);
+
+                if (settingsRef.current.obsTelemetryEnabled) {
+                  handleSettingsChange({ obsTelemetryEnabled: false });
+                }
+
+                // If OBS WebSocket is connected and auto-switch is enabled, switch to Offline Scene
+                if (settings.obsAutoSwitchSceneToggle && obsStatus === 'connected' && obsRef.current) {
+                  const targetScene = settings.obsOfflineSceneName;
+                  if (targetScene && (obsCurrentScene !== targetScene || lastAutoSwitchState !== 'offline')) {
+                    try {
+                      await obsRef.current.call('SetCurrentProgramScene', { sceneName: targetScene });
+                      setObsCurrentScene(targetScene);
+                      lastAutoSwitchState = 'offline';
+                      setAutoSwitchStatus(`🔴 OFFLINE (0 kbps) → Switched OBS to: "${targetScene}"`);
+                    } catch (obsErr: any) {
+                      console.warn('Failed to switch OBS scene:', obsErr);
+                      setAutoSwitchStatus(`⚠️ OBS Switch Error: ${obsErr?.message || 'Scene not found'}`);
+                    }
+                  } else {
+                    setAutoSwitchStatus(`🔴 OBS Connected (OFFLINE) → Scene: "${obsCurrentScene || targetScene}"`);
+                  }
+                } else if (obsStatus !== 'connected') {
+                  setAutoSwitchStatus('⚪ Stream is OFFLINE (0 kbps from Belabox)');
+                }
+              } else {
+                setAutoSwitchStatus(`⏳ Verifying stream health (${consecutiveOfflineCount}/2)...`);
+              }
             }
-          } else {
-            setAutoSwitchStatus('⚠️ Enter Belabox Publisher Key to enable Auto-Switching');
           }
         } catch (e) {
-          setAutoSwitchStatus('⚠️ Error checking bitrate for auto-switch');
+          console.warn('Bitrate poll error:', e);
+          setAutoSwitchStatus('⚠️ Error checking bitrate from Belabox');
         }
-
-        if (isActive) {
-          const dashboardPollInterval = (typeof document !== 'undefined' && document.hidden) ? 20000 : 10000;
-          setTimeout(pollAutoSwitch, dashboardPollInterval);
-        }
-        return;
+      } else {
+        setAutoSwitchStatus('⚠️ Enter Belabox Publisher Key in Settings to detect bitrate');
       }
 
-      // Fallback to checking backend service status if not directly connected via WS
-      try {
-        const res = await fetch('/api/auto-switch-service');
-        if (res.ok) {
-          const data = await res.json();
-          setAutoSwitchStatus(data.statusLog || 'Running in background...');
-        }
-      } catch (e) {
-        setAutoSwitchStatus('Backend unreachable');
-      }
       if (isActive) {
-        const fallbackPollInterval = (typeof document !== 'undefined' && document.hidden) ? 60000 : 30000;
-        setTimeout(pollAutoSwitch, fallbackPollInterval);
+        const intervalSec = settings.bitrateUpdateInterval && settings.bitrateUpdateInterval >= 2
+          ? settings.bitrateUpdateInterval
+          : (typeof document !== 'undefined' && document.hidden ? 15 : 5);
+        timer = setTimeout(pollBitrateAndAutoSwitch, intervalSec * 1000);
       }
     };
 
-    pollAutoSwitch();
-    return () => { isActive = false; };
-  }, [settings.obsAutoSwitchSceneToggle, settings.obsLiveSceneName, settings.obsOfflineSceneName, settings.belaboxPublisherKey, settings.belaboxUrl, obsStatus, obsCurrentScene]);
+    pollBitrateAndAutoSwitch();
+
+    return () => {
+      isActive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    settings.belaboxPublisherKey,
+    settings.belaboxUrl,
+    settings.bitrateUpdateInterval,
+    settings.obsAutoSwitchSceneToggle,
+    settings.obsLiveSceneName,
+    settings.obsOfflineSceneName,
+    obsStatus,
+    obsCurrentScene
+  ]);
   // ===== END OBS AUTO-SWITCH BACKEND INTEGRATION =====
 
 
@@ -801,7 +1425,18 @@ export default function AdminPage() {
   );
 
   return (
-    <div className="admin-page">
+    <div className="admin-page page-enter-animation">
+      {/* Cool Portal Transition Overlay to Settings */}
+      {isNavigatingToSettings && (
+        <div className="page-transition-portal">
+          <div className="portal-laser-bar" />
+          <div className="portal-content-loader">
+            <span className="portal-gear-large">⚙️</span>
+            <div className="portal-text">Loading Overlay Settings...</div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="header">
         <div className="header-content">
@@ -809,9 +1444,9 @@ export default function AdminPage() {
             <span className="title-icon">🎮</span>
             <h1>Overlay Admin</h1>
             <div className={`sync-status ${syncStatus}`} title={`Database: ${syncStatus}`}>
-              {syncStatus === 'connected' && '🟢'}
-              {syncStatus === 'syncing' && '🟡'}
-              {syncStatus === 'disconnected' && '🔴'}
+              {syncStatus === 'connected' && '🟢 Auto-saved'}
+              {syncStatus === 'syncing' && '🟡 Saving...'}
+              {syncStatus === 'disconnected' && '🔴 Offline'}
             </div>
             <div className={`sync-status ${obsStatus}`} title={`OBS: ${obsStatus}`} style={{ marginLeft: '10px' }}>
               OBS: {obsStatus === 'connected' && '🟢'}
@@ -820,6 +1455,14 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="header-actions">
+            <button
+              className={`btn-settings-nav ${isNavigatingToSettings ? 'navigating' : ''}`}
+              onClick={handleGoToSettings}
+              title="Open Overlay Configuration & Intervals Settings Webpage"
+            >
+              <span className="settings-gear-icon">⚙️</span>
+              <span>Settings</span>
+            </button>
             {settings.twitchToken ? (
               <button
                 className="btn"
@@ -893,105 +1536,19 @@ export default function AdminPage() {
       <main className="main-content">
         <div className="settings-container">
 
-          {/* Collapsible API & Integration Keys Section */}
-          <section className="settings-section" style={{ border: '1px solid rgba(145, 70, 255, 0.3)', background: 'rgba(145, 70, 255, 0.04)', borderRadius: '12px', marginBottom: '24px', overflow: 'hidden' }}>
-            <div 
-              className="section-header" 
-              onClick={() => setShowApiKeys(!showApiKeys)}
-              style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center', 
-                cursor: 'pointer',
-                padding: '16px 20px',
-                userSelect: 'none',
-                background: 'rgba(255, 255, 255, 0.03)',
-                margin: 0
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontSize: '1.5em' }}>🔑</span>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: '1.2em', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    API & Integration Keys
-                  </h2>
-                  <span style={{ fontSize: '0.8em', opacity: 0.7, marginTop: '2px', display: 'block' }}>
-                    Belabox & StreamElements Credentials
-                  </span>
-                </div>
-              </div>
-              <button 
-                type="button" 
-                className="btn btn-secondary"
-                style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85em', fontWeight: 'bold' }}
-              >
-                {showApiKeys ? '▲ Hide Keys' : '▼ Expand Keys'}
-              </button>
-            </div>
-
-            {showApiKeys && (
-              <div style={{ padding: '20px', borderTop: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {/* 1. Belabox Publisher Key */}
-                <div style={{ padding: '16px', background: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(83, 252, 25, 0.2)' }}>
-                  <h3 style={{ fontSize: '1em', marginBottom: '12px', color: '#53FC19', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    📡 Belabox Publisher Key
-                  </h3>
-                  <div>
-                    <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#ffffff' }}>Publisher Key</label>
-                    <input
-                      type="password"
-                      placeholder="Enter your Belabox publisher key..."
-                      className="text-input"
-                      value={settings.belaboxPublisherKey || ''}
-                      onChange={(e) => handleSettingsChange({ belaboxPublisherKey: e.target.value })}
-                      style={{ width: '100%', fontFamily: 'monospace', marginTop: '4px' }}
-                    />
-                    <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
-                      Automatically fetches bitrate stats from https://stats.srt.belabox.net
-                    </span>
-                  </div>
-                </div>
-
-                {/* 2. StreamElements JWT Token */}
-                <div style={{ padding: '16px', background: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(169, 112, 255, 0.2)' }}>
-                  <h3 style={{ fontSize: '1em', marginBottom: '12px', color: '#a970ff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    💰 StreamElements Webhook / Tips Token
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <label className="checkbox-label" style={{ cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.streamElementsEnabled ?? false}
-                        onChange={(e) => handleSettingsChange({ streamElementsEnabled: e.target.checked })}
-                        className="checkbox-input"
-                      />
-                      <span className="checkbox-text" style={{ fontSize: '0.9em', fontWeight: 'bold' }}>Enable StreamElements Integration</span>
-                    </label>
-                    <div>
-                      <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#ffffff' }}>StreamElements JWT Token</label>
-                      <input
-                        type="password"
-                        placeholder="Paste StreamElements JWT token..."
-                        className="text-input"
-                        value={settings.streamElementsToken || ''}
-                        onChange={(e) => handleSettingsChange({ streamElementsToken: e.target.value })}
-                        style={{ width: '100%', fontFamily: 'monospace', marginTop: '4px' }}
-                      />
-                      <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
-                        Found in your StreamElements Dashboard under Channel Settings &gt; API Client Token.
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-
           {/* OBS Connection Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🎥 OBS Websocket</h2>
-            </div>
+          <CollapsibleSection
+            id="obs"
+            title="OBS Websocket & Auto-Switch"
+            icon="🎥"
+            headerRight={
+              <span className={`status-badge status-${obsStatus}`} style={{ fontSize: '0.75em' }}>
+                {obsStatus === 'connected' ? '🟢 Connected' : obsStatus === 'connecting' ? '🟡 Connecting' : '⚪ Disconnected'}
+              </span>
+            }
+            isCollapsed={isSectionCollapsed('obs')}
+            onToggle={() => toggleSection('obs')}
+          >
             <div className="setting-group">
               <label className="group-label">Connection URL</label>
               <input
@@ -1026,27 +1583,7 @@ export default function AdminPage() {
                 <button
                   className="btn"
                   disabled={isStreamingToggling}
-                  onClick={async () => {
-                    if (!obsRef.current) return;
-                    setIsStreamingToggling(true);
-                    const wasStreaming = isStreaming;
-                    try {
-                      if (wasStreaming) {
-                        await obsRef.current.call('StopStream' as any);
-                      } else {
-                        await obsRef.current.call('StartStream' as any);
-                      }
-                      // Optimistically flip immediately — OBS takes several seconds to
-                      // fully connect so polling GetStreamStatus too soon returns false
-                      setIsStreaming(!wasStreaming);
-                    } catch (err: any) {
-                      console.warn('Stream toggle error:', err);
-                      setToast({ type: 'error', message: `Stream error: ${err?.message || 'Unknown error'}` });
-                      setTimeout(() => setToast(null), 4000);
-                    } finally {
-                      setIsStreamingToggling(false);
-                    }
-                  }}
+                  onClick={() => triggerObsStreamCommand(isStreaming ? 'stop' : 'start')}
                   style={{
                     background: isStreamingToggling
                       ? 'rgba(100,100,100,0.5)'
@@ -1083,6 +1620,381 @@ export default function AdminPage() {
                   )}
                 </button>
               )}
+
+              {/* Stream Status (Changes to LIVE when OBS or Belabox is streaming) */}
+              {(() => {
+                const liveBitrate = (detectedLiveBitrate !== null && detectedLiveBitrate > 0)
+                  ? detectedLiveBitrate
+                  : (obsTelemetry?.outputBitrateKbps && obsTelemetry.outputBitrateKbps > 0 ? obsTelemetry.outputBitrateKbps : null);
+                const isLive = Boolean(liveBitrate || isStreaming || obsTelemetry?.streaming);
+
+                return (
+                  <span style={{
+                    fontSize: '0.82em',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    background: isLive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                    color: isLive ? '#4ade80' : 'rgba(255, 255, 255, 0.5)',
+                    border: isLive ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+                    fontWeight: 'bold',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    {isLive
+                      ? `🟢 LIVE ${liveBitrate ? `(${liveBitrate} kbps)` : ''}`
+                      : '⚪ STREAM OFFLINE'}
+                  </span>
+                );
+              })()}
+            </div>
+
+            {/* OBS Telemetry Enable / Disable Toggle */}
+            <div className="setting-group" style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <label className="group-label" style={{ margin: 0, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
+                  <span>📊</span> OBS Health Telemetry (Dropped Frames, CPU, FPS)
+                </label>
+                <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
+                  (Syncs live OBS stats to dashboard)
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', maxWidth: '100%' }}>
+                {settings.obsTelemetryEnabled && (
+                  <select
+                    className="text-input"
+                    value={settings.obsTelemetryInterval || 45}
+                    onChange={(e) => handleSettingsChange({ obsTelemetryInterval: parseInt(e.target.value, 10) || 45 })}
+                    style={{ padding: '4px 8px', fontSize: '0.8em', width: 'auto', maxWidth: '100%' }}
+                    title="Select Telemetry Sync Interval"
+                  >
+                    <option value={15}>⚡ Fast (15s)</option>
+                    <option value={30}>⏱️ Normal (30s)</option>
+                    <option value={45}>🍃 Eco (45s - Recommended)</option>
+                    <option value={60}>💤 Low Data (60s)</option>
+                  </select>
+                )}
+                <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.obsTelemetryEnabled || false}
+                    onChange={(e) => handleSettingsChange({ obsTelemetryEnabled: e.target.checked })}
+                    style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#38bdf8', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: '0.85em', color: settings.obsTelemetryEnabled ? '#38bdf8' : 'rgba(255,255,255,0.4)', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                    {settings.obsTelemetryEnabled ? 'ENABLED' : 'DISABLED'}
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Live OBS Studio Telemetry Bar (Shown when enabled) */}
+            {settings.obsTelemetryEnabled && (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px 16px',
+                borderRadius: '10px',
+                background: obsTelemetry?.online ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.02)',
+                border: obsTelemetry?.online ? '1px solid rgba(83, 252, 25, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{ fontSize: '0.85em', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', color: obsTelemetry?.online ? '#53FC19' : 'rgba(255,255,255,0.6)' }}>
+                    <span>{obsTelemetry?.online ? '🟢' : '⚪'}</span>
+                    <span>OBS Studio Telemetry {obsTelemetry?.online ? '(Live Cloud Sync)' : '(Waiting for OBS / Overlay)'}</span>
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {obsTelemetry?.currentScene && (
+                      <span style={{ fontSize: '0.8em', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        🎬 Scene: {obsTelemetry.currentScene}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowObsLogs(prev => !prev)}
+                      style={{
+                        fontSize: '0.78em',
+                        background: showObsLogs ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                        color: showObsLogs ? '#38bdf8' : 'rgba(255, 255, 255, 0.85)',
+                        border: showObsLogs ? '1px solid rgba(56, 189, 248, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
+                        padding: '3px 9px',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      title="View OBS Event and Diagnostic Logs"
+                    >
+                      <span>📜</span>
+                      <span>{showObsLogs ? 'Hide Logs' : 'View Logs'}</span>
+                      {obsTelemetry?.logs && obsTelemetry.logs.length > 0 && (
+                        <span style={{ background: '#38bdf8', color: '#000', fontSize: '0.75em', padding: '1px 5px', borderRadius: '10px', fontWeight: 'bold' }}>
+                          {Math.min(25, obsTelemetry.logs.length)}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {obsTelemetry?.online ? (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+                    gap: '8px',
+                    paddingTop: '6px',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85em'
+                  }}>
+                    {/* Dropped Frames */}
+                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Dropped Frames</div>
+                      <div style={{
+                        fontWeight: 'bold',
+                        color: (obsTelemetry.droppedFramesPercent ?? 0) > 2 ? '#ef4444' : ((obsTelemetry.droppedFramesPercent ?? 0) > 0.5 ? '#f59e0b' : '#4ade80')
+                      }}>
+                        {obsTelemetry.droppedFrames ?? 0} ({obsTelemetry.droppedFramesPercent ?? 0}%)
+                      </div>
+                    </div>
+
+                    {/* Output Bitrate */}
+                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>OBS Bitrate</div>
+                      <div style={{ fontWeight: 'bold', color: '#4ade80' }}>
+                        📶 {obsTelemetry.outputBitrateKbps ? `${obsTelemetry.outputBitrateKbps} kbps` : (detectedLiveBitrate ? `${detectedLiveBitrate} kbps` : '0 kbps')}
+                      </div>
+                    </div>
+
+                    {/* Stream Uptime */}
+                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Live Uptime</div>
+                      <div style={{ fontWeight: 'bold', color: obsTelemetry.streaming ? '#60a5fa' : 'rgba(255,255,255,0.4)' }}>
+                        📡 {obsTelemetry.streaming ? (obsTelemetry.uptimeTimecode || 'LIVE') : '00:00:00'}
+                      </div>
+                    </div>
+
+                    {/* CPU Usage */}
+                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>CPU Usage</div>
+                      <div style={{
+                        fontWeight: 'bold',
+                        color: (obsTelemetry.cpuUsagePercent ?? 0) > 50 ? '#ef4444' : ((obsTelemetry.cpuUsagePercent ?? 0) > 20 ? '#f59e0b' : '#38bdf8')
+                      }}>
+                        🖥️ {obsTelemetry.cpuUsagePercent ?? 0}%
+                      </div>
+                    </div>
+
+                    {/* FPS */}
+                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Framerate</div>
+                      <div style={{ fontWeight: 'bold', color: '#e2e8f0' }}>
+                        🎯 {obsTelemetry.fps ? `${obsTelemetry.fps} FPS` : '60.0 FPS'}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {obsTelemetry?.error ? (
+                      <div style={{ fontSize: '0.8em', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                        ⚠️ {obsTelemetry.error}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.8em', color: 'rgba(255, 255, 255, 0.45)', fontStyle: 'italic' }}>
+                        Overlay browser source in OBS will automatically stream Dropped Frames, Uptime, CPU %, and FPS to this dashboard when OBS is running.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Collapsible OBS Event & Diagnostic Log Viewer */}
+                {showObsLogs && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '10px 12px',
+                    background: '#090d16',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.07)', paddingBottom: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <span>📋</span> Current OBS Logs (Recent {Math.min(25, obsTelemetry?.logs?.length || 0)})
+                        </span>
+                        {obsTelemetry?.obsVersion && (
+                          <span style={{ fontSize: '0.72em', opacity: 0.75, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
+                            OBS v{obsTelemetry.obsVersion} {obsTelemetry.platform ? `(${obsTelemetry.platform})` : ''}
+                          </span>
+                        )}
+                        {typeof obsTelemetry?.memoryUsageMb === 'number' && (
+                          <span style={{ fontSize: '0.72em', opacity: 0.75, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
+                            RAM: {obsTelemetry.memoryUsageMb} MB
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const format12h = (msg: string, ts?: number) => {
+                              if (/^\[\d{1,2}:\d{2}\s+(AM|PM)\]/i.test(msg)) return msg;
+                              const clean = msg.replace(/^\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?:\s*/i, '').replace(/^\[\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?\]\s*/i, '');
+                              if (ts) {
+                                const d = new Date(ts);
+                                let h = d.getHours();
+                                const ampm = h >= 12 ? 'PM' : 'AM';
+                                h = h % 12 || 12;
+                                const m = String(d.getMinutes()).padStart(2, '0');
+                                return `[${h}:${m} ${ampm}] ${clean}`;
+                              }
+                              return clean;
+                            };
+                            const recentLogs = (obsTelemetry?.logs || []).slice(-25);
+                            const logText = recentLogs.map(l => format12h(l.message, l.timestamp)).join('\n') || 'No logs recorded yet.';
+                            navigator.clipboard.writeText(logText);
+                            setToast({ type: 'saved', message: '📋 25 recent OBS logs copied to clipboard!' });
+                            setTimeout(() => setToast(null), 2500);
+                          }}
+                          style={{
+                            fontSize: '0.72em',
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            color: '#fff',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          📋 Copy Logs
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '3px',
+                      fontFamily: 'Consolas, "Courier New", monospace',
+                      fontSize: '0.78em',
+                      background: '#040711',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255, 255, 255, 0.05)'
+                    }}>
+                      {obsTelemetry?.logs && obsTelemetry.logs.length > 0 ? (
+                        obsTelemetry.logs.slice(-25).map((logItem, idx) => {
+                          let displayMsg = logItem.message;
+                          if (!/^\[\d{1,2}:\d{2}\s+(AM|PM)\]/i.test(displayMsg)) {
+                            const clean = displayMsg.replace(/^\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?:\s*/i, '').replace(/^\[\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?\]\s*/i, '');
+                            if (logItem.timestamp) {
+                              const d = new Date(logItem.timestamp);
+                              let h = d.getHours();
+                              const ampm = h >= 12 ? 'PM' : 'AM';
+                              h = h % 12 || 12;
+                              const m = String(d.getMinutes()).padStart(2, '0');
+                              displayMsg = `[${h}:${m} ${ampm}] ${clean}`;
+                            } else {
+                              displayMsg = clean;
+                            }
+                          }
+
+                          // Check if this line is an actual frame drop or error (NOT standard 0 dropped system-health)
+                          const hasNonZeroDropped = /(?:⚠️\s*Dropped frames|frame drop spike|render lag|\bDropped:\s*[1-9]\d*|\+\d+\s*dropped)/i.test(displayMsg);
+                          const isActualError = logItem.level === 'error' && !/Dropped:\s*0\s*\(/i.test(displayMsg);
+                          const isFrameDropError = hasNonZeroDropped || isActualError;
+
+                          const isWarn = !isFrameDropError && (
+                            logItem.level === 'warn' ||
+                            /====\s*Streaming Stop\s*====|====\s*Recording Stop\s*====|User stopped the stream|MUTED|disconnected|Connection closed/i.test(displayMsg)
+                          );
+
+                          const isSuccess = !isFrameDropError && !isWarn && (
+                            logItem.level === 'success' ||
+                            /====\s*Streaming Start\s*====|====\s*Recording Start\s*====|Connection successful|Connected to OBS|UNMUTED/i.test(displayMsg)
+                          );
+
+                          // Parse timestamp and tag
+                          const timeMatch = displayMsg.match(/^(\[\d{1,2}:\d{2}\s+[AP]M\])\s*(.*)$/);
+                          const timePart = timeMatch ? timeMatch[1] : '';
+                          const restPart = timeMatch ? timeMatch[2] : displayMsg;
+
+                          // Color tag prefix
+                          let tagColor = '#94a3b8';
+                          if (isFrameDropError) {
+                            tagColor = '#ef4444'; // Red ONLY for dropped frames / errors
+                          } else if (isWarn) {
+                            tagColor = '#fbbf24'; // Amber for stops / warnings
+                          } else if (isSuccess) {
+                            tagColor = '#4ade80'; // Green for starts / connects
+                          } else if (restPart.startsWith('[system-health]')) {
+                            tagColor = '#38bdf8'; // Cyan for system health (never red if 0 drops)
+                          } else if (restPart.startsWith('[scene-manager]')) {
+                            tagColor = '#c084fc'; // Purple for scene switches
+                          } else if (restPart.startsWith('[audio-subsystem]')) {
+                            tagColor = '#f472b6'; // Pink for audio
+                          } else if (restPart.startsWith('[video-pipeline]')) {
+                            tagColor = '#2dd4bf'; // Teal for video settings
+                          } else if (restPart.startsWith('[obs-startup]') || restPart.startsWith('[obs-websocket]')) {
+                            tagColor = '#60a5fa'; // Blue for OBS startup
+                          } else if (restPart.startsWith('[rtmp stream')) {
+                            tagColor = '#f59e0b'; // Amber for RTMP
+                          }
+
+                          return (
+                            <div key={logItem.id || idx} style={{ lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap', display: 'flex', gap: '6px' }}>
+                              {timePart && (
+                                <span style={{ color: 'rgba(255, 255, 255, 0.4)', flexShrink: 0, userSelect: 'none' }}>
+                                  {timePart}
+                                </span>
+                              )}
+                              <span style={{ color: tagColor, fontWeight: isFrameDropError ? 'bold' : 'normal' }}>
+                                {restPart}
+                              </span>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div style={{ color: 'rgba(255, 255, 255, 0.45)', fontStyle: 'italic', padding: '8px 0' }}>
+                          No OBS logs recorded yet. Logs will stream directly from OBS Studio when the overlay browser source is loaded in OBS.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* OBS Stream Commands Toggle */}
+            <div className="setting-group" style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(83, 252, 25, 0.25)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <label className="group-label" style={{ margin: 0, color: '#53FC19', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
+                  <span>⚡</span> OBS Stream Commands (!start, !end & !refresh)
+                </label>
+                <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
+                  (Allow chat/remote commands to control stream)
+                </span>
+              </div>
+              <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={settings.obsStreamCommandsEnabled ?? true}
+                  onChange={(e) => handleSettingsChange({ obsStreamCommandsEnabled: e.target.checked })}
+                  style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#53FC19' }}
+                />
+                <span style={{ fontSize: '0.85em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
+                  {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                </span>
+              </label>
             </div>
 
             {obsErrorLog && (
@@ -1179,6 +2091,23 @@ export default function AdminPage() {
                         </select>
                       </div>
 
+                      <div>
+                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Refresh Scene (for !refresh command)</label>
+                        <select
+                          className="text-input"
+                          value={settings.obsRefreshSceneName || ''}
+                          onChange={(e) => handleSettingsChange({ obsRefreshSceneName: e.target.value })}
+                          style={{ marginTop: '8px' }}
+                        >
+                          <option value="">-- Select a Scene (Default: "refresh") --</option>
+                          {obsScenes.map(scene => (
+                            <option key={scene.sceneName} value={scene.sceneName}>
+                              {scene.sceneName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Live Status Display */}
                       <div style={{
                         background: 'rgba(0,0,0,0.3)',
@@ -1214,14 +2143,16 @@ export default function AdminPage() {
                 </div>
               </>
             )}
-          </section>
+          </CollapsibleSection>
 
           {/* Global Styling & Fonts Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🎨 Global Styling & Fonts</h2>
-            </div>
-            
+          <CollapsibleSection
+            id="global"
+            title="Global Styling & Fonts"
+            icon="🎨"
+            isCollapsed={isSectionCollapsed('global')}
+            onToggle={() => toggleSection('global')}
+          >
             <div className="setting-group">
               <label className="group-label">Global Font</label>
               <RadioGroup
@@ -1255,14 +2186,16 @@ export default function AdminPage() {
                 <div className="select-arrow">▼</div>
               </div>
             </div>
-          </section>
+          </CollapsibleSection>
 
           {/* Location & Weather Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>📍 Location & Weather</h2>
-            </div>
-
+          <CollapsibleSection
+            id="location"
+            title="Location & Weather"
+            icon="📍"
+            isCollapsed={isSectionCollapsed('location')}
+            onToggle={() => toggleSection('location')}
+          >
             <div className="setting-group">
               <label className="group-label">Location Mode</label>
               <RadioGroup
@@ -1483,14 +2416,16 @@ export default function AdminPage() {
               </p>
             </div>
             </>)}
-          </section>
+          </CollapsibleSection>
 
           {/* Map Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🗺️ Map</h2>
-            </div>
-
+          <CollapsibleSection
+            id="minimap"
+            title="Map"
+            icon="🗺️"
+            isCollapsed={isSectionCollapsed('minimap')}
+            onToggle={() => toggleSection('minimap')}
+          >
             <div className="setting-group">
               <label className="group-label">Display Mode</label>
               <RadioGroup
@@ -1683,16 +2618,16 @@ export default function AdminPage() {
                 <span>20x (Max Zoom)</span>
               </div>
             </div>
-          </section>
-
-
+          </CollapsibleSection>
 
           {/* Altitude & Speed Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>📊 Altitude & Speed</h2>
-            </div>
-
+          <CollapsibleSection
+            id="altitudespeed"
+            title="Altitude & Speed"
+            icon="📊"
+            isCollapsed={isSectionCollapsed('altitudespeed')}
+            onToggle={() => toggleSection('altitudespeed')}
+          >
             <div className="setting-group">
               <label className="group-label">Altitude Display</label>
               <RadioGroup
@@ -1718,15 +2653,27 @@ export default function AdminPage() {
                 ]}
               />
             </div>
-          </section>
-
+          </CollapsibleSection>
 
           {/* Calorie Tracker Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🔥 Calorie Tracker</h2>
-            </div>
-
+          <CollapsibleSection
+            id="calories"
+            title="Calorie Tracker"
+            icon="🔥"
+            headerRight={
+              <label className="checkbox-label" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showCalorieTracker ?? false}
+                  onChange={(e) => handleSettingsChange({ showCalorieTracker: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Show on overlay</span>
+              </label>
+            }
+            isCollapsed={isSectionCollapsed('calories')}
+            onToggle={() => toggleSection('calories')}
+          >
             <div className="setting-group">
               <div className="checkbox-group">
                 <label className="checkbox-label">
@@ -1841,16 +2788,32 @@ export default function AdminPage() {
                 </div>
               </>
             )}
-          </section>
+          </CollapsibleSection>
 
           {/* Distance Goal Progress Bar Section */}
-          <section className="settings-section">
-            <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2>🛼 Distance Goal Progress Bar</h2>
+          <CollapsibleSection
+            id="distance"
+            title="Distance Goal Progress Bar"
+            icon="🛼"
+            badge={
               <span className="badge" style={{ background: 'rgba(0, 255, 102, 0.15)', color: '#00ff66', border: '1px solid rgba(0, 255, 102, 0.3)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8em', fontWeight: 'bold' }}>
                 Walk / Skate / Run
               </span>
-            </div>
+            }
+            headerRight={
+              <label className="checkbox-label" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showDistanceTracker ?? false}
+                  onChange={(e) => handleSettingsChange({ showDistanceTracker: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Show on overlay</span>
+              </label>
+            }
+            isCollapsed={isSectionCollapsed('distance')}
+            onToggle={() => toggleSection('distance')}
+          >
 
             <div className="setting-group">
               <div className="checkbox-group">
@@ -2422,42 +3385,33 @@ export default function AdminPage() {
                 </div>
               </>
             )}
-          </section>
+          </CollapsibleSection>
 
           {/* Donation Goals & StreamElements Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>💰 Donation Goals & StreamElements</h2>
-              <div className="checkbox-group" style={{ marginTop: '8px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showDonationGoals ?? false}
-                    onChange={(e) => handleSettingsChange({ showDonationGoals: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Show Donation Goals on Overlay</span>
-                </label>
-              </div>
-            </div>
+          <CollapsibleSection
+            id="donation"
+            title="Donation Goals & StreamElements"
+            icon="💰"
+            headerRight={
+              <label className="checkbox-label" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showDonationGoals ?? false}
+                  onChange={(e) => handleSettingsChange({ showDonationGoals: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Show on overlay</span>
+              </label>
+            }
+            isCollapsed={isSectionCollapsed('donation')}
+            onToggle={() => toggleSection('donation')}
+          >
 
             {settings.showDonationGoals && (
               <>
                 <div className="setting-group" style={{ marginBottom: '16px' }}>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={settings.donoShowBackground ?? true}
-                      onChange={(e) => handleSettingsChange({ donoShowBackground: e.target.checked })}
-                    />
-                    <span className="checkbox-text">Show Background Box</span>
-                  </label>
-                  <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7, marginBottom: '12px' }}>
-                    Display a dark background box behind your donation goals.
-                  </p>
-                  
-                  <label className="input-label" style={{ fontSize: '0.85em', marginLeft: '28px', display: 'block', marginTop: '12px' }}>Custom Goal Prefix Text</label>
-                  <div style={{ marginLeft: '28px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <label className="input-label" style={{ fontSize: '0.85em', display: 'block' }}>Custom Goal Prefix Text</label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
                       type="text"
                       className="text-input"
@@ -2631,7 +3585,7 @@ export default function AdminPage() {
                       {settings.donationGoals.map((g) => (
                         <div
                           key={g.id}
-                          className="todo-item-admin"
+                          className={`todo-item-admin ${g.hidden ? 'item-hidden' : ''}`}
                           style={{
                             display: 'flex',
                             flexWrap: 'wrap',
@@ -2645,7 +3599,14 @@ export default function AdminPage() {
                           }}
                         >
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <span style={{ fontWeight: 'bold' }}>{g.name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontWeight: 'bold' }}>{g.name}</span>
+                              {g.hidden && (
+                                <span style={{ fontSize: '0.75em', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  Hidden
+                                </span>
+                              )}
+                            </div>
                             <span style={{ fontSize: '0.85em', opacity: 0.7 }}>
                               Progress: ${g.current.toLocaleString(undefined, { minimumFractionDigits: g.current % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })} / ${g.goal.toLocaleString(undefined, { minimumFractionDigits: g.goal % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
                             </span>
@@ -2665,24 +3626,22 @@ export default function AdminPage() {
                               })() : 'Always Show'}
                             </span>
                           </div>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div className="todo-actions" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <button
-                              className="btn btn-secondary btn-small"
-                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
+                              className={`todo-visibility-btn ${g.hidden ? 'hidden-item' : ''}`}
                               onClick={() => {
-                                if (confirm(`Are you sure you want to reset the progress for "${g.name}" to 0?`)) {
-                                  const updatedGoals = settings.donationGoals!.map(item =>
-                                    item.id === g.id ? { ...item, current: 0 } : item
-                                  );
-                                  handleSettingsChange({ donationGoals: updatedGoals });
-                                }
+                                const updatedGoals = settings.donationGoals!.map(item =>
+                                  item.id === g.id ? { ...item, hidden: !item.hidden } : item
+                                );
+                                handleSettingsChange({ donationGoals: updatedGoals });
                               }}
+                              title={g.hidden ? 'Show on overlay' : 'Hide from overlay'}
+                              aria-label={g.hidden ? 'Show on overlay' : 'Hide from overlay'}
                             >
-                              🔄 Reset
+                              {g.hidden ? '🚫' : '👁️'}
                             </button>
                             <button
-                              className="btn btn-secondary btn-small"
-                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
+                              className="todo-edit-btn"
                               onClick={() => {
                                 const newAmountStr = prompt(`Update current progress for "${g.name}":`, g.current.toString());
                                 if (newAmountStr !== null) {
@@ -2698,12 +3657,13 @@ export default function AdminPage() {
                                   }
                                 }
                               }}
+                              title="Edit Goal Progress ($)"
+                              aria-label="Edit Goal Progress"
                             >
-                              ✏️ Edit Goal
+                              ✏️
                             </button>
                             <button
-                              className="btn btn-secondary btn-small"
-                              style={{ padding: '4px 8px', fontSize: '0.8em' }}
+                              className="todo-action-btn"
                               onClick={() => {
                                 const newDurationStr = prompt(`Update auto-hide timer in minutes for "${g.name}" (0 = Always Show):`, (g.duration || 0).toString());
                                 if (newDurationStr !== null) {
@@ -2719,30 +3679,35 @@ export default function AdminPage() {
                                   handleSettingsChange({ donationGoals: updatedGoals });
                                 }
                               }}
+                              title="Edit Auto-Hide Duration (Timer in mins)"
+                              aria-label="Edit Auto-Hide Duration"
                             >
-                              ⏱️ Edit Duration
+                              ⏱️
                             </button>
                             <button
-                              className="btn btn-secondary btn-small"
+                              className="todo-action-btn"
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to reset the progress for "${g.name}" to 0?`)) {
+                                  const updatedGoals = settings.donationGoals!.map(item =>
+                                    item.id === g.id ? { ...item, current: 0 } : item
+                                  );
+                                  handleSettingsChange({ donationGoals: updatedGoals });
+                                }
+                              }}
+                              title="Reset Progress to 0"
+                              aria-label="Reset Progress"
+                            >
+                              🔄
+                            </button>
+                            <button
+                              className="todo-delete-btn"
                               onClick={() => {
                                 if (confirm(`Are you sure you want to delete the goal "${g.name}"?`)) {
                                   const updatedGoals = settings.donationGoals!.filter(item => item.id !== g.id);
                                   handleSettingsChange({ donationGoals: updatedGoals });
                                 }
                               }}
-                              style={{ 
-                                padding: '4px',
-                                width: '28px',
-                                height: '28px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '1.1em',
-                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                color: '#ef4444',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                                cursor: 'pointer'
-                              }}
+                              title="Delete Goal"
                               aria-label="Delete Goal"
                             >
                               ✕
@@ -2759,24 +3724,27 @@ export default function AdminPage() {
                 </div>
               </>
             )}
-          </section>
+          </CollapsibleSection>
 
           {/* Sub Goals Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🔔 Twitch Sub Goals</h2>
-              <div className="checkbox-group" style={{ marginTop: '8px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showSubGoals ?? false}
-                    onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Show Sub Goals on Overlay</span>
-                </label>
-              </div>
-            </div>
+          <CollapsibleSection
+            id="subgoals"
+            title="Twitch Sub Goals"
+            icon="🔔"
+            headerRight={
+              <label className="checkbox-label" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showSubGoals ?? false}
+                  onChange={(e) => handleSettingsChange({ showSubGoals: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Show on overlay</span>
+              </label>
+            }
+            isCollapsed={isSectionCollapsed('subgoals')}
+            onToggle={() => toggleSection('subgoals')}
+          >
 
             {settings.showSubGoals && (
               <>
@@ -3126,51 +4094,112 @@ export default function AdminPage() {
               </div>
             </>
             )}
-          </section>
+          </CollapsibleSection>
 
           {/* Stream Commands & Collab Shoutouts Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>📣 Chat Commands & Collab Shoutouts</h2>
-            </div>
+          <CollapsibleSection
+            id="shoutout"
+            title="Chat Commands & Collab Shoutouts"
+            icon="📣"
+            isCollapsed={isSectionCollapsed('shoutout')}
+            onToggle={() => toggleSection('shoutout')}
+          >
 
-            <div style={{ padding: '12px 16px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.3)', borderRadius: '8px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                <span style={{ fontSize: '1.2em' }}>💬</span>
-                <strong style={{ color: '#d8b4fe', fontSize: '0.95em' }}>Twitch Chat Commands</strong>
+            <div style={{ padding: '14px 18px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.3)', borderRadius: '10px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '1.2em' }}>💬</span>
+                  <strong style={{ color: '#d8b4fe', fontSize: '1em' }}>Twitch Chat Commands</strong>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '0.78em', color: '#d8b4fe', fontWeight: 'bold' }}>!start / !end:</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsStreamCommandsEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ obsStreamCommandsEnabled: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#53FC19' }}
+                    />
+                    <span style={{ fontSize: '0.78em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
+                      {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </label>
+                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '0.78em', color: '#53FC19', fontWeight: 'bold' }}>!pic:</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.picCommandEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ picCommandEnabled: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#53FC19' }}
+                    />
+                    <span style={{ fontSize: '0.78em', color: (settings.picCommandEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
+                      {(settings.picCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </label>
+                  <span style={{ fontSize: '0.8em', padding: '3px 10px', borderRadius: '6px', background: twitchIrcStatus === 'connected' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', color: twitchIrcStatus === 'connected' ? '#22c55e' : '#ef4444', border: twitchIrcStatus === 'connected' ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(239,68,68,0.4)', fontWeight: 'bold' }}>
+                    {twitchIrcStatus === 'connected' ? `🟢 Connected to #${settings.twitchUsername}` : '🔴 Twitch Chat Not Connected'}
+                  </span>
+                </div>
               </div>
-              <p style={{ fontSize: '0.85em', opacity: 0.85, margin: 0, lineHeight: 1.4 }}>
-                Type <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!so username</code> or <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!shoutout username</code> in your Twitch chat (or trigger manually below) to promote a collab streamer with a high-end Twitch profile card on stream!
+              <p style={{ fontSize: '0.85em', opacity: 0.85, margin: 0, lineHeight: 1.5 }}>
+                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!pic</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!picture</code>: Spends {settings.picPointsCost ?? 200} StreamElements points to take a stream photo and send it to Discord.<br />
+                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!start</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#ef4444' }}>!end</code>: Start or end your OBS stream directly from chat.<br />
+                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>!refresh</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>!ref</code>: Switch to Refresh scene for 2.5s and back to Live scene to reset SRT audio feed.<br />
+                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#d8b4fe' }}>!so username</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#d8b4fe' }}>!shoutout username</code>: Promote a collab streamer with a Twitch profile card.
               </p>
+              {!settings.twitchUsername && (
+                <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(145, 70, 255, 0.2)' }}>
+                  <label style={{ fontSize: '0.8em', color: '#d8b4fe', display: 'block', marginBottom: '4px' }}>
+                    Enter Twitch Username (or click Twitch Login at top):
+                  </label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    placeholder="e.g. your_twitch_username"
+                    value={settings.twitchUsername || ''}
+                    onChange={(e) => handleSettingsChange({ twitchUsername: e.target.value.trim().toLowerCase() })}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.9em', padding: '8px 12px' }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Active Shoutout Banner */}
-            {settings.shoutout && settings.shoutout.active && (
-              <div style={{ padding: '16px', background: 'rgba(83, 252, 25, 0.12)', border: '1px solid rgba(83, 252, 25, 0.4)', borderRadius: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {settings.shoutout.avatarUrl ? (
-                    <img src={settings.shoutout.avatarUrl} alt={settings.shoutout.displayName} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid #53FC19', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#9146FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2em' }}>🟣</div>
-                  )}
-                  <div>
-                    <div style={{ fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#53FC19', fontWeight: 'bold' }}>⚡ Active Shoutout On Stream</div>
-                    <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#ffffff' }}>@{settings.shoutout.displayName}</div>
-                    {settings.shoutout.gameName && (
-                      <div style={{ fontSize: '0.8em', opacity: 0.8 }}>Playing <span style={{ color: '#d8b4fe' }}>{settings.shoutout.gameName}</span></div>
+            {(() => {
+              const shoutout = settings.shoutout;
+              if (!shoutout || !shoutout.active) return null;
+              const shoutoutDuration = shoutout.durationSeconds || settings.shoutoutDuration || 15;
+              const triggeredAt = shoutout.triggeredAt || 0;
+              const isExpired = !triggeredAt || (timeTick - triggeredAt) > (shoutoutDuration * 1000);
+              if (isExpired) return null;
+
+              return (
+                <div style={{ padding: '16px', background: 'rgba(83, 252, 25, 0.12)', border: '1px solid rgba(83, 252, 25, 0.4)', borderRadius: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {shoutout.avatarUrl ? (
+                      <img src={shoutout.avatarUrl} alt={shoutout.displayName} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid #53FC19', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#9146FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2em' }}>🟣</div>
                     )}
+                    <div>
+                      <div style={{ fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#53FC19', fontWeight: 'bold' }}>⚡ Active Shoutout On Stream</div>
+                      <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#ffffff' }}>@{shoutout.displayName}</div>
+                      {shoutout.gameName && (
+                        <div style={{ fontSize: '0.8em', opacity: 0.8 }}>Playing <span style={{ color: '#d8b4fe' }}>{shoutout.gameName}</span></div>
+                      )}
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    style={{ padding: '8px 14px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 'bold' }}
+                    onClick={handleClearShoutout}
+                  >
+                    🚫 Hide Shoutout
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-small"
-                  style={{ padding: '8px 14px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 'bold' }}
-                  onClick={handleClearShoutout}
-                >
-                  🚫 Hide Shoutout
-                </button>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Manual Shoutout Trigger Controls */}
             <div className="setting-group">
@@ -3403,13 +4432,16 @@ export default function AdminPage() {
                 </label>
               </div>
             </div>
-          </section>
+          </CollapsibleSection>
 
           {/* Bitrate Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>📡 Bitrate & Network</h2>
-            </div>
+          <CollapsibleSection
+            id="bitrate"
+            title="Bitrate & Network"
+            icon="📡"
+            isCollapsed={isSectionCollapsed('bitrate')}
+            onToggle={() => toggleSection('bitrate')}
+          >
 
             <div className="setting-group">
               <label className="group-label">Bitrate Display</label>
@@ -3586,24 +4618,27 @@ export default function AdminPage() {
                 Requires the Belabox Publisher Key to be set in the Bitrate section.
               </p>
             </div>
-          </section>
+          </CollapsibleSection>
 
           {/* To-Do List Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>✅ To-Do List</h2>
-              <div className="checkbox-group" style={{ marginTop: '8px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showTodoList ?? false}
-                    onChange={(e) => handleSettingsChange({ showTodoList: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Show on overlay</span>
-                </label>
-              </div>
-            </div>
+          <CollapsibleSection
+            id="todo"
+            title="To-Do List"
+            icon="✅"
+            headerRight={
+              <label className="checkbox-label" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showTodoList ?? false}
+                  onChange={(e) => handleSettingsChange({ showTodoList: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Show on overlay</span>
+              </label>
+            }
+            isCollapsed={isSectionCollapsed('todo')}
+            onToggle={() => toggleSection('todo')}
+          >
 
             <div className="setting-group">
               <label className="group-label">List Header / Title (Optional)</label>
@@ -3615,6 +4650,26 @@ export default function AdminPage() {
                 className="text-input"
                 style={{ width: '100%' }}
               />
+
+              {/* List Header Scale Size Slider */}
+              <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.85em', opacity: 0.85, fontWeight: 'bold' }}>Header Text Scale Size</label>
+                  <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#53FC19' }}>
+                    {Math.round((settings.todoTitleScale || 1.0) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.5"
+                  step="0.05"
+                  value={settings.todoTitleScale || 1.0}
+                  onChange={(e) => handleSettingsChange({ todoTitleScale: parseFloat(e.target.value) })}
+                  className="slider"
+                  style={{ width: '100%' }}
+                />
+              </div>
             </div>
 
             <div className="setting-group">
@@ -3627,21 +4682,6 @@ export default function AdminPage() {
                   { value: 'right', label: 'Top Right', icon: '➡️', description: 'Below location overlay' }
                 ]}
               />
-            </div>
-
-            <div className="setting-group">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={settings.todoShowBackground ?? true}
-                  onChange={(e) => handleSettingsChange({ todoShowBackground: e.target.checked })}
-                  className="checkbox-input"
-                />
-                <span className="checkbox-text">Show Dark Card Background for To-Do List</span>
-              </label>
-              <span style={{ fontSize: '0.8em', opacity: 0.65, display: 'block', marginTop: '4px' }}>
-                Uncheck to remove background box and show crisp text with drop shadow outline.
-              </span>
             </div>
 
             {/* To-Do List Scale & Position Controls */}
@@ -3822,7 +4862,7 @@ export default function AdminPage() {
                         return a.completed ? 1 : -1;
                       })
                       .map((todo) => (
-                        <div key={todo.id} className="todo-item-admin">
+                        <div key={todo.id} className={`todo-item-admin ${todo.hidden ? 'item-hidden' : ''}`}>
                           <label className="todo-checkbox-label">
                             <input
                               type="checkbox"
@@ -3893,6 +4933,11 @@ export default function AdminPage() {
                                     ({todo.current ?? 0}/{todo.goal})
                                   </span>
                                 )}
+                                {todo.hidden && (
+                                  <span style={{ fontSize: '0.75em', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 600 }}>
+                                    Hidden
+                                  </span>
+                                )}
                               </span>
                             )}
                           </label>
@@ -3943,6 +4988,20 @@ export default function AdminPage() {
                                 </button>
                               </div>
                             )}
+                            <button
+                              className={`todo-visibility-btn ${todo.hidden ? 'hidden-item' : ''}`}
+                              onClick={() => {
+                                const updatedTodos = settings.todos!.map(t =>
+                                  t.id === todo.id ? { ...t, hidden: !t.hidden } : t
+                                );
+                                handleSettingsChange({ todos: updatedTodos });
+                              }}
+                              title={todo.hidden ? 'Show on overlay' : 'Hide from overlay'}
+                              aria-label={todo.hidden ? 'Show on overlay' : 'Hide from overlay'}
+                              disabled={editingTodoId === todo.id}
+                            >
+                              {todo.hidden ? '🚫' : '👁️'}
+                            </button>
                             {editingTodoId !== todo.id && (
                               <button
                                 className="todo-edit-btn"
@@ -3973,24 +5032,27 @@ export default function AdminPage() {
                 </>
               )}
             </div>
-          </section>
+          </CollapsibleSection>
 
           {/* Social Media Rotator Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>📲 Social Media Rotator</h2>
-              <div className="checkbox-group" style={{ marginTop: '8px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showSocials ?? false}
-                    onChange={(e) => handleSettingsChange({ showSocials: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Enable Social Media Rotator</span>
-                </label>
-              </div>
-            </div>
+          <CollapsibleSection
+            id="socials"
+            title="Social Media Rotator"
+            icon="📲"
+            headerRight={
+              <label className="checkbox-label" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.showSocials ?? false}
+                  onChange={(e) => handleSettingsChange({ showSocials: e.target.checked })}
+                  className="checkbox-input"
+                />
+                <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Enable</span>
+              </label>
+            }
+            isCollapsed={isSectionCollapsed('socials')}
+            onToggle={() => toggleSection('socials')}
+          >
 
             {settings.showSocials && (
               <>
@@ -4245,14 +5307,16 @@ export default function AdminPage() {
                 </div>
               </>
             )}
-          </section>
+          </CollapsibleSection>
 
           {/* URL List Section */}
-          <section className="settings-section">
-            <div className="section-header">
-              <h2>🔗 URLs</h2>
-            </div>
-
+          <CollapsibleSection
+            id="urls"
+            title="Custom Links & Embeds"
+            icon="🔗"
+            isCollapsed={isSectionCollapsed('urls')}
+            onToggle={() => toggleSection('urls')}
+          >
             <div className="setting-group">
               <div className="url-input-group">
                 <div className="url-input-col type-col">
@@ -4576,27 +5640,10 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-          </section>
+          </CollapsibleSection>
 
-        </div >
-      </main >
-
-      {/* Sticky actions for mobile */}
-      < div className="admin-sticky-actions" >
-        <button className="btn btn-secondary" onClick={openPreview}>👁️ Preview</button>
-        <button
-          className="btn btn-primary"
-          onClick={async () => {
-            try {
-              await fetch('/api/logout', { method: 'GET', credentials: 'include' });
-              router.push('/login');
-            } catch (error) {
-              console.error('Logout error:', error);
-              router.push('/login');
-            }
-          }}
-        >🚪 Logout</button>
-      </div >
-    </div >
+        </div>
+      </main>
+    </div>
   );
 } 

@@ -40,12 +40,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Security check: Verify token matches the configured StreamElements token
-    if (!currentSettings.streamElementsEnabled) {
-      OverlayLogger.warn('record-sub rejected: StreamElements integration is disabled');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    if (currentSettings.streamElementsToken !== token) {
-      OverlayLogger.warn(`record-sub rejected: token mismatch`);
+    if (!currentSettings.streamElementsToken || currentSettings.streamElementsToken !== token) {
+      OverlayLogger.warn('record-sub rejected: token mismatch or StreamElements not configured');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

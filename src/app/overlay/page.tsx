@@ -10,6 +10,8 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
+import { safeObsStreamControl, safeObsRefreshCycle, takeObsScreenshot } from '@/lib/obs-helper';
+import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
 const {
@@ -154,6 +156,10 @@ function OverlayPage() {
   const [hasIncompleteLocationData, setHasIncompleteLocationData] = useState(false); // Track if we have incomplete location data (country but no code)
   const [overlayVisible, setOverlayVisible] = useState(false); // Track if overlay should be visible (fade-in delay)
   const [currentBitrate, setCurrentBitrate] = useState<number | null>(null);
+  const currentBitrateRef = useRef<number | null>(null);
+  useEffect(() => {
+    currentBitrateRef.current = currentBitrate;
+  }, [currentBitrate]);
   const [currentRtt, setCurrentRtt] = useState<number | null>(null);
 
   // OBS WebSocket for Overlay
@@ -249,9 +255,35 @@ function OverlayPage() {
 
   // Singleton socket ref — prevents duplicate connections when settings re-render
   const seSocketRef = useRef<any>(null);
+  const seChannelIdRef = useRef<string | null>(null);
   // Always-current settings ref so the socket handler reads fresh values without reconnecting
   const seSettingsRef = useRef(settings);
+  const lastCommandExecRef = useRef<Record<string, number>>({});
   useEffect(() => { seSettingsRef.current = settings; }, [settings]);
+
+  // Pic snapshot overlay notification & auto-hide state
+  const [isHidingForPic, setIsHidingForPic] = useState(false);
+  const [picSnapshotToast, setPicSnapshotToast] = useState<{
+    user: string;
+    points: number;
+    phase: 'entering' | 'exiting';
+    flash: boolean;
+  } | null>(null);
+  const picToastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showPicToast = useCallback((username: string, points: number) => {
+    if (picToastTimerRef.current) clearTimeout(picToastTimerRef.current);
+    setPicSnapshotToast({ user: username, points, phase: 'entering', flash: true });
+
+    setTimeout(() => {
+      setPicSnapshotToast(prev => prev ? { ...prev, flash: false } : null);
+    }, 350);
+
+    picToastTimerRef.current = setTimeout(() => {
+      setPicSnapshotToast(prev => prev ? { ...prev, phase: 'exiting' } : null);
+      picToastTimerRef.current = setTimeout(() => setPicSnapshotToast(null), 400);
+    }, 5000);
+  }, []);
 
   // Shoutout auto-dismiss effect
   const [shoutoutExiting, setShoutoutExiting] = useState(false);
@@ -269,6 +301,12 @@ function OverlayPage() {
             ...prev,
             shoutout: prev.shoutout ? { ...prev.shoutout, active: false } : null
           }));
+          // Save clear command to server KV so old shoutouts never linger in database
+          fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { shoutout: null } })
+          }).catch(() => {});
         }, 400);
       }, durationMs);
 
@@ -893,6 +931,11 @@ function OverlayPage() {
     const ONE_MINUTE = 60 * 1000; // 60 seconds in milliseconds
 
     return settings.todos.filter((todo) => {
+      // Don't show hidden todos
+      if (todo.hidden) {
+        return false;
+      }
+
       if (!todo.completed) {
         // Always show incomplete todos
         return true;
@@ -948,7 +991,7 @@ function OverlayPage() {
     const hideBg = !settings.showBackground || settings.donoShowBackground === false;
 
     const goals = settings.donationGoals ?? [];
-    const visibleGoals = goals;
+    const visibleGoals = goals.filter(g => !g.hidden);
 
     if (!settings.showDonationGoals || visibleGoals.length === 0) {
       return null;
@@ -1205,11 +1248,11 @@ function OverlayPage() {
 
 
   // StreamElements Realtime Donation Integration
-  // Only reconnects when the token or enabled flag changes — twitchRevenueSplit is read
-  // via seSettingsRef so we never need to tear down and rebuild the socket for that alone.
+  // Automatically connects when streamElementsToken is present.
+  // twitchRevenueSplit is read via seSettingsRef so we never need to tear down and rebuild the socket for that alone.
   useEffect(() => {
-    // Disconnect any existing socket when disabled or token cleared
-    if (!settings.streamElementsEnabled || !settings.streamElementsToken) {
+    // Disconnect any existing socket when token is cleared or disabled
+    if (!settings.streamElementsToken || settings.streamElementsEnabled === false) {
       if (seSocketRef.current) {
         seSocketRef.current.disconnect();
         seSocketRef.current = null;
@@ -1241,6 +1284,7 @@ function OverlayPage() {
         OverlayLogger.overlay('Successfully authenticated with StreamElements');
         // Fetch total subs from SE API on connect
         const channelId = data?.channelId;
+        if (channelId) seChannelIdRef.current = channelId;
         const currentToken = seSettingsRef.current.streamElementsToken;
         if (channelId && currentToken && seSettingsRef.current.seAutoSyncTotals !== false) {
            fetch(`https://api.streamelements.com/kappa/v2/sessions/${channelId}`, {
@@ -1583,9 +1627,12 @@ function OverlayPage() {
     };
 
     syncTwitchSubs();
-    const interval = setInterval(syncTwitchSubs, 60000); // Poll Twitch API every 60 seconds (cuts Vercel requests in half)
+    const pollMs = (settings.twitchSyncInterval && settings.twitchSyncInterval >= 5) 
+      ? settings.twitchSyncInterval * 1000 
+      : 60000;
+    const interval = setInterval(syncTwitchSubs, pollMs);
     return () => clearInterval(interval);
-  }, [settings.twitchToken, settings.twitchBroadcasterId]);
+  }, [settings.twitchToken, settings.twitchBroadcasterId, settings.twitchSyncInterval]);
 
   // Direct Twitch IRC Chat Listener for !so & !shoutout commands
   // Connects via Twitch WebSocket IRC (wss://irc-ws.chat.twitch.tv:443) using anonymous access
@@ -1632,22 +1679,260 @@ function OverlayPage() {
           const match = raw.match(/PRIVMSG #[^ ]+ :(.*)/);
           if (match && match[1]) {
             const chatText = match[1].trim();
+            const lowerText = chatText.toLowerCase().trim();
+
+            // Permission check
+            const permBroadcaster = seSettingsRef.current.shoutoutPermBroadcaster ?? true;
+            const permMods = seSettingsRef.current.shoutoutPermMods ?? true;
+            const permVips = seSettingsRef.current.shoutoutPermVips ?? false;
+            const permEveryone = seSettingsRef.current.shoutoutPermEveryone ?? false;
+
+            const userMatch = raw.match(/:([^!]+)![^@]+@/);
+            const senderUser = userMatch ? userMatch[1].toLowerCase() : '';
+            const msgIdMatch = raw.match(/id=([^; ]+)/);
+            const msgId = msgIdMatch ? msgIdMatch[1] : undefined;
+            const displayNameMatch = raw.match(/display-name=([^; ]+)/);
+            const senderDisplayName = displayNameMatch && displayNameMatch[1] ? displayNameMatch[1] : senderUser;
+
+            const isBroadcaster = /badges=[^;]*broadcaster\//i.test(raw) || (channelName && senderUser === channelName);
+            const isMod = raw.includes('mod=1') || /badges=[^;]*moderator\//i.test(raw);
+            const isVip = /badges=[^;]*vip\//i.test(raw);
+
+            const isAllowed = permEveryone ||
+              (permBroadcaster && isBroadcaster) ||
+              (permMods && isMod) ||
+              (permVips && isVip);
+
+            // Send direct Twitch Chat Reply to the user's command
+            const sendChatReply = (message: string, options?: { replyId?: string; color?: 'primary' | 'green' | 'orange' }) => {
+              const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
+              const token = seSettingsRef.current.twitchToken;
+              if (broadcasterId && token) {
+                const clientId = API_KEYS.TWITCH_CLIENT_ID;
+
+                fetch('/api/twitch-announcement', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    broadcasterId,
+                    token,
+                    clientId,
+                    message,
+                    replyParentMessageId: options?.replyId || msgId,
+                    color: options?.color || 'primary',
+                    asAnnouncement: false
+                  })
+                }).catch(err => OverlayLogger.error('Failed to post Twitch chat reply:', err));
+              }
+            };
+
+            // Helper to check command rate limiting / duplicate execution prevention
+            const isCommandRateLimited = (cmdKey: string, cooldownMs = 6000) => {
+              const now = Date.now();
+              const last = lastCommandExecRef.current[cmdKey] || 0;
+              if (now - last < cooldownMs) {
+                return true;
+              }
+              lastCommandExecRef.current[cmdKey] = now;
+              return false;
+            };
+
+            // Execute OBS Stream Action (!start or !end)
+            const executeObsStreamAction = async (action: 'start' | 'stop') => {
+              if (seSettingsRef.current?.obsStreamCommandsEnabled !== true) {
+                OverlayLogger.overlay(`Twitch IRC executeObsStreamAction ignored (obsStreamCommandsEnabled is disabled)`);
+                return;
+              }
+              if (isCommandRateLimited(action, 6000)) {
+                OverlayLogger.overlay(`Twitch IRC !${action} ignored due to cooldown`);
+                return;
+              }
+              OverlayLogger.overlay(`Twitch IRC executing stream action: ${action}`);
+              let success = false;
+              let errorMsg = '';
+
+              // Step 1: Direct call via existing local OBS WebSocket instance
+              if (localObsRef.current) {
+                success = await safeObsStreamControl(localObsRef.current, action);
+              }
+
+              // Step 2: On-demand local WebSocket connection if localObsRef was not active
+              if (!success) {
+                try {
+                  const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                  const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
+                  const tempObs = new OBSWebSocket();
+                  tempObs.on('ConnectionClosed', () => {});
+                  tempObs.on('ConnectionError', () => {});
+
+                  const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
+                  const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timed out')), 3000));
+                  await Promise.race([connectPromise, timeoutPromise]);
+
+                  success = await safeObsStreamControl(tempObs, action);
+                  try { await tempObs.disconnect(); } catch {}
+                } catch (connErr: any) {
+                  errorMsg = connErr?.message || String(connErr);
+                }
+              }
+
+              // Step 3: Fallback to server API route if local connections fail
+              if (!success) {
+                try {
+                  const res = await fetch('/api/obs-stream-control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action,
+                      obsUrl: seSettingsRef.current.obsWebsocketUrl,
+                      obsPassword: seSettingsRef.current.obsWebsocketPassword
+                    })
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    success = true;
+                  } else {
+                    errorMsg = data.error || 'Failed to control stream';
+                  }
+                } catch (apiErr: any) {
+                  errorMsg = apiErr?.message || String(apiErr);
+                }
+              }
+
+              // Step 4: Send direct reply message back to Twitch chat
+              const replyMsg = action === 'start'
+                ? (success ? '▶ OBS Stream Started! 🚀' : `❌ Failed to start stream: ${errorMsg || 'Could not connect to OBS WebSocket'}`)
+                : (success ? '🔴 OBS Stream Ended! 🛑' : `❌ Failed to stop stream: ${errorMsg || 'Could not connect to OBS WebSocket'}`);
+
+              sendChatReply(replyMsg, { color: success ? 'primary' : 'orange' });
+            };
+
+            // Helper to send permission error reply
+            const sendPermError = (cmdName: string) => {
+              sendChatReply(`⚠️ Command !${cmdName} ignored: Only the Broadcaster can use stream commands.`, { color: 'orange' });
+            };
+
+            // Command: !start / !startstream / !golive
+            if (lowerText === '!start' || lowerText.startsWith('!start ') || lowerText === '!startstream' || lowerText === '!golive') {
+              const isEnabled = seSettingsRef.current.obsStreamCommandsEnabled === true;
+              if (!isEnabled) {
+                OverlayLogger.overlay(`Twitch IRC !start command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+                return;
+              }
+              const isStreamCmdAllowed = isBroadcaster;
+              if (!isStreamCmdAllowed) {
+                OverlayLogger.overlay(`Twitch IRC !start command ignored (user lacks broadcaster permission)`);
+                sendPermError('start');
+                return;
+              }
+              executeObsStreamAction('start');
+              return;
+            }
+
+            // Command: !end / !endstream / !stopstream / !stop
+            if (lowerText === '!end' || lowerText.startsWith('!end ') || lowerText === '!endstream' || lowerText === '!stopstream' || lowerText === '!stop') {
+              const isEnabled = seSettingsRef.current.obsStreamCommandsEnabled === true;
+              if (!isEnabled) {
+                OverlayLogger.overlay(`Twitch IRC !end command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+                return;
+              }
+              const isStreamCmdAllowed = isBroadcaster;
+              if (!isStreamCmdAllowed) {
+                OverlayLogger.overlay(`Twitch IRC !end command ignored (user lacks broadcaster permission)`);
+                sendPermError('end');
+                return;
+              }
+              executeObsStreamAction('stop');
+              return;
+            }
+
+            // Command: !refresh / !ref / !fixaudio / !restartfeed / !resetsrt
+            if (lowerText === '!refresh' || lowerText.startsWith('!refresh ') || lowerText === '!ref' || lowerText === '!fixaudio' || lowerText === '!restartfeed' || lowerText === '!resetsrt') {
+              const isEnabled = seSettingsRef.current?.obsStreamCommandsEnabled === true;
+              if (!isEnabled) {
+                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+                return;
+              }
+              if (isCommandRateLimited('refresh', 6000)) {
+                OverlayLogger.overlay('Twitch IRC !refresh ignored due to cooldown');
+                return;
+              }
+              const isStreamCmdAllowed = isBroadcaster;
+              if (!isStreamCmdAllowed) {
+                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (user lacks broadcaster permission)`);
+                sendPermError('refresh');
+                return;
+              }
+              
+              const refreshScene = seSettingsRef.current.obsRefreshSceneName || 'refresh';
+              const liveScene = seSettingsRef.current.obsLiveSceneName || 'live';
+              OverlayLogger.overlay(`Twitch IRC executing !refresh command (switching to "${refreshScene}" -> "${liveScene}")`);
+
+              // Execute scene cycle with strict validation
+              (async () => {
+                let cycleRes: { success: boolean; error?: string } = { success: false };
+                const isLiveBitrate = currentBitrateRef.current !== null && currentBitrateRef.current > 0;
+
+                if (localObsRef.current) {
+                  cycleRes = await safeObsRefreshCycle(localObsRef.current, refreshScene, liveScene, 6000, {
+                    isLiveBitrate,
+                    currentBitrate: currentBitrateRef.current ?? undefined
+                  });
+                }
+
+                if (!cycleRes.success && !cycleRes.error) {
+                  try {
+                    const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                    const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
+                    const tempObs = new OBSWebSocket();
+                    tempObs.on('ConnectionClosed', () => {});
+                    tempObs.on('ConnectionError', () => {});
+                    const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 3000));
+                    await Promise.race([connectPromise, timeoutPromise]);
+                    cycleRes = await safeObsRefreshCycle(tempObs, refreshScene, liveScene, 6000, {
+                      isLiveBitrate,
+                      currentBitrate: currentBitrateRef.current ?? undefined
+                    });
+                    try { await tempObs.disconnect(); } catch {}
+                  } catch (err: any) {
+                    OverlayLogger.warn(`Local refresh failed: ${err?.message}`);
+                  }
+                }
+
+                if (!cycleRes.success && !cycleRes.error) {
+                  try {
+                    const res = await fetch('/api/obs-stream-control', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        action: 'refresh',
+                        obsUrl: seSettingsRef.current.obsWebsocketUrl,
+                        obsPassword: seSettingsRef.current.obsWebsocketPassword
+                      })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      cycleRes = { success: true };
+                    } else {
+                      cycleRes = { success: false, error: data.error };
+                    }
+                  } catch (apiErr: any) {
+                    cycleRes = { success: false, error: apiErr?.message };
+                  }
+                }
+
+                if (cycleRes.success) {
+                  sendChatReply(`✅ Stream feed refreshed & back Live! 🚀`, { color: 'green' });
+                } else {
+                  sendChatReply(cycleRes.error || '❌ Failed to refresh feed: Could not switch scenes in OBS.', { color: 'orange' });
+                }
+              })();
+
+              return;
+            }
+
             if (chatText.toLowerCase().startsWith('!so ') || chatText.toLowerCase().startsWith('!shoutout ')) {
-              // Permission check
-              const permBroadcaster = seSettingsRef.current.shoutoutPermBroadcaster ?? true;
-              const permMods = seSettingsRef.current.shoutoutPermMods ?? true;
-              const permVips = seSettingsRef.current.shoutoutPermVips ?? false;
-              const permEveryone = seSettingsRef.current.shoutoutPermEveryone ?? false;
-
-              const isBroadcaster = /badges=[^;]*broadcaster\//i.test(raw);
-              const isMod = raw.includes('mod=1') || /badges=[^;]*moderator\//i.test(raw);
-              const isVip = /badges=[^;]*vip\//i.test(raw);
-
-              const isAllowed = permEveryone ||
-                (permBroadcaster && isBroadcaster) ||
-                (permMods && isMod) ||
-                (permVips && isVip);
-
               if (!isAllowed) {
                 OverlayLogger.overlay(`Twitch IRC !so command ignored (user lacks required role permission)`);
                 return;
@@ -1664,54 +1949,234 @@ function OverlayPage() {
                   .then(res => res.json())
                   .then(userData => {
                     const displayName = userData.displayName || target;
+                    const tpl = seSettingsRef.current.shoutoutAnnouncementTemplate || '📣 Shoutout to @{username} {game}at {url} !';
+                    const url = `https://twitch.tv/${target.toLowerCase()}`;
+                    const gameStr = userData.gameName ? `playing ${userData.gameName} ` : '';
+                    const shoutoutMsg = tpl
+                      .replace(/\{username\}/gi, displayName)
+                      .replace(/\{name\}/gi, displayName)
+                      .replace(/\{game\}/gi, gameStr)
+                      .replace(/\{url\}/gi, url);
 
-                    // Post highlighted Twitch Chat Announcement / Message API
-                    const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
-                    const token = seSettingsRef.current.twitchToken;
-                    if (broadcasterId && token) {
-                      const tpl = seSettingsRef.current.shoutoutAnnouncementTemplate || '📣 Shoutout to @{username} {game}at {url} !';
-                      const url = `https://twitch.tv/${target.toLowerCase()}`;
-                      const gameStr = userData.gameName ? `playing ${userData.gameName} ` : '';
-                      const announcementMsg = tpl
-                        .replace(/\{username\}/gi, displayName)
-                        .replace(/\{name\}/gi, displayName)
-                        .replace(/\{game\}/gi, gameStr)
-                        .replace(/\{url\}/gi, url);
+                    sendChatReply(shoutoutMsg, { color: 'primary' });
 
-                      fetch('/api/twitch-announcement', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          broadcasterId,
-                          token,
-                          clientId,
-                          message: announcementMsg,
-                          color: 'primary'
-                        })
-                      }).catch(err => OverlayLogger.error('Failed to post Twitch chat announcement:', err));
-                    }
-
-                    // Save shoutout overlay card to KV so the overlay displays it with correct duration
-                    const shoutoutDuration = seSettingsRef.current.shoutoutDuration || 15;
-                    const shoutoutPayload = {
-                      username: target.toLowerCase(),
-                      displayName,
-                      avatarUrl: userData.avatarUrl || `https://decapi.me/twitch/avatar/${target}`,
-                      gameName: userData.gameName,
-                      title: userData.title,
-                      customText: 'Collab Streamer',
-                      active: true,
-                      triggeredAt: Date.now(),
-                      durationSeconds: shoutoutDuration
-                    };
+                    // Explicitly ensure overlay graphic stays null/hidden for !so chat command
+                    setSettings(prev => ({ ...prev, shoutout: null }));
                     fetch('/api/save-settings', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ settings: { shoutout: shoutoutPayload } })
-                    }).catch(err => OverlayLogger.error('Failed to save !so shoutout to KV:', err));
+                      body: JSON.stringify({ settings: { shoutout: null } })
+                    }).catch(() => {});
                   })
                   .catch(err => OverlayLogger.error('Error fetching user for chat shoutout:', err));
               }
+            }
+
+            // Command: !pic / !picture / !screenshot / !snap
+            if (
+              lowerText === '!pic' ||
+              lowerText.startsWith('!pic ') ||
+              lowerText === '!picture' ||
+              lowerText.startsWith('!picture ') ||
+              lowerText === '!screenshot' ||
+              lowerText.startsWith('!screenshot ') ||
+              lowerText === '!snap' ||
+              lowerText.startsWith('!snap ')
+            ) {
+              const isEnabled = seSettingsRef.current.picCommandEnabled !== false;
+              if (!isEnabled) {
+                OverlayLogger.overlay('Twitch IRC !pic command ignored (picCommandEnabled is disabled)');
+                return;
+              }
+
+              const cooldownSec = seSettingsRef.current.picCooldownSeconds ?? 15;
+              if (isCommandRateLimited('pic_cmd', cooldownSec * 1000)) {
+                OverlayLogger.overlay('Twitch IRC !pic command ignored due to cooldown');
+                sendChatReply(`⏳ @${senderDisplayName || senderUser}, !pic command is on cooldown. Please wait a few seconds.`, { color: 'orange' });
+                return;
+              }
+
+              const seToken = seSettingsRef.current.streamElementsToken;
+              const webhookUrl = seSettingsRef.current.discordPicWebhookUrl;
+              const picCost = seSettingsRef.current.picPointsCost ?? 200;
+
+              if (!webhookUrl || !webhookUrl.trim()) {
+                OverlayLogger.warn('!pic command failed: discordPicWebhookUrl is not configured');
+                sendChatReply(`⚠️ @${senderDisplayName || senderUser}, Discord pic channel webhook is not configured in Overlay Settings.`, { color: 'orange' });
+                return;
+              }
+
+              if (picCost > 0 && (!seToken || !seToken.trim())) {
+                OverlayLogger.warn('!pic command failed: streamElementsToken is not configured');
+                sendChatReply(`⚠️ @${senderDisplayName || senderUser}, StreamElements is not connected in Overlay Settings to verify points.`, { color: 'orange' });
+                return;
+              }
+
+              OverlayLogger.overlay(`Twitch IRC !pic command triggered by @${senderDisplayName || senderUser} (Cost: ${picCost} pts)`);
+
+              (async () => {
+                // Step 1: Verify & deduct StreamElements points
+                let channelId = seChannelIdRef.current;
+                try {
+                  const pointsCheckRes = await fetch('/api/pic-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'check_and_deduct',
+                      username: senderUser,
+                      pointsCost: picCost,
+                      seToken,
+                      channelId
+                    })
+                  });
+                  const pointsData = await pointsCheckRes.json();
+
+                  if (!pointsData.success) {
+                    if (pointsData.insufficient) {
+                      sendChatReply(`⚠️ @${senderDisplayName || senderUser}, you need at least ${picCost} points to take a stream pic! (You have: ${pointsData.currentPoints ?? 0} pts)`, { color: 'orange' });
+                    } else {
+                      sendChatReply(`⚠️ @${senderDisplayName || senderUser}, couldn't verify StreamElements points: ${pointsData.error || 'Point check failed'}`, { color: 'orange' });
+                    }
+                    return;
+                  }
+
+                  if (pointsData.channelId) {
+                    channelId = pointsData.channelId;
+                    seChannelIdRef.current = pointsData.channelId;
+                  }
+                } catch (checkErr: any) {
+                  OverlayLogger.error('Failed to contact points API:', checkErr);
+                  sendChatReply(`⚠️ @${senderDisplayName || senderUser}, error checking points: ${checkErr?.message || 'Server error'}`, { color: 'orange' });
+                  return;
+                }
+
+                // Step 2: Temporarily hide overlay widgets for a clean stream snapshot
+                setIsHidingForPic(true);
+                await new Promise(r => setTimeout(r, 120)); // Short pause to render clean frame to OBS canvas
+
+                let screenshotRes: { success: boolean; imageData?: string; sceneName?: string; error?: string } = { success: false };
+
+                try {
+                  if (localObsRef.current) {
+                    screenshotRes = await takeObsScreenshot(localObsRef.current, {
+                      imageFormat: 'jpeg',
+                      imageQuality: 88
+                    });
+                  }
+
+                  if (!screenshotRes.success) {
+                    try {
+                      const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                      const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
+                      const tempObs = new OBSWebSocket();
+                      tempObs.on('ConnectionClosed', () => {});
+                      tempObs.on('ConnectionError', () => {});
+
+                      const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
+                      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('OBS connection timed out')), 3000));
+                      await Promise.race([connectPromise, timeoutPromise]);
+
+                      screenshotRes = await takeObsScreenshot(tempObs, {
+                        imageFormat: 'jpeg',
+                        imageQuality: 88
+                      });
+                      try { await tempObs.disconnect(); } catch {}
+                    } catch (connErr: any) {
+                      screenshotRes = { success: false, error: connErr?.message || String(connErr) };
+                    }
+                  }
+                } finally {
+                  // Restore overlay widgets immediately after snapshot
+                  setIsHidingForPic(false);
+                }
+
+                // If OBS capture failed, automatically refund points
+                if (!screenshotRes.success || !screenshotRes.imageData) {
+                  OverlayLogger.warn(`OBS screenshot failed (${screenshotRes.error}), refunding ${picCost} points to @${senderUser}`);
+                  fetch('/api/pic-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'refund_points',
+                      username: senderUser,
+                      amount: picCost,
+                      seToken,
+                      channelId
+                    })
+                  }).catch(() => {});
+
+                  sendChatReply(`❌ Failed to capture stream picture from OBS (${screenshotRes.error || 'OBS WebSocket disconnected'}). Refunded ${picCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                  return;
+                }
+
+                // Step 3: Post snapshot to Discord Pic Webhook
+                try {
+                  const postRes = await fetch('/api/pic-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'post_to_discord',
+                      imageData: screenshotRes.imageData,
+                      username: senderUser,
+                      displayName: senderDisplayName || senderUser,
+                      pointsCost: picCost,
+                      sceneName: screenshotRes.sceneName,
+                      webhookUrl
+                    })
+                  });
+                  const postData = await postRes.json();
+
+                  if (postData.success) {
+                    const customMsg = seSettingsRef.current.picCustomMessage;
+                    const successMsg = customMsg
+                      ? customMsg
+                          .replace(/\{user\}/gi, senderDisplayName || senderUser)
+                          .replace(/\{username\}/gi, senderDisplayName || senderUser)
+                          .replace(/\{points\}/gi, String(picCost))
+                      : `📸 @${senderDisplayName || senderUser} snapped a stream picture! Check it out in the Discord pic channel! 🖼️`;
+
+                    sendChatReply(successMsg, { color: 'green' });
+
+                    // Show on-screen notification toast if enabled
+                    if (seSettingsRef.current.picShowOnOverlay !== false) {
+                      showPicToast(senderDisplayName || senderUser, picCost);
+                    }
+                  } else {
+                    // Discord post failed: refund points!
+                    OverlayLogger.error('Discord post failed, refunding points:', postData.error);
+                    fetch('/api/pic-command', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        action: 'refund_points',
+                        username: senderUser,
+                        amount: picCost,
+                        seToken,
+                        channelId
+                      })
+                    }).catch(() => {});
+
+                    sendChatReply(`❌ Failed to send picture to Discord (${postData.error || 'Webhook upload error'}). Refunded ${picCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                  }
+                } catch (postErr: any) {
+                  OverlayLogger.error('Error in post_to_discord fetch:', postErr);
+                  fetch('/api/pic-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'refund_points',
+                      username: senderUser,
+                      amount: picCost,
+                      seToken,
+                      channelId
+                    })
+                  }).catch(() => {});
+
+                  sendChatReply(`❌ Failed to send picture to Discord (${postErr?.message || 'Network error'}). Refunded ${picCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                }
+              })();
+
+              return;
             }
           }
         }
@@ -1916,6 +2381,7 @@ function OverlayPage() {
             speedDisplay: data.speedDisplay || DEFAULT_OVERLAY_SETTINGS.speedDisplay,
           };
           setSettings(mergedSettings);
+          seSettingsRef.current = mergedSettings;
           // Set initial hash to prevent false positives on first poll
           lastSettingsHash.current = createSettingsHash(mergedSettings);
           settingsLoadedRef.current = true; // Mark settings as loaded
@@ -1929,8 +2395,7 @@ function OverlayPage() {
       }
     };
 
-    // Track whether SSE is currently delivering updates.
-    // When SSE is active, the poll is skipped to avoid redundant KV reads and function invocations.
+    // Track whether SSE is currently delivering updates
     const sseActiveRef = { current: false };
 
     // Set up Server-Sent Events for real-time updates
@@ -1940,52 +2405,39 @@ function OverlayPage() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-
-          // Mark SSE as active as soon as we get any message (including the connect handshake)
           sseActiveRef.current = true;
 
           if (data.type === 'settings_update') {
-            // Extract only settings properties, exclude SSE metadata (type, timestamp)
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { type: _type, timestamp: _timestamp, ...settingsData } = data;
-            // Merge with defaults to ensure new fields (altitudeDisplay, speedDisplay, weatherConditionDisplay) are initialized
-            const mergedSettings = {
-              ...DEFAULT_OVERLAY_SETTINGS,
-              ...settingsData,
-              weatherConditionDisplay: settingsData.weatherConditionDisplay || DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
-              altitudeDisplay: settingsData.altitudeDisplay || DEFAULT_OVERLAY_SETTINGS.altitudeDisplay,
-              speedDisplay: settingsData.speedDisplay || DEFAULT_OVERLAY_SETTINGS.speedDisplay,
-            } as OverlaySettings;
-            OverlayLogger.settings('Settings updated via SSE', {
-              locationDisplay: mergedSettings.locationDisplay,
-              showWeather: mergedSettings.showWeather,
-              showMinimap: mergedSettings.showMinimap
+            setSettings(prev => {
+              const mergedSettings = {
+                ...DEFAULT_OVERLAY_SETTINGS,
+                ...prev,
+                ...settingsData,
+                weatherConditionDisplay: settingsData.weatherConditionDisplay || prev.weatherConditionDisplay || DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
+                altitudeDisplay: settingsData.altitudeDisplay || prev.altitudeDisplay || DEFAULT_OVERLAY_SETTINGS.altitudeDisplay,
+                speedDisplay: settingsData.speedDisplay || prev.speedDisplay || DEFAULT_OVERLAY_SETTINGS.speedDisplay,
+              } as OverlaySettings;
+              seSettingsRef.current = mergedSettings;
+              OverlayLogger.settings('Settings updated via SSE', {
+                locationDisplay: mergedSettings.locationDisplay,
+                showWeather: mergedSettings.showWeather,
+                obsStreamCommandsEnabled: mergedSettings.obsStreamCommandsEnabled
+              });
+              lastSettingsHash.current = createSettingsHash(mergedSettings);
+              settingsLoadedRef.current = true;
+              return mergedSettings;
             });
-            setSettings(mergedSettings);
-            // Update hash to prevent polling from detecting this as a new change
-            lastSettingsHash.current = createSettingsHash(mergedSettings);
-            settingsLoadedRef.current = true; // Mark settings as loaded
           }
-        } catch {
-          // Ignore malformed SSE messages
-        }
+        } catch {}
       };
 
       eventSource.onerror = () => {
-        // SSE dropped — allow the fallback poll to kick in
         sseActiveRef.current = false;
-        try {
-          eventSource.close();
-        } catch {
-          // Ignore close errors
-        }
-        // Reconnect after 5 seconds (was 1s — no need to hammer the server on transient errors)
+        try { eventSource.close(); } catch {}
         setTimeout(() => {
-          try {
-            setupSSE();
-          } catch {
-            // Ignore reconnection errors
-          }
+          try { setupSSE(); } catch {}
         }, 5000);
       };
 
@@ -1998,18 +2450,15 @@ function OverlayPage() {
     // Set up real-time updates
     const eventSource = setupSSE();
 
-    // Fallback polling — only runs when SSE is down.
-    // At 30s intervals this is a true fallback, not a primary update mechanism.
+    // Fallback polling — only runs if SSE drops
     const pollingInterval = setInterval(async () => {
-      // Skip poll entirely while SSE is delivering updates
       if (sseActiveRef.current) return;
 
       try {
-        const res = await fetch(`/api/get-settings?_t=${Date.now()}`);
+        const res = await fetch('/api/get-settings');
         if (res.ok) {
           const data = await res.json();
           if (data) {
-            // Merge with defaults to ensure all fields are present (including new ones)
             const mergedData = {
               ...DEFAULT_OVERLAY_SETTINGS,
               ...data,
@@ -2024,14 +2473,15 @@ function OverlayPage() {
                 locationDisplay: mergedData.locationDisplay,
                 showWeather: mergedData.showWeather,
                 showMinimap: mergedData.showMinimap,
-                donationGoalsCurrent: mergedData.donationGoals?.map(g => g.current)
+                donationGoalsCurrent: mergedData.donationGoals?.map(g => g.current),
+                obsStreamCommandsEnabled: mergedData.obsStreamCommandsEnabled
               });
               setSettings(mergedData);
+              seSettingsRef.current = mergedData;
             }
           }
         }
       } catch (error) {
-        // Log polling errors for debugging
         OverlayLogger.warn('Settings polling failed', { error });
       }
     }, SETTINGS_POLLING_INTERVAL);
@@ -2047,19 +2497,36 @@ function OverlayPage() {
 
   // Local OBS WebSocket instance for direct scene switching inside OBS Browser Source
   const localObsRef = useRef<OBSWebSocket | null>(null);
+  const telemetryLogsRef = useRef<ObsTelemetryLogEntry[]>([]);
+  const obsVersionInfoRef = useRef<{ obsVersion?: string; obsWebSocketVersion?: string; platform?: string; baseRes?: string; outRes?: string; fps?: string }>({});
+  const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
+
+  const formatObsLogTime = (date: Date = new Date()) => {
+    let hours = date.getHours();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // 0 becomes 12 AM
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `[${hours}:${minutes} ${ampm}]`;
+  };
+
+  const appendObsLog = useCallback((level: 'info' | 'warn' | 'error' | 'success', message: string) => {
+    const timeStr = formatObsLogTime();
+    const formattedMessage = `${timeStr} ${message}`;
+    const entry: ObsTelemetryLogEntry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now(),
+      level,
+      message: formattedMessage
+    };
+    telemetryLogsRef.current = [...telemetryLogsRef.current, entry].slice(-100);
+  }, []);
 
   useEffect(() => {
     let isActive = true;
     let retryTimer: NodeJS.Timeout;
 
-    if (!settings.obsAutoSwitchSceneToggle || !settings.obsWebsocketUrl) {
-      if (localObsRef.current) {
-        try { localObsRef.current.disconnect(); } catch {}
-        localObsRef.current = null;
-      }
-      setObsConnected(false);
-      return;
-    }
+    const resolvedObsUrl = settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
 
     const connectLocalOBS = async () => {
       if (!isActive) return;
@@ -2074,27 +2541,176 @@ function OverlayPage() {
           if (!isActive) return;
           setObsConnected(false);
           localObsRef.current = null;
+          appendObsLog('warn', `[obs-websocket] [WebSocketServer::onClose] WebSocket client disconnected`);
           retryTimer = setTimeout(connectLocalOBS, 5000);
         });
-        obs.on('ConnectionError', () => {
+        obs.on('ConnectionError', (err: any) => {
           if (!isActive) return;
+          console.warn('OBS ConnectionError:', err);
           setObsConnected(false);
           localObsRef.current = null;
+          appendObsLog('error', `[obs-websocket] [WebSocketServer::onError] ${err?.message || String(err)}`);
         });
 
-        const connectPromise = obs.connect(settings.obsWebsocketUrl, settings.obsWebsocketPassword || undefined);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000));
-        await Promise.race([connectPromise, timeoutPromise]);
+        obs.on('CurrentProgramSceneChanged' as any, (data: any) => {
+          const sceneName = data?.sceneName || data?.currentProgramSceneName;
+          if (sceneName && lastLoggedStateRef.current.currentScene !== sceneName) {
+            lastLoggedStateRef.current.currentScene = sceneName;
+            appendObsLog('info', `[scene-manager] Switched program scene to: '${sceneName}'`);
+          }
+        });
 
-        if (isActive) {
+        obs.on('StreamStateChanged' as any, (data: any) => {
+          const isLive = Boolean(data?.outputActive);
+          if (lastLoggedStateRef.current.isStreaming !== isLive) {
+            lastLoggedStateRef.current.isStreaming = isLive;
+            if (isLive) {
+              appendObsLog('success', `[rtmp stream: 'simple_stream'] Connecting to RTMP destination...`);
+              appendObsLog('success', `[rtmp stream: 'simple_stream'] Connection successful`);
+              appendObsLog('success', `==== Streaming Start ====`);
+              fetch('/api/save-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ obsTelemetryEnabled: true })
+              }).catch(() => {});
+            } else {
+              appendObsLog('warn', `[rtmp stream: 'simple_stream'] User stopped the stream`);
+              appendObsLog('warn', `==== Streaming Stop ====`);
+              fetch('/api/save-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ obsTelemetryEnabled: false })
+              }).catch(() => {});
+            }
+          }
+        });
+
+        obs.on('RecordStateChanged' as any, (data: any) => {
+          const isRec = Boolean(data?.outputActive);
+          if (lastLoggedStateRef.current.isRecording !== isRec) {
+            lastLoggedStateRef.current.isRecording = isRec;
+            appendObsLog('info', isRec ? `==== Recording Start ====` : `==== Recording Stop ====`);
+          }
+        });
+
+        obs.on('ReplayBufferStateChanged' as any, (data: any) => {
+          const isBufferActive = Boolean(data?.outputActive);
+          appendObsLog('info', isBufferActive ? `[replay-buffer] Replay buffer started` : `[replay-buffer] Replay buffer stopped`);
+        });
+
+        obs.on('ReplayBufferSaved' as any, (data: any) => {
+          const path = data?.savedReplayPath || 'disk';
+          appendObsLog('success', `[replay-buffer] 💾 Replay buffer saved to: ${path}`);
+        });
+
+        obs.on('VirtualcamStateChanged' as any, (data: any) => {
+          const isCamActive = Boolean(data?.outputActive);
+          appendObsLog('info', isCamActive ? `[virtual-cam] Virtual camera started` : `[virtual-cam] Virtual camera stopped`);
+        });
+
+        obs.on('InputMuteStateChanged' as any, (data: any) => {
+          const inputName = data?.inputName || 'Audio Source';
+          const muted = Boolean(data?.inputMuted);
+          appendObsLog(muted ? 'warn' : 'success', `[audio-subsystem] '${inputName}' ${muted ? 'MUTED 🔇' : 'UNMUTED 🔊'}`);
+        });
+
+        obs.on('StudioModeStateChanged' as any, (data: any) => {
+          const studioEnabled = Boolean(data?.studioModeEnabled);
+          appendObsLog('info', `[studio-mode] Studio mode ${studioEnabled ? 'enabled' : 'disabled'}`);
+        });
+
+        // Try primary URL, then fallbacks
+        const urlsToTry = [
+          settings.obsWebsocketUrl || 'ws://127.0.0.1:4455',
+          'ws://127.0.0.1:4455',
+          'ws://localhost:4455'
+        ].filter((v, i, a) => a.indexOf(v) === i);
+
+        let connected = false;
+        let lastErr: any = null;
+
+        for (const targetUrl of urlsToTry) {
+          try {
+            const connectPromise = obs.connect(targetUrl, settings.obsWebsocketPassword || undefined);
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection Timeout (3s)')), 3000));
+            await Promise.race([connectPromise, timeoutPromise]);
+            connected = true;
+            break;
+          } catch (tryErr) {
+            lastErr = tryErr;
+          }
+        }
+
+        if (isActive && connected) {
           localObsRef.current = obs;
           setObsConnected(true);
           console.log('📡 OBS Browser Source connected directly to local OBS WebSocket!');
+
+          // Fetch full startup diagnostics to generate authentic OBS log header
+          try {
+            const [vData, vidData, sceneData, streamData] = await Promise.allSettled([
+              obs.call('GetVersion' as any),
+              obs.call('GetVideoSettings' as any),
+              obs.call('GetSceneList' as any),
+              obs.call('GetStreamStatus' as any)
+            ]);
+
+            const version = vData.status === 'fulfilled' ? (vData.value as any) : null;
+            const video = vidData.status === 'fulfilled' ? (vidData.value as any) : null;
+            const scenes = sceneData.status === 'fulfilled' ? (sceneData.value as any) : null;
+            const stream = streamData.status === 'fulfilled' ? (streamData.value as any) : null;
+
+            if (version) {
+              obsVersionInfoRef.current.obsVersion = version.obsVersion;
+              obsVersionInfoRef.current.obsWebSocketVersion = version.obsWebSocketVersion;
+              obsVersionInfoRef.current.platform = version.platformDescription || version.platform;
+              appendObsLog('success', `[obs-startup] OBS Studio v${version.obsVersion || '32+'} (${version.platformDescription || 'Windows'})`);
+              appendObsLog('info', `[obs-websocket] [WebSocketServer::onOpen] Client connected (Overlay Browser Source)`);
+            }
+
+            if (video) {
+              const fpsVal = video.fpsNumerator && video.fpsDenominator ? (video.fpsNumerator / video.fpsDenominator).toFixed(2) : '60.00';
+              obsVersionInfoRef.current.baseRes = `${video.baseWidth}x${video.baseHeight}`;
+              obsVersionInfoRef.current.outRes = `${video.outputWidth}x${video.outputHeight}`;
+              obsVersionInfoRef.current.fps = fpsVal;
+              appendObsLog('info', `[video-pipeline] Video output: ${video.outputWidth}x${video.outputHeight} @ ${fpsVal} FPS (Canvas: ${video.baseWidth}x${video.baseHeight})`);
+            }
+
+            if (scenes) {
+              lastLoggedStateRef.current.currentScene = scenes.currentProgramSceneName;
+              appendObsLog('info', `[scene-manager] Current scene: '${scenes.currentProgramSceneName}' (${scenes.scenes?.length || 0} scenes available)`);
+            }
+
+            if (stream?.outputActive) {
+              lastLoggedStateRef.current.isStreaming = true;
+              appendObsLog('success', `[rtmp stream: 'simple_stream'] Stream is active (Uptime: ${stream.outputTimecode || 'LIVE'})`);
+            }
+          } catch {
+            appendObsLog('success', `[obs-websocket] [WebSocketServer::onOpen] Client connected`);
+          }
+        } else if (isActive) {
+          setObsConnected(false);
+          const errMsg = lastErr?.message || 'Connection failed';
+          console.warn('📡 Direct OBS WebSocket connection failed, retrying in 5s...', errMsg);
+
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              online: false,
+              error: `OBS WebSocket unreachable (${errMsg}). Check OBS > Tools > WebSocket Server Settings.`,
+              streaming: false,
+              recording: false,
+              logs: telemetryLogsRef.current.slice(-50),
+              updatedAt: Date.now()
+            })
+          }).catch(() => {});
+
+          retryTimer = setTimeout(connectLocalOBS, 5000);
         }
-      } catch (err) {
+      } catch (err: any) {
         if (isActive) {
-          console.warn('📡 Direct OBS WebSocket connection failed, retrying in 5s...', err);
-          setObsConnected(true);
+          setObsConnected(false);
           retryTimer = setTimeout(connectLocalOBS, 5000);
         }
       }
@@ -2110,7 +2726,227 @@ function OverlayPage() {
         localObsRef.current = null;
       }
     };
-  }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsWebsocketPassword]);
+  }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsWebsocketPassword, appendObsLog]);
+
+  // Periodic OBS Telemetry Reporter (relays Dropped Frames, Uptime, CPU %, FPS, and Logs to cloud)
+  useEffect(() => {
+    if (!obsConnected || settings.obsTelemetryEnabled !== true) return;
+
+    let isActive = true;
+    let timer: NodeJS.Timeout;
+    let lastOutputBytes = 0;
+    let lastBytesTimestamp = 0;
+    let lastPostTimestamp = 0;
+    let lastReportedState: {
+      streaming?: boolean;
+      recording?: boolean;
+      scene?: string;
+      droppedFrames?: number;
+      cpuUsage?: number;
+    } = {};
+
+    const reportTelemetry = async () => {
+      if (!isActive || !localObsRef.current) return;
+
+      try {
+        const [streamStatus, recordStatus, stats, currentSceneData] = await Promise.allSettled([
+          localObsRef.current.call('GetStreamStatus'),
+          localObsRef.current.call('GetRecordStatus'),
+          localObsRef.current.call('GetStats'),
+          localObsRef.current.call('GetCurrentProgramScene')
+        ]);
+
+        const stream = streamStatus.status === 'fulfilled' ? streamStatus.value : null;
+        const record = recordStatus.status === 'fulfilled' ? recordStatus.value : null;
+        const st = stats.status === 'fulfilled' ? stats.value : null;
+        const scene = currentSceneData.status === 'fulfilled' ? currentSceneData.value : null;
+
+        const isStreaming = Boolean(stream?.outputActive);
+        const isRecording = Boolean(record?.outputActive);
+
+        // Compute bitrate in kbps from outputBytes delta
+        let outputBitrateKbps = 0;
+        const now = Date.now();
+        if (isStreaming && typeof stream?.outputBytes === 'number') {
+          if (lastOutputBytes > 0 && lastBytesTimestamp > 0 && now > lastBytesTimestamp) {
+            const deltaBytes = stream.outputBytes - lastOutputBytes;
+            const deltaSeconds = (now - lastBytesTimestamp) / 1000;
+            if (deltaSeconds > 0 && deltaBytes >= 0) {
+              outputBitrateKbps = Math.round((deltaBytes * 8) / deltaSeconds / 1000);
+            }
+          }
+          lastOutputBytes = stream.outputBytes;
+          lastBytesTimestamp = now;
+        } else {
+          lastOutputBytes = 0;
+          lastBytesTimestamp = 0;
+        }
+
+        const droppedFrames = stream?.outputSkippedFrames ?? 0;
+        const totalFrames = stream?.outputTotalFrames ?? 0;
+        const droppedFramesPercent = totalFrames > 0
+          ? parseFloat(((droppedFrames / totalFrames) * 100).toFixed(1))
+          : 0;
+
+        const cpuUsagePercent = st?.cpuUsage ? parseFloat(st.cpuUsage.toFixed(1)) : 0;
+        const fps = st?.activeFps ? parseFloat(st.activeFps.toFixed(2)) : 60;
+        const currentScene = scene?.currentProgramSceneName || (scene as any)?.sceneName || '';
+
+        // Rate-limited authentic OBS log reports
+        const lastHealthLog = lastLoggedStateRef.current.lastHealthLogTime || 0;
+        if (now - lastHealthLog > 60000) {
+          lastLoggedStateRef.current.lastHealthLogTime = now;
+          if (isStreaming) {
+            appendObsLog('info', `[system-health] Uptime: ${stream?.outputTimecode || '00:00:00'} | Bitrate: ${outputBitrateKbps} kbps | Dropped: ${droppedFrames} (${droppedFramesPercent}%) | CPU: ${cpuUsagePercent}% | ${fps} FPS`);
+          } else {
+            appendObsLog('info', `[system-health] Status: Standby | Scene: '${currentScene}' | CPU: ${cpuUsagePercent}% | RAM: ${st?.memoryUsage ? Math.round(st.memoryUsage) : 0} MB | ${fps} FPS`);
+          }
+        }
+
+        if (droppedFrames > (lastLoggedStateRef.current.lastDroppedFrames || 0)) {
+          const delta = droppedFrames - (lastLoggedStateRef.current.lastDroppedFrames || 0);
+          lastLoggedStateRef.current.lastDroppedFrames = droppedFrames;
+          appendObsLog('error', `[rtmp stream: 'simple_stream'] ⚠️ Dropped frames: +${delta} dropped (${droppedFrames} total / ${droppedFramesPercent}%) | Bitrate: ${outputBitrateKbps} kbps`);
+        }
+
+        // Smart Diffing & User Configured Heartbeat:
+        // POST immediately if state changed (scene switch, stream start/stop, dropped frames change),
+        // otherwise only send a periodic heartbeat (configured by user, default 45s).
+        const hasCriticalChange =
+          lastReportedState.streaming !== isStreaming ||
+          lastReportedState.recording !== isRecording ||
+          lastReportedState.scene !== currentScene ||
+          lastReportedState.droppedFrames !== droppedFrames ||
+          Math.abs((lastReportedState.cpuUsage || 0) - cpuUsagePercent) > 3.0;
+
+        if (lastReportedState.streaming === true && !isStreaming) {
+          fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ obsTelemetryEnabled: false })
+          }).catch(() => {});
+        } else if (lastReportedState.streaming === false && isStreaming) {
+          fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ obsTelemetryEnabled: true })
+          }).catch(() => {});
+        }
+
+        const configuredInterval = (settings.obsTelemetryInterval || 45) * 1000;
+        const heartbeatInterval = isStreaming ? Math.max(15000, configuredInterval) : Math.max(20000, configuredInterval);
+        const shouldPost = hasCriticalChange || (now - lastPostTimestamp >= heartbeatInterval);
+
+        if (shouldPost) {
+          lastPostTimestamp = now;
+          lastReportedState = {
+            streaming: isStreaming,
+            recording: isRecording,
+            scene: currentScene,
+            droppedFrames,
+            cpuUsage: cpuUsagePercent
+          };
+
+          const payload = {
+            online: true,
+            streaming: isStreaming,
+            recording: isRecording,
+            uptimeTimecode: stream?.outputTimecode || (isStreaming ? '00:00:00' : undefined),
+            uptimeDurationMs: stream?.outputDuration,
+            outputBytes: stream?.outputBytes,
+            outputBitrateKbps,
+            droppedFrames,
+            totalFrames,
+            droppedFramesPercent,
+            cpuUsagePercent,
+            memoryUsageMb: st?.memoryUsage ? Math.round(st.memoryUsage) : undefined,
+            fps,
+            renderSkippedFrames: st?.renderSkippedFrames,
+            renderTotalFrames: st?.renderTotalFrames,
+            currentScene,
+            obsVersion: obsVersionInfoRef.current.obsVersion,
+            obsWebSocketVersion: obsVersionInfoRef.current.obsWebSocketVersion,
+            platform: obsVersionInfoRef.current.platform,
+            logs: telemetryLogsRef.current.slice(-25),
+          };
+
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).catch(() => {});
+        }
+      } catch {
+        // Ignore background telemetry errors
+      }
+
+      if (isActive) {
+        timer = setTimeout(reportTelemetry, 6000);
+      }
+    };
+
+    reportTelemetry();
+
+    return () => {
+      isActive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [obsConnected, settings.obsTelemetryEnabled, settings.obsTelemetryInterval, appendObsLog]);
+
+  // Listen for Cloud Command Signals (e.g. !start or !end triggered via Vercel or Admin Menu)
+  // Initialize with current timestamp so stale persisted signals from previous sessions are NOT executed on boot/reload
+  const lastProcessedSignalRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    if (settings.obsStreamCommandsEnabled !== true) return;
+    const signal = settings.obsStreamCommandSignal;
+    if (!signal || !signal.timestamp || !signal.action) return;
+    // Ignore signals that are already processed or older than 15 seconds (prevents stale replay on reload/reconnect)
+    if (signal.timestamp <= lastProcessedSignalRef.current || (Date.now() - signal.timestamp > 15000)) {
+      return;
+    }
+
+    lastProcessedSignalRef.current = signal.timestamp;
+    OverlayLogger.overlay(`📡 Received cloud stream command signal: ${signal.action}`);
+
+    const runSignalCommand = async () => {
+      const targetUrl = settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+      const targetPass = settings.obsWebsocketPassword || '';
+      const refreshScene = settings.obsRefreshSceneName || 'refresh';
+      const liveScene = settings.obsLiveSceneName || 'live';
+      const isLiveBitrate = currentBitrateRef.current !== null && currentBitrateRef.current > 0;
+
+      // Direct execution on local OBS WebSocket
+      if (localObsRef.current) {
+        const ok = await safeObsStreamControl(localObsRef.current, signal.action, {
+          refreshScene,
+          liveScene,
+          delayMs: 6000,
+          isLiveBitrate,
+          currentBitrate: currentBitrateRef.current ?? undefined
+        });
+        if (ok) return;
+      }
+
+      // On-demand connection if localObsRef was temporarily inactive
+      try {
+        const tempObs = new OBSWebSocket();
+        await tempObs.connect(targetUrl, targetPass || undefined);
+        await safeObsStreamControl(tempObs, signal.action, {
+          refreshScene,
+          liveScene,
+          delayMs: 6000,
+          isLiveBitrate,
+          currentBitrate: currentBitrateRef.current ?? undefined
+        });
+        try { await tempObs.disconnect(); } catch {}
+      } catch (err) {
+        OverlayLogger.error(`Failed to execute stream signal ${signal.action}:`, err);
+      }
+    };
+
+    runSignalCommand();
+  }, [settings.obsStreamCommandSignal, settings.obsStreamCommandsEnabled]);
 
 
   // Reset scene state tracking when toggle is disabled so it evaluates immediately when re-enabled
@@ -2122,16 +2958,16 @@ function OverlayPage() {
 
   useEffect(() => {
     const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
-    const isOffline = currentBitrate === null || currentBitrate <= 0 || isStale;
-    const hasFetchedStats = bitrateUpdateTimestamp > 0 || consecutiveBitrateFailuresRef.current > 0;
+    const isOffline = currentBitrate !== null && (currentBitrate <= 0 || isStale);
+    const isLive = currentBitrate !== null && currentBitrate > 0 && !isStale;
+    const hasFetchedStats = bitrateUpdateTimestamp > 0;
 
-    // DIAGNOSTIC LOG - always runs so we can see what's happening
-    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} offline=${isOffline} fetched=${hasFetchedStats} lastState=${lastBitrateStateRef.current}`;
+    // DIAGNOSTIC LOG
+    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} offline=${isOffline} live=${isLive} fetched=${hasFetchedStats} lastState=${lastBitrateStateRef.current}`;
     console.log('[AUTO-SWITCH] State check:', logMsg);
     setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
 
-    if (!obsConnected) {
-      console.log('[AUTO-SWITCH] Skipping - OBS not connected');
+    if (!obsConnected || !hasFetchedStats) {
       return;
     }
     
@@ -2208,10 +3044,10 @@ function OverlayPage() {
       }
     };
 
-    // Auto-switch to offline scene
+    // Auto-switch to offline scene (only after stream was previously confirmed live)
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
-      if (isOffline && lastBitrateStateRef.current !== 'offline') {
-        console.log(`📡 Stream is offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
+      if (isOffline && lastBitrateStateRef.current === 'live') {
+        console.log(`📡 Stream went offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
         switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'offline';
         });
@@ -2220,7 +3056,7 @@ function OverlayPage() {
 
     // Auto-switch to live scene
     if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
-      if (!isOffline && lastBitrateStateRef.current !== 'live') {
+      if (isLive && lastBitrateStateRef.current !== 'live') {
         console.log(`📡 Stream is live (bitrate=${currentBitrate}), switching to: ${settings.obsLiveSceneName}`);
         switchSceneViaApi(settings.obsLiveSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'live';
@@ -3370,8 +4206,9 @@ function OverlayPage() {
         data-font={settings.globalFont || 'default'}
         data-theme={settings.globalTheme || 'default'}
         style={{
-          opacity: overlayVisible ? 1 : 0,
-          transition: overlayVisible ? 'opacity 0.8s ease-in-out' : 'none'
+          opacity: (overlayVisible && !isHidingForPic) ? 1 : 0,
+          transition: (overlayVisible && !isHidingForPic) ? 'opacity 0.8s ease-in-out' : 'none',
+          visibility: isHidingForPic ? 'hidden' : 'visible'
         }}
       >
         <div className="top-left">
@@ -3408,7 +4245,7 @@ function OverlayPage() {
           {/* To-Do List - Top Left (below time) */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'left' && (
             <div
-              className={`overlay-box todo-list-box ${(!settings.showBackground || settings.todoShowBackground === false) ? 'no-background' : ''}`}
+              className="todo-list-box no-background"
               style={{
                 marginTop: '12px',
                 alignSelf: 'flex-start',
@@ -3417,7 +4254,7 @@ function OverlayPage() {
               }}
             >
               {settings.todoTitle && (
-                <div className="todo-header-title" style={{ fontSize: '0.8em', fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                <div className="todo-header-title" style={{ fontSize: `${((settings.todoTitleScale ?? 1.0) * 0.8).toFixed(3)}em`, fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
                   {settings.todoTitle}
                 </div>
               )}
@@ -3504,7 +4341,7 @@ function OverlayPage() {
           {/* Show todo list when enabled and there are visible todos */}
           {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'right' && (
             <div
-              className={`overlay-box todo-list-box ${(!settings.showBackground || settings.todoShowBackground === false) ? 'no-background' : ''}`}
+              className="todo-list-box no-background"
               style={{
                 marginTop: '12px',
                 alignSelf: 'flex-end',
@@ -3513,7 +4350,7 @@ function OverlayPage() {
               }}
             >
               {settings.todoTitle && (
-                <div className="todo-header-title" style={{ fontSize: '0.8em', fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                <div className="todo-header-title" style={{ fontSize: `${((settings.todoTitleScale ?? 1.0) * 0.8).toFixed(3)}em`, fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
                   {settings.todoTitle}
                 </div>
               )}
@@ -3921,7 +4758,7 @@ function OverlayPage() {
         })()}
 
         {/* Twitch Collab Shoutout Card Overlay */}
-        {settings.shoutout && settings.shoutout.active && (
+        {!isHidingForPic && settings.shoutout && settings.shoutout.active && (!settings.shoutout.triggeredAt || (Date.now() - settings.shoutout.triggeredAt) < ((settings.shoutout.durationSeconds || 15) * 1000)) && (
           <div
             style={{
               position: 'fixed',
@@ -3966,6 +4803,35 @@ function OverlayPage() {
                 </div>
                 <div className="shoutout-username">@{settings.shoutout.displayName}</div>
                 <div className="shoutout-message">{settings.shoutout.customText || 'Collab Streamer'} &bull; twitch.tv/{settings.shoutout.username}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stream Snapshot (!pic) Overlay Toast */}
+        {picSnapshotToast && (
+          <div
+            style={{
+              position: 'fixed',
+              top: '80px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 99999,
+              pointerEvents: 'none'
+            }}
+          >
+            <div className={`pic-toast-card ${picSnapshotToast.phase === 'exiting' ? 'exiting' : ''}`}>
+              <div className="pic-toast-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#53FC19" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </div>
+              <div className="pic-toast-body">
+                <div className="pic-toast-title">📸 STREAM SNAPSHOT TAKEN!</div>
+                <div className="pic-toast-desc">
+                  <span className="pic-toast-user">@{picSnapshotToast.user}</span> spent <span className="pic-toast-pts">{picSnapshotToast.points} pts</span> • Sent to Discord!
+                </div>
               </div>
             </div>
           </div>

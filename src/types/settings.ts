@@ -10,6 +10,7 @@ export interface TodoItem {
   completed: boolean;
   current?: number;
   goal?: number;
+  hidden?: boolean;
 }
 
 export interface UrlItem {
@@ -31,6 +32,7 @@ export interface DonationGoal {
   current: number;
   duration?: number;
   lastTriggered?: number;
+  hidden?: boolean;
 }
 
 export interface ShoutoutData {
@@ -93,6 +95,7 @@ export interface OverlaySettings {
   lowBitrateAlertFont?: 'disabled' | 'default' | 'neon' | 'retro' | 'bold' | 'impact' | 'basic';
   todoListPosition?: 'left' | 'right';
   todoTitle?: string;
+  todoTitleScale?: number;
   todoX?: number;
   todoY?: number;
   todoScale?: number;
@@ -192,15 +195,54 @@ export interface OverlaySettings {
   obsAutoSwitchSceneToggle?: boolean;
   obsOfflineSceneName?: string;
   obsLiveSceneName?: string;
+  obsRefreshSceneName?: string;
   obsAutoSwitchDebugger?: boolean;
+  obsStreamCommandsEnabled?: boolean;
+  obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh'; timestamp: number } | null;
+  obsTelemetryEnabled?: boolean;
+  obsTelemetryInterval?: number;
   enableResourceOptimization?: boolean;
   bitratePollIntervalLive?: number;
   bitratePollIntervalOffline?: number;
   bitrateCacheTtlMs?: number;
+
+  // Timing & Interval Configurations (Editable from /settings)
+  saveDebounceDelay?: number;
+  customLocationDebounceDelay?: number;
+  twitchSyncInterval?: number;
+  weatherUpdateInterval?: number;
+  bitrateUpdateInterval?: number;
+  settingsPollingInterval?: number;
+  autoSwitchPollInterval?: number;
+  mapMinIntervalSlow?: number;
+  mapMinIntervalMed?: number;
+  mapMinIntervalFast?: number;
+  gpsFreshnessTimeout?: number;
+  gpsStaleTimeout?: number;
+  minimapHideDelay?: number;
+  speedHideDelay?: number;
+  minimapSpeedGracePeriod?: number;
+  overlayFadeTimeout?: number;
+
+  // API Key & Integration Overrides (No .env or config file required)
+  rtirlPullKey?: string;
+  locationIqKey?: string;
+  openWeatherKey?: string;
+  pulsoidToken?: string;
+
+  // Stream Snapshot (!pic Command) & Discord Integration
+  discordPicWebhookUrl?: string;
+  picCommandEnabled?: boolean;
+  picPointsCost?: number;
+  picCooldownSeconds?: number;
+  picShowOnOverlay?: boolean;
+  picCustomMessage?: string;
 }
 
 // Default settings (single source of truth)
 export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
+  obsStreamCommandsEnabled: true,
+  obsStreamCommandSignal: null,
   shoutout: null,
   shoutoutAnnouncementTemplate: '📣 Shoutout to @{username} {game}at {url} !',
   shoutoutX: 0,
@@ -248,6 +290,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   lowBitrateAlertFont: 'default',
   todoListPosition: 'left',
   todoTitle: '',
+  todoTitleScale: 1.0,
   todoX: 0,
   todoY: 0,
   todoScale: 1.0,
@@ -337,7 +380,6 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   subGoalsShowStroke: true,
   subGoalsShowBackground: true,
   seAutoSyncTotals: false,
-  twitchClientId: '',
   twitchToken: '',
   twitchBroadcasterId: '',
   twitchUsername: '',
@@ -347,16 +389,45 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsAutoSwitchSceneToggle: false,
   obsOfflineSceneName: 'offline',
   obsLiveSceneName: 'live',
+  obsRefreshSceneName: 'refresh',
   obsAutoSwitchDebugger: false,
+  obsTelemetryEnabled: false,
+  obsTelemetryInterval: 45,
   enableResourceOptimization: true,
   bitratePollIntervalLive: 3000,
   bitratePollIntervalOffline: 6000,
   bitrateCacheTtlMs: 5000,
+  saveDebounceDelay: 300,
+  customLocationDebounceDelay: 1000,
+  twitchSyncInterval: 60,
+  weatherUpdateInterval: 5,
+  bitrateUpdateInterval: 10,
+  settingsPollingInterval: 30,
+  autoSwitchPollInterval: 10,
+  mapMinIntervalSlow: 20,
+  mapMinIntervalMed: 10,
+  mapMinIntervalFast: 6,
+  gpsFreshnessTimeout: 15,
+  gpsStaleTimeout: 10,
+  minimapHideDelay: 10,
+  speedHideDelay: 10,
+  minimapSpeedGracePeriod: 60,
+  rtirlPullKey: process.env.NEXT_PUBLIC_RTIRL_PULL_KEY || '',
+  locationIqKey: process.env.NEXT_PUBLIC_LOCATIONIQ_KEY || '',
+  openWeatherKey: process.env.NEXT_PUBLIC_OPENWEATHERMAP_KEY || '',
+  pulsoidToken: process.env.NEXT_PUBLIC_PULSOID_TOKEN || '',
+  twitchClientId: process.env.NEXT_PUBLIC_TWITCH_CLIENT_ID || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw',
+  discordPicWebhookUrl: '',
+  picCommandEnabled: true,
+  picPointsCost: 200,
+  picCooldownSeconds: 15,
+  picShowOnOverlay: true,
+  picCustomMessage: '',
 };
 
 // Valid settings schema for validation
-// Note: 'todos', 'urls', 'donationGoals', and 'shoutout' are handled separately in the validator as they are objects/arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', 'donationGoals', 'shoutout', and 'obsStreamCommandSignal' are handled separately in the validator as they are objects/arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal'>, 'boolean' | 'string' | 'number'> = {
   shoutoutAnnouncementTemplate: 'string',
   shoutoutX: 'number',
   shoutoutY: 'number',
@@ -401,6 +472,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   lowBitrateAlertFont: 'string',
   todoListPosition: 'string',
   todoTitle: 'string',
+  todoTitleScale: 'number',
   todoX: 'number',
   todoY: 'number',
   todoScale: 'number',
@@ -499,11 +571,41 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsAutoSwitchSceneToggle: 'boolean',
   obsOfflineSceneName: 'string',
   obsLiveSceneName: 'string',
+  obsRefreshSceneName: 'string',
   obsAutoSwitchDebugger: 'boolean',
+  obsStreamCommandsEnabled: 'boolean',
+  obsTelemetryEnabled: 'boolean',
+  obsTelemetryInterval: 'number',
   enableResourceOptimization: 'boolean',
   bitratePollIntervalLive: 'number',
   bitratePollIntervalOffline: 'number',
   bitrateCacheTtlMs: 'number',
+  saveDebounceDelay: 'number',
+  customLocationDebounceDelay: 'number',
+  twitchSyncInterval: 'number',
+  weatherUpdateInterval: 'number',
+  bitrateUpdateInterval: 'number',
+  settingsPollingInterval: 'number',
+  autoSwitchPollInterval: 'number',
+  mapMinIntervalSlow: 'number',
+  mapMinIntervalMed: 'number',
+  mapMinIntervalFast: 'number',
+  gpsFreshnessTimeout: 'number',
+  gpsStaleTimeout: 'number',
+  minimapHideDelay: 'number',
+  speedHideDelay: 'number',
+  minimapSpeedGracePeriod: 'number',
+  overlayFadeTimeout: 'number',
+  rtirlPullKey: 'string',
+  locationIqKey: 'string',
+  openWeatherKey: 'string',
+  pulsoidToken: 'string',
+  discordPicWebhookUrl: 'string',
+  picCommandEnabled: 'boolean',
+  picPointsCost: 'number',
+  picCooldownSeconds: 'number',
+  picShowOnOverlay: 'boolean',
+  picCustomMessage: 'string',
 };
 
 // SSE message types

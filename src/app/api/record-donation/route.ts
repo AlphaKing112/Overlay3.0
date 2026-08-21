@@ -41,12 +41,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Security check: Verify token matches the configured StreamElements token
-    if (!currentSettings.streamElementsEnabled) {
-      OverlayLogger.warn('record-donation rejected: StreamElements integration is disabled');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    if (currentSettings.streamElementsToken !== token) {
-      OverlayLogger.warn(`record-donation rejected: token mismatch (sent ${token?.slice(0, 20)}... expected ${currentSettings.streamElementsToken?.slice(0, 20)}...)`);
+    if (!currentSettings.streamElementsToken || currentSettings.streamElementsToken !== token) {
+      OverlayLogger.warn(`record-donation rejected: token mismatch or StreamElements not configured (sent ${token?.slice(0, 20)}... expected ${currentSettings.streamElementsToken?.slice(0, 20)}...)`);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

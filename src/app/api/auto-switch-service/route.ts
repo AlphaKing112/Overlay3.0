@@ -31,6 +31,10 @@ export async function POST(request: Request) {
   try {
     const { action, settings } = await request.json();
 
+    if (process.env.VERCEL) {
+      return NextResponse.json({ success: true, message: 'Auto-Switch is managed directly inside OBS Overlay client', status: 'Managed by OBS Overlay' });
+    }
+
     if (action === 'start') {
       state.settings = settings;
       if (!state.isActive) {
