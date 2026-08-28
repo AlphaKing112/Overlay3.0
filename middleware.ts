@@ -40,6 +40,7 @@ export function middleware(request: NextRequest) {
     '/api/obs-stream-control',
     '/api/auth-check',
     '/api/pic-command',
+    '/api/clip-command',
     '/api/time'
   ];
 

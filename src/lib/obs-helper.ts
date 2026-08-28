@@ -352,3 +352,130 @@ export async function takeObsScreenshot(
   const detailedError = formatObsError(lastError);
   return { success: false, error: detailedError };
 }
+
+/**
+ * Triggers saving the OBS Studio Replay Buffer to disk and returns the path to the saved video file.
+ * Handles both v5 and v4 OBS WebSocket protocols.
+ * If replay buffer is not currently active, attempts to start it automatically.
+ */
+export async function triggerObsReplayBuffer(
+  obs: any,
+  timeoutMs: number = 15000
+): Promise<{ success: boolean; replayPath?: string; sceneName?: string; error?: string }> {
+  if (!obs) {
+    return { success: false, error: 'OBS WebSocket instance is not connected' };
+  }
+
+  try {
+    // 1. Get current scene name for logging and metadata
+    const sceneName = (await getCurrentObsScene(obs)) || 'live';
+
+    // 2. Check replay buffer status (v5 & v4 support)
+    let isBufferActive = false;
+    try {
+      const statusRes = await obs.call('GetReplayBufferStatus');
+      isBufferActive = Boolean(statusRes?.outputActive);
+    } catch {
+      try {
+        const v4Status = await obs.call('GetReplayBufferStatus' as any);
+        isBufferActive = Boolean(v4Status?.isReplayBufferActive || v4Status?.outputActive);
+      } catch (statusErr) {
+        console.warn('[OBS] Could not query replay buffer status:', formatObsError(statusErr));
+      }
+    }
+
+    // 3. If replay buffer is not active, try starting it
+    if (!isBufferActive) {
+      console.log('🔄 [OBS] Replay Buffer is inactive. Starting Replay Buffer now...');
+      try {
+        await obs.call('StartReplayBuffer');
+        await new Promise(r => setTimeout(r, 1500)); // allow buffer initialization
+      } catch (startErr: any) {
+        console.warn('⚠️ [OBS] Failed to start replay buffer:', formatObsError(startErr));
+        return {
+          success: false,
+          error: 'OBS Replay Buffer is not active. Please enable Replay Buffer in OBS Settings > Output > Enable Replay Buffer.'
+        };
+      }
+    }
+
+    // 4. Set up one-time listener for ReplayBufferSaved event
+    let savedFilePath: string | null = null;
+    let eventResolver: ((path: string) => void) | null = null;
+
+    const replayPromise = new Promise<string>((resolve) => {
+      eventResolver = resolve;
+    });
+
+    const onReplaySaved = (data: any) => {
+      const path = data?.savedReplayPath || data?.path || data?.filename || '';
+      if (path && eventResolver) {
+        console.log(`💾 [OBS] ReplayBufferSaved event received: ${path}`);
+        eventResolver(path);
+      }
+    };
+
+    try {
+      obs.on('ReplayBufferSaved' as any, onReplaySaved);
+    } catch {}
+
+    // 5. Call SaveReplayBuffer
+    try {
+      await obs.call('SaveReplayBuffer');
+      console.log('✅ [OBS] SaveReplayBuffer request sent.');
+    } catch (saveErr: any) {
+      try {
+        // v4 fallback
+        await obs.call('SaveReplayBuffer' as any, {});
+      } catch (v4SaveErr) {
+        if (eventResolver) {
+          try { obs.off('ReplayBufferSaved' as any, onReplaySaved); } catch {}
+        }
+        return { success: false, error: `Failed to save OBS replay buffer: ${formatObsError(saveErr)}` };
+      }
+    }
+
+    // 6. Wait for ReplayBufferSaved event or query last replay
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error('Timed out waiting for OBS to save replay file')), timeoutMs)
+    );
+
+    try {
+      savedFilePath = await Promise.race([replayPromise, timeoutPromise]);
+    } catch (waitErr) {
+      console.warn('⚠️ [OBS] Timed out waiting for ReplayBufferSaved event, checking GetLastReplayBufferReplay...');
+      try {
+        const lastReplay = await obs.call('GetLastReplayBufferReplay');
+        savedFilePath = lastReplay?.savedReplayPath || null;
+      } catch {
+        try {
+          const lastV4 = await obs.call('GetLastReplay' as any);
+          savedFilePath = lastV4?.['replay-path'] || lastV4?.path || null;
+        } catch {}
+      }
+    } finally {
+      try {
+        obs.off('ReplayBufferSaved' as any, onReplaySaved);
+      } catch {}
+    }
+
+    if (!savedFilePath) {
+      return {
+        success: false,
+        error: 'OBS did not return a saved replay file path. Ensure Replay Buffer is configured properly in OBS.'
+      };
+    }
+
+    return {
+      success: true,
+      replayPath: savedFilePath,
+      sceneName
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: formatObsError(err)
+    };
+  }
+}
+

@@ -136,7 +136,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         'shoutoutPermBroadcaster', 'shoutoutPermMods', 'shoutoutPermVips', 'shoutoutPermEveryone',
         'totalTipCurrent', 'dailyTipGoal', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent',
         'obsStreamCommandSignal', 'obsStreamCommandsEnabled', 'obsTelemetryEnabled', 'obsTelemetryInterval',
-        'discordPicWebhookUrl', 'picCommandEnabled', 'picPointsCost', 'picCooldownSeconds', 'picShowOnOverlay', 'picCustomMessage'
+        'discordPicWebhookUrl', 'picCommandEnabled', 'picPointsEnabled', 'picPointsCost', 'picCooldownSeconds', 'picShowOnOverlay', 'picCustomMessage',
+        'discordClipWebhookUrl', 'clipCommandEnabled', 'clipSourceMode', 'clipPointsEnabled', 'clipPointsCost', 'clipCooldownSeconds', 'clipDefaultDuration', 'clipMaxDuration', 'clipMinDuration', 'clipShowOnOverlay', 'clipCustomMessage'
       ];
       const updateKeys = Object.keys(updates);
       const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));

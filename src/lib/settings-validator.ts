@@ -504,10 +504,22 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     pulsoidToken: typeof cleanSettings.pulsoidToken === 'string' ? cleanSettings.pulsoidToken : DEFAULT_OVERLAY_SETTINGS.pulsoidToken,
     discordPicWebhookUrl: typeof cleanSettings.discordPicWebhookUrl === 'string' ? cleanSettings.discordPicWebhookUrl : DEFAULT_OVERLAY_SETTINGS.discordPicWebhookUrl,
     picCommandEnabled: typeof cleanSettings.picCommandEnabled === 'boolean' ? cleanSettings.picCommandEnabled : DEFAULT_OVERLAY_SETTINGS.picCommandEnabled,
+    picPointsEnabled: typeof cleanSettings.picPointsEnabled === 'boolean' ? cleanSettings.picPointsEnabled : DEFAULT_OVERLAY_SETTINGS.picPointsEnabled,
     picPointsCost: typeof cleanSettings.picPointsCost === 'number' && cleanSettings.picPointsCost >= 0 ? cleanSettings.picPointsCost : DEFAULT_OVERLAY_SETTINGS.picPointsCost,
     picCooldownSeconds: typeof cleanSettings.picCooldownSeconds === 'number' && cleanSettings.picCooldownSeconds >= 0 ? cleanSettings.picCooldownSeconds : DEFAULT_OVERLAY_SETTINGS.picCooldownSeconds,
     picShowOnOverlay: typeof cleanSettings.picShowOnOverlay === 'boolean' ? cleanSettings.picShowOnOverlay : DEFAULT_OVERLAY_SETTINGS.picShowOnOverlay,
     picCustomMessage: typeof cleanSettings.picCustomMessage === 'string' ? cleanSettings.picCustomMessage : DEFAULT_OVERLAY_SETTINGS.picCustomMessage,
+    discordClipWebhookUrl: typeof cleanSettings.discordClipWebhookUrl === 'string' ? cleanSettings.discordClipWebhookUrl : DEFAULT_OVERLAY_SETTINGS.discordClipWebhookUrl,
+    clipCommandEnabled: typeof cleanSettings.clipCommandEnabled === 'boolean' ? cleanSettings.clipCommandEnabled : DEFAULT_OVERLAY_SETTINGS.clipCommandEnabled,
+    clipSourceMode: cleanSettings.clipSourceMode === 'obs' || cleanSettings.clipSourceMode === 'twitch' ? cleanSettings.clipSourceMode : DEFAULT_OVERLAY_SETTINGS.clipSourceMode,
+    clipPointsEnabled: typeof cleanSettings.clipPointsEnabled === 'boolean' ? cleanSettings.clipPointsEnabled : DEFAULT_OVERLAY_SETTINGS.clipPointsEnabled,
+    clipPointsCost: typeof cleanSettings.clipPointsCost === 'number' && cleanSettings.clipPointsCost >= 0 ? cleanSettings.clipPointsCost : DEFAULT_OVERLAY_SETTINGS.clipPointsCost,
+    clipCooldownSeconds: typeof cleanSettings.clipCooldownSeconds === 'number' && cleanSettings.clipCooldownSeconds >= 0 ? cleanSettings.clipCooldownSeconds : DEFAULT_OVERLAY_SETTINGS.clipCooldownSeconds,
+    clipDefaultDuration: typeof cleanSettings.clipDefaultDuration === 'number' && cleanSettings.clipDefaultDuration > 0 ? cleanSettings.clipDefaultDuration : DEFAULT_OVERLAY_SETTINGS.clipDefaultDuration,
+    clipMaxDuration: typeof cleanSettings.clipMaxDuration === 'number' && cleanSettings.clipMaxDuration > 0 ? cleanSettings.clipMaxDuration : DEFAULT_OVERLAY_SETTINGS.clipMaxDuration,
+    clipMinDuration: typeof cleanSettings.clipMinDuration === 'number' && cleanSettings.clipMinDuration > 0 ? cleanSettings.clipMinDuration : DEFAULT_OVERLAY_SETTINGS.clipMinDuration,
+    clipShowOnOverlay: typeof cleanSettings.clipShowOnOverlay === 'boolean' ? cleanSettings.clipShowOnOverlay : DEFAULT_OVERLAY_SETTINGS.clipShowOnOverlay,
+    clipCustomMessage: typeof cleanSettings.clipCustomMessage === 'string' ? cleanSettings.clipCustomMessage : DEFAULT_OVERLAY_SETTINGS.clipCustomMessage,
   };
 
   return completeSettings;

@@ -10,6 +10,7 @@
     "clean": "rm -rf .next && rm -rf node_modules/.cache",
     "clean:win": "Remove-Item -Recurse -Force .next",
     "dev:debug": "npm run dev | tee dev.log",
+    "clip-bridge": "node scripts/clip-bridge.js",
     "analyze": "cross-env ANALYZE=true npm run build",
     "fix-icloud": "bash scripts/fix-icloud-sync.sh"
   },

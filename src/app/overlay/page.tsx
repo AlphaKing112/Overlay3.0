@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, takeObsScreenshot } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, takeObsScreenshot, triggerObsReplayBuffer } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -283,6 +283,25 @@ function OverlayPage() {
       setPicSnapshotToast(prev => prev ? { ...prev, phase: 'exiting' } : null);
       picToastTimerRef.current = setTimeout(() => setPicSnapshotToast(null), 400);
     }, 5000);
+  }, []);
+
+  // Clip stream toast notification state
+  const [clipToast, setClipToast] = useState<{
+    user: string;
+    points: number;
+    duration: number;
+    phase: 'entering' | 'exiting';
+  } | null>(null);
+  const clipToastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showClipToast = useCallback((username: string, points: number, duration: number) => {
+    if (clipToastTimerRef.current) clearTimeout(clipToastTimerRef.current);
+    setClipToast({ user: username, points, duration, phase: 'entering' });
+
+    clipToastTimerRef.current = setTimeout(() => {
+      setClipToast(prev => prev ? { ...prev, phase: 'exiting' } : null);
+      clipToastTimerRef.current = setTimeout(() => setClipToast(null), 400);
+    }, 6000);
   }, []);
 
   // Shoutout auto-dismiss effect
@@ -1722,18 +1741,52 @@ function OverlayPage() {
                     color: options?.color || 'primary',
                     asAnnouncement: false
                   })
+                }).then(async res => {
+                  const data = await res.json().catch(() => null);
+                  if (!res.ok || (data && !data.success)) {
+                    OverlayLogger.error('Twitch chat reply API error:', data || res.statusText);
+                  }
                 }).catch(err => OverlayLogger.error('Failed to post Twitch chat reply:', err));
+              } else {
+                OverlayLogger.warn('Cannot send Twitch chat reply: broadcasterId or token missing in settings');
               }
             };
 
-            // Helper to check command rate limiting / duplicate execution prevention
-            const isCommandRateLimited = (cmdKey: string, cooldownMs = 6000) => {
+            // Helper to check command rate limiting & calculate remaining cooldown
+            const getCommandCooldownRemaining = (cmdKey: string, cooldownMs = 6000): number => {
               const now = Date.now();
               const last = lastCommandExecRef.current[cmdKey] || 0;
-              if (now - last < cooldownMs) {
+              const elapsed = now - last;
+              if (elapsed < cooldownMs) {
+                return cooldownMs - elapsed;
+              }
+              return 0;
+            };
+
+            const markCommandExecuted = (cmdKey: string) => {
+              lastCommandExecRef.current[cmdKey] = Date.now();
+            };
+
+            const clearCommandCooldown = (cmdKey: string) => {
+              delete lastCommandExecRef.current[cmdKey];
+            };
+
+            const formatDurationShort = (ms: number): string => {
+              const totalSec = Math.ceil(ms / 1000);
+              if (totalSec >= 60) {
+                const mins = Math.floor(totalSec / 60);
+                const secs = totalSec % 60;
+                return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+              }
+              return `${totalSec}s`;
+            };
+
+            const isCommandRateLimited = (cmdKey: string, cooldownMs = 6000) => {
+              const remaining = getCommandCooldownRemaining(cmdKey, cooldownMs);
+              if (remaining > 0) {
                 return true;
               }
-              lastCommandExecRef.current[cmdKey] = now;
+              markCommandExecuted(cmdKey);
               return false;
             };
 
@@ -1990,23 +2043,30 @@ function OverlayPage() {
               }
 
               const cooldownSec = seSettingsRef.current.picCooldownSeconds ?? 15;
-              if (isCommandRateLimited('pic_cmd', cooldownSec * 1000)) {
-                OverlayLogger.overlay('Twitch IRC !pic command ignored due to cooldown');
-                sendChatReply(`⏳ @${senderDisplayName || senderUser}, !pic command is on cooldown. Please wait a few seconds.`, { color: 'orange' });
+              const userPicKey = `pic_cmd_${(senderUser || 'anon').toLowerCase()}`;
+              const remainingCooldownMs = getCommandCooldownRemaining(userPicKey, cooldownSec * 1000);
+              if (remainingCooldownMs > 0) {
+                const formattedTime = formatDurationShort(remainingCooldownMs);
+                OverlayLogger.overlay(`Twitch IRC !pic command ignored for @${senderUser} due to per-viewer cooldown (${formattedTime} remaining)`);
+                sendChatReply(`⏳ @${senderDisplayName || senderUser}, !pic is on cooldown for you. Please wait ${formattedTime}.`, { color: 'orange' });
                 return;
               }
+              markCommandExecuted(userPicKey);
 
               const seToken = seSettingsRef.current.streamElementsToken;
               const webhookUrl = seSettingsRef.current.discordPicWebhookUrl;
-              const picCost = seSettingsRef.current.picPointsCost ?? 200;
+              const picPointsEnabled = seSettingsRef.current.picPointsEnabled !== false;
+              const picCost = picPointsEnabled ? (seSettingsRef.current.picPointsCost ?? 200) : 0;
 
               if (!webhookUrl || !webhookUrl.trim()) {
+                clearCommandCooldown(userPicKey);
                 OverlayLogger.warn('!pic command failed: discordPicWebhookUrl is not configured');
                 sendChatReply(`⚠️ @${senderDisplayName || senderUser}, Discord pic channel webhook is not configured in Overlay Settings.`, { color: 'orange' });
                 return;
               }
 
               if (picCost > 0 && (!seToken || !seToken.trim())) {
+                clearCommandCooldown(userPicKey);
                 OverlayLogger.warn('!pic command failed: streamElementsToken is not configured');
                 sendChatReply(`⚠️ @${senderDisplayName || senderUser}, StreamElements is not connected in Overlay Settings to verify points.`, { color: 'orange' });
                 return;
@@ -2015,39 +2075,43 @@ function OverlayPage() {
               OverlayLogger.overlay(`Twitch IRC !pic command triggered by @${senderDisplayName || senderUser} (Cost: ${picCost} pts)`);
 
               (async () => {
-                // Step 1: Verify & deduct StreamElements points
+                // Step 1: Verify & deduct StreamElements points (if points enabled)
                 let channelId = seChannelIdRef.current;
-                try {
-                  const pointsCheckRes = await fetch('/api/pic-command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'check_and_deduct',
-                      username: senderUser,
-                      pointsCost: picCost,
-                      seToken,
-                      channelId
-                    })
-                  });
-                  const pointsData = await pointsCheckRes.json();
+                if (picCost > 0) {
+                  try {
+                    const pointsCheckRes = await fetch('/api/pic-command', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        action: 'check_and_deduct',
+                        username: senderUser,
+                        pointsCost: picCost,
+                        seToken,
+                        channelId
+                      })
+                    });
+                    const pointsData = await pointsCheckRes.json();
 
-                  if (!pointsData.success) {
-                    if (pointsData.insufficient) {
-                      sendChatReply(`⚠️ @${senderDisplayName || senderUser}, you need at least ${picCost} points to take a stream pic! (You have: ${pointsData.currentPoints ?? 0} pts)`, { color: 'orange' });
-                    } else {
-                      sendChatReply(`⚠️ @${senderDisplayName || senderUser}, couldn't verify StreamElements points: ${pointsData.error || 'Point check failed'}`, { color: 'orange' });
+                    if (!pointsData.success) {
+                      clearCommandCooldown(userPicKey);
+                      if (pointsData.insufficient) {
+                        sendChatReply(`⚠️ @${senderDisplayName || senderUser}, you need at least ${picCost} points to take a stream pic! (You have: ${pointsData.currentPoints ?? 0} pts)`, { color: 'orange' });
+                      } else {
+                        sendChatReply(`⚠️ @${senderDisplayName || senderUser}, couldn't verify StreamElements points: ${pointsData.error || 'Point check failed'}`, { color: 'orange' });
+                      }
+                      return;
                     }
+
+                    if (pointsData.channelId) {
+                      channelId = pointsData.channelId;
+                      seChannelIdRef.current = pointsData.channelId;
+                    }
+                  } catch (checkErr: any) {
+                    clearCommandCooldown(userPicKey);
+                    OverlayLogger.error('Failed to contact points API:', checkErr);
+                    sendChatReply(`⚠️ @${senderDisplayName || senderUser}, error checking points: ${checkErr?.message || 'Server error'}`, { color: 'orange' });
                     return;
                   }
-
-                  if (pointsData.channelId) {
-                    channelId = pointsData.channelId;
-                    seChannelIdRef.current = pointsData.channelId;
-                  }
-                } catch (checkErr: any) {
-                  OverlayLogger.error('Failed to contact points API:', checkErr);
-                  sendChatReply(`⚠️ @${senderDisplayName || senderUser}, error checking points: ${checkErr?.message || 'Server error'}`, { color: 'orange' });
-                  return;
                 }
 
                 // Step 2: Temporarily hide overlay widgets for a clean stream snapshot
@@ -2092,6 +2156,7 @@ function OverlayPage() {
 
                 // If OBS capture failed, automatically refund points
                 if (!screenshotRes.success || !screenshotRes.imageData) {
+                  clearCommandCooldown(userPicKey);
                   OverlayLogger.warn(`OBS screenshot failed (${screenshotRes.error}), refunding ${picCost} points to @${senderUser}`);
                   fetch('/api/pic-command', {
                     method: 'POST',
@@ -2143,6 +2208,7 @@ function OverlayPage() {
                     }
                   } else {
                     // Discord post failed: refund points!
+                    clearCommandCooldown(userPicKey);
                     OverlayLogger.error('Discord post failed, refunding points:', postData.error);
                     fetch('/api/pic-command', {
                       method: 'POST',
@@ -2159,6 +2225,7 @@ function OverlayPage() {
                     sendChatReply(`❌ Failed to send picture to Discord (${postData.error || 'Webhook upload error'}). Refunded ${picCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
                   }
                 } catch (postErr: any) {
+                  clearCommandCooldown(userPicKey);
                   OverlayLogger.error('Error in post_to_discord fetch:', postErr);
                   fetch('/api/pic-command', {
                     method: 'POST',
@@ -2173,6 +2240,346 @@ function OverlayPage() {
                   }).catch(() => {});
 
                   sendChatReply(`❌ Failed to send picture to Discord (${postErr?.message || 'Network error'}). Refunded ${picCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                }
+              })();
+
+              return;
+            }
+
+            // Command: !clip / !clip <seconds> / !cliptheclip / !replay / !highlight
+            if (
+              lowerText === '!clip' ||
+              lowerText.startsWith('!clip ') ||
+              lowerText === '!cliptheclip' ||
+              lowerText.startsWith('!cliptheclip ') ||
+              lowerText === '!replay' ||
+              lowerText.startsWith('!replay ') ||
+              lowerText === '!highlight' ||
+              lowerText.startsWith('!highlight ')
+            ) {
+              const isEnabled = seSettingsRef.current.clipCommandEnabled !== false;
+              if (!isEnabled) {
+                OverlayLogger.overlay('Twitch IRC !clip command ignored (clipCommandEnabled is disabled)');
+                return;
+              }
+
+              const cooldownSec = seSettingsRef.current.clipCooldownSeconds ?? 180;
+              const userClipKey = `clip_cmd_${(senderUser || 'anon').toLowerCase()}`;
+              const remainingCooldownMs = getCommandCooldownRemaining(userClipKey, cooldownSec * 1000);
+              if (remainingCooldownMs > 0) {
+                const formattedTime = formatDurationShort(remainingCooldownMs);
+                OverlayLogger.overlay(`Twitch IRC !clip command ignored for @${senderUser} due to per-viewer cooldown (${formattedTime} remaining)`);
+                sendChatReply(`⏳ @${senderDisplayName || senderUser}, !clip is on cooldown for you. Please wait ${formattedTime} before clipping again.`, { color: 'orange' });
+                return;
+              }
+              markCommandExecuted(userClipKey);
+
+              // Extract custom duration if provided (e.g. !clip 45 -> 45)
+              const secMatch = lowerText.match(/^!(?:clip|cliptheclip|replay|highlight)\s+(\d+)/);
+              const defaultDuration = seSettingsRef.current.clipDefaultDuration ?? 60;
+              const minDuration = seSettingsRef.current.clipMinDuration ?? 10;
+              const maxDuration = seSettingsRef.current.clipMaxDuration ?? 60;
+              let requestedDuration = secMatch && secMatch[1] ? parseInt(secMatch[1], 10) : defaultDuration;
+              if (isNaN(requestedDuration) || requestedDuration <= 0) {
+                requestedDuration = defaultDuration;
+              }
+              const clipDuration = Math.max(minDuration, Math.min(maxDuration, requestedDuration));
+
+              const seToken = seSettingsRef.current.streamElementsToken;
+              const webhookUrl = seSettingsRef.current.discordClipWebhookUrl || seSettingsRef.current.discordPicWebhookUrl;
+              const clipPointsEnabled = seSettingsRef.current.clipPointsEnabled !== false;
+              const clipCost = clipPointsEnabled ? (seSettingsRef.current.clipPointsCost ?? 300) : 0;
+
+              if (!webhookUrl || !webhookUrl.trim()) {
+                clearCommandCooldown(userClipKey);
+                OverlayLogger.warn('!clip command failed: discordClipWebhookUrl is not configured');
+                sendChatReply(`⚠️ @${senderDisplayName || senderUser}, Discord clip channel webhook is not configured in Overlay Settings.`, { color: 'orange' });
+                return;
+              }
+
+              if (clipCost > 0 && (!seToken || !seToken.trim())) {
+                clearCommandCooldown(userClipKey);
+                OverlayLogger.warn('!clip command failed: streamElementsToken is not configured');
+                sendChatReply(`⚠️ @${senderDisplayName || senderUser}, StreamElements is not connected in Overlay Settings to verify points.`, { color: 'orange' });
+                return;
+              }
+
+              OverlayLogger.overlay(`Twitch IRC !clip command triggered by @${senderDisplayName || senderUser} (Duration: ${clipDuration}s, Cost: ${clipCost} pts, Cooldown: ${cooldownSec}s)`);
+
+              (async () => {
+                // Step 1: Verify & deduct StreamElements points (if points enabled)
+                let channelId = seChannelIdRef.current;
+                if (clipCost > 0) {
+                  try {
+                    const pointsCheckRes = await fetch('/api/clip-command', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        action: 'check_and_deduct',
+                        username: senderUser,
+                        pointsCost: clipCost,
+                        seToken,
+                        channelId
+                      })
+                    });
+                    const pointsData = await pointsCheckRes.json();
+
+                    if (!pointsData.success) {
+                      clearCommandCooldown(userClipKey);
+                      if (pointsData.insufficient) {
+                        sendChatReply(`⚠️ @${senderDisplayName || senderUser}, you need at least ${clipCost} points to create a stream clip! (You have: ${pointsData.currentPoints ?? 0} pts)`, { color: 'orange' });
+                      } else {
+                        sendChatReply(`⚠️ @${senderDisplayName || senderUser}, couldn't verify StreamElements points: ${pointsData.error || 'Point check failed'}`, { color: 'orange' });
+                      }
+                      return;
+                    }
+
+                    if (pointsData.channelId) {
+                      channelId = pointsData.channelId;
+                      seChannelIdRef.current = pointsData.channelId;
+                    }
+                  } catch (checkErr: any) {
+                    clearCommandCooldown(userClipKey);
+                    OverlayLogger.error('Failed to contact points API for !clip:', checkErr);
+                    sendChatReply(`⚠️ @${senderDisplayName || senderUser}, error checking points: ${checkErr?.message || 'Server error'}`, { color: 'orange' });
+                    return;
+                  }
+                }
+
+                const clipMode = seSettingsRef.current.clipSourceMode || 'twitch';
+
+                // ============================================================
+                // CLOUD MODE: Twitch Native Clip (0 PC Storage / Direct Cloud)
+                // ============================================================
+                if (clipMode === 'twitch') {
+                  sendChatReply(`🎬 @${senderDisplayName || senderUser}, creating stream clip... Hang tight! ⏳`, { color: 'primary' });
+
+                  try {
+                    const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
+                    const token = seSettingsRef.current.twitchToken;
+                    const clientId = API_KEYS.TWITCH_CLIENT_ID;
+
+                    const clipRes = await fetch('/api/clip-command', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        action: 'create_twitch_clip',
+                        broadcasterId,
+                        token,
+                        clientId,
+                        username: senderUser,
+                        displayName: senderDisplayName || senderUser,
+                        pointsCost: clipCost,
+                        webhookUrl
+                      })
+                    });
+
+                    const clipData = await clipRes.json();
+
+                    if (clipData.success && clipData.clipUrl) {
+                      const customMsg = seSettingsRef.current.clipCustomMessage;
+                      const successMsg = customMsg
+                        ? customMsg
+                            .replace(/\{user\}/gi, senderDisplayName || senderUser)
+                            .replace(/\{username\}/gi, senderDisplayName || senderUser)
+                            .replace(/\{url\}/gi, clipData.clipUrl)
+                            .replace(/\{link\}/gi, clipData.clipUrl)
+                            .replace(/\{duration\}/gi, String(clipDuration))
+                            .replace(/\{points\}/gi, String(clipCost))
+                        : `🎬 @${senderDisplayName || senderUser} clipped the stream! ${clipData.clipUrl} 🎥`;
+
+                      sendChatReply(successMsg, { color: 'green' });
+
+                      if (seSettingsRef.current.clipShowOnOverlay !== false) {
+                        showClipToast(senderDisplayName || senderUser, clipCost, clipDuration);
+                      }
+                    } else {
+                      clearCommandCooldown(userClipKey);
+                      OverlayLogger.error('Twitch clip creation failed:', clipData.error);
+                      if (clipCost > 0) {
+                        fetch('/api/clip-command', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            action: 'refund_points',
+                            username: senderUser,
+                            amount: clipCost,
+                            seToken,
+                            channelId
+                          })
+                        }).catch(() => {});
+                      }
+                      sendChatReply(`❌ Failed to create clip (${clipData.error || 'Make sure stream is live'}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                    }
+                  } catch (twitchClipErr: any) {
+                    clearCommandCooldown(userClipKey);
+                    OverlayLogger.error('Twitch clip exception:', twitchClipErr);
+                    sendChatReply(`❌ Failed to create Twitch clip (${twitchClipErr?.message || 'Network error'}).`, { color: 'orange' });
+                  }
+                  return;
+                }
+
+                // ============================================================
+                // LOCAL MODE: OBS Studio Replay Buffer MP4
+                // ============================================================
+                sendChatReply(`🎬 @${senderDisplayName || senderUser}, clipping the last ${clipDuration}s of the stream via OBS... Hang tight! ⏳`, { color: 'primary' });
+
+                // Step 3: Trigger OBS Replay Buffer
+                let replayRes: { success: boolean; replayPath?: string; sceneName?: string; error?: string } = { success: false };
+
+                try {
+                  if (localObsRef.current) {
+                    replayRes = await triggerObsReplayBuffer(localObsRef.current, 15000);
+                  }
+
+                  if (!replayRes.success) {
+                    try {
+                      const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                      const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
+                      const tempObs = new OBSWebSocket();
+                      tempObs.on('ConnectionClosed', () => {});
+                      tempObs.on('ConnectionError', () => {});
+
+                      const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
+                      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('OBS connection timed out')), 3000));
+                      await Promise.race([connectPromise, timeoutPromise]);
+
+                      replayRes = await triggerObsReplayBuffer(tempObs, 15000);
+                      try { await tempObs.disconnect(); } catch {}
+                    } catch (connErr: any) {
+                      replayRes = { success: false, error: connErr?.message || String(connErr) };
+                    }
+                  }
+                } catch (obsErr: any) {
+                  replayRes = { success: false, error: obsErr?.message || String(obsErr) };
+                }
+
+                // If OBS capture failed, automatically refund points
+                if (!replayRes.success || !replayRes.replayPath) {
+                  clearCommandCooldown(userClipKey);
+                  OverlayLogger.warn(`OBS replay buffer save failed (${replayRes.error}), refunding ${clipCost} points to @${senderUser}`);
+                  fetch('/api/clip-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'refund_points',
+                      username: senderUser,
+                      amount: clipCost,
+                      seToken,
+                      channelId
+                    })
+                  }).catch(() => {});
+
+                  sendChatReply(`❌ Failed to save replay from OBS (${replayRes.error || 'Replay buffer not active'}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                  return;
+                }
+
+                // Step 4: Process with FFmpeg and upload to Discord Webhook
+                // Supports Local Clip Bridge (http://127.0.0.1:4848), Local Dev (http://127.0.0.1:3000), or current host
+                try {
+                  const clipPayload = {
+                    action: 'process_and_upload',
+                    replayPath: replayRes.replayPath,
+                    duration: clipDuration,
+                    username: senderUser,
+                    displayName: senderDisplayName || senderUser,
+                    pointsCost: clipCost,
+                    sceneName: replayRes.sceneName,
+                    webhookUrl
+                  };
+
+                  let postData: any = null;
+                  let lastErr: string = '';
+                  const candidateEndpoints = [
+                    'http://127.0.0.1:4848/api/clip-command',
+                    'http://127.0.0.1:3000/api/clip-command',
+                    '/api/clip-command'
+                  ];
+
+                  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+                    candidateEndpoints.unshift('/api/clip-command');
+                  }
+
+                  for (const endpoint of candidateEndpoints) {
+                    try {
+                      const controller = new AbortController();
+                      const timeoutId = setTimeout(() => controller.abort(), 45000);
+                      const postRes = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(clipPayload),
+                        signal: controller.signal
+                      });
+                      clearTimeout(timeoutId);
+
+                      if (postRes.ok) {
+                        const data = await postRes.json();
+                        if (data && data.success) {
+                          postData = data;
+                          break;
+                        } else if (data && data.error) {
+                          lastErr = data.error;
+                        }
+                      } else {
+                        const errJson = await postRes.json().catch(() => null);
+                        lastErr = errJson?.error || `HTTP ${postRes.status}`;
+                      }
+                    } catch (e: any) {
+                      lastErr = e?.message || String(e);
+                    }
+                  }
+
+                  if (postData && postData.success) {
+                    const customMsg = seSettingsRef.current.clipCustomMessage;
+                    const successMsg = customMsg
+                      ? customMsg
+                          .replace(/\{user\}/gi, senderDisplayName || senderUser)
+                          .replace(/\{username\}/gi, senderDisplayName || senderUser)
+                          .replace(/\{duration\}/gi, String(clipDuration))
+                          .replace(/\{points\}/gi, String(clipCost))
+                      : `🎬 @${senderDisplayName || senderUser} clipped the last ${clipDuration}s! Check it out in the Discord clips channel! 🎥`;
+
+                    sendChatReply(successMsg, { color: 'green' });
+
+                    // Show on-screen notification toast if enabled
+                    if (seSettingsRef.current.clipShowOnOverlay !== false) {
+                      showClipToast(senderDisplayName || senderUser, clipCost, clipDuration);
+                    }
+                  } else {
+                    // Discord post / FFmpeg failed: refund points and clear cooldown!
+                    clearCommandCooldown(userClipKey);
+                    const errorMsg = postData?.error || lastErr || 'Processing error';
+                    OverlayLogger.error('Discord clip upload failed, refunding points:', errorMsg);
+                    fetch('/api/clip-command', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        action: 'refund_points',
+                        username: senderUser,
+                        amount: clipCost,
+                        seToken,
+                        channelId
+                      })
+                    }).catch(() => {});
+
+                    sendChatReply(`❌ Failed to upload clip to Discord (${errorMsg}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                  }
+                } catch (postErr: any) {
+                  clearCommandCooldown(userClipKey);
+                  OverlayLogger.error('Error in clip process_and_upload fetch:', postErr);
+                  fetch('/api/clip-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'refund_points',
+                      username: senderUser,
+                      amount: clipCost,
+                      seToken,
+                      channelId
+                    })
+                  }).catch(() => {});
+
+                  sendChatReply(`❌ Failed to process clip (${postErr?.message || 'Network error'}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
                 }
               })();
 
@@ -4830,7 +5237,58 @@ function OverlayPage() {
               <div className="pic-toast-body">
                 <div className="pic-toast-title">📸 STREAM SNAPSHOT TAKEN!</div>
                 <div className="pic-toast-desc">
-                  <span className="pic-toast-user">@{picSnapshotToast.user}</span> spent <span className="pic-toast-pts">{picSnapshotToast.points} pts</span> • Sent to Discord!
+                  {picSnapshotToast.points > 0 ? (
+                    <>
+                      <span className="pic-toast-user">@{picSnapshotToast.user}</span> spent <span className="pic-toast-pts">{picSnapshotToast.points} pts</span> • Sent to Discord!
+                    </>
+                  ) : (
+                    <>
+                      <span className="pic-toast-user">@{picSnapshotToast.user}</span> snapped the stream • Sent to Discord!
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stream Clip (!clip) Overlay Toast */}
+        {clipToast && (
+          <div
+            style={{
+              position: 'fixed',
+              top: '80px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 99999,
+              pointerEvents: 'none'
+            }}
+          >
+            <div className={`clip-toast-card ${clipToast.phase === 'exiting' ? 'exiting' : ''}`}>
+              <div className="clip-toast-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00d2ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+                  <line x1="7" y1="2" x2="7" y2="22"/>
+                  <line x1="17" y1="2" x2="17" y2="22"/>
+                  <line x1="2" y1="12" x2="22" y2="12"/>
+                  <line x1="2" y1="7" x2="7" y2="7"/>
+                  <line x1="2" y1="17" x2="7" y2="17"/>
+                  <line x1="17" y1="17" x2="22" y2="17"/>
+                  <line x1="17" y1="7" x2="22" y2="7"/>
+                </svg>
+              </div>
+              <div className="clip-toast-body">
+                <div className="clip-toast-title">🎬 STREAM CLIP CREATED ({clipToast.duration}s)!</div>
+                <div className="clip-toast-desc">
+                  {clipToast.points > 0 ? (
+                    <>
+                      <span className="pic-toast-user">@{clipToast.user}</span> spent <span className="clip-toast-pts">{clipToast.points} pts</span> • Sent to Discord!
+                    </>
+                  ) : (
+                    <>
+                      <span className="clip-toast-user">@{clipToast.user}</span> clipped the stream • Sent to Discord!
+                    </>
+                  )}
                 </div>
               </div>
             </div>

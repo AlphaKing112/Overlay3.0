@@ -1486,8 +1486,8 @@ export default function AdminPage() {
                 onClick={() => {
                   const clientId = API_KEYS.TWITCH_CLIENT_ID;
                   const redirectUri = window.location.origin + '/twitch-auth';
-                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read');
-                  const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
+                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit');
+                  const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&force_verify=true`;
                   window.location.href = authUrl;
                 }}
               >
@@ -4136,12 +4136,25 @@ export default function AdminPage() {
                       {(settings.picCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
                     </span>
                   </label>
+                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '0.78em', color: '#00d2ff', fontWeight: 'bold' }}>!clip:</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.clipCommandEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ clipCommandEnabled: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#00d2ff' }}
+                    />
+                    <span style={{ fontSize: '0.78em', color: (settings.clipCommandEnabled ?? true) ? '#00d2ff' : '#ef4444', fontWeight: 'bold' }}>
+                      {(settings.clipCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </label>
                   <span style={{ fontSize: '0.8em', padding: '3px 10px', borderRadius: '6px', background: twitchIrcStatus === 'connected' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', color: twitchIrcStatus === 'connected' ? '#22c55e' : '#ef4444', border: twitchIrcStatus === 'connected' ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(239,68,68,0.4)', fontWeight: 'bold' }}>
                     {twitchIrcStatus === 'connected' ? `🟢 Connected to #${settings.twitchUsername}` : '🔴 Twitch Chat Not Connected'}
                   </span>
                 </div>
               </div>
               <p style={{ fontSize: '0.85em', opacity: 0.85, margin: 0, lineHeight: 1.5 }}>
+                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#00d2ff' }}>!clip</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#00d2ff' }}>!clip &lt;seconds&gt;</code>: Spends {settings.clipPointsCost ?? 300} StreamElements points to clip the stream (e.g. <code>!clip 45</code>) via OBS Replay Buffer and send the MP4 video to Discord.<br />
                 • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!pic</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!picture</code>: Spends {settings.picPointsCost ?? 200} StreamElements points to take a stream photo and send it to Discord.<br />
                 • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!start</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#ef4444' }}>!end</code>: Start or end your OBS stream directly from chat.<br />
                 • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>!refresh</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>!ref</code>: Switch to Refresh scene for 2.5s and back to Live scene to reset SRT audio feed.<br />

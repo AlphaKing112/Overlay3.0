@@ -268,6 +268,9 @@ export async function POST(request: NextRequest) {
     // ==========================================
     if (action === 'refund_points') {
       const { username, channelId, amount = pointsCost } = body;
+      if (amount <= 0) {
+        return NextResponse.json({ success: true, refundedAmount: 0, newPoints: 0 });
+      }
       if (!username || !seToken) {
         return NextResponse.json({ success: false, error: 'Missing username or token' }, { status: 400 });
       }

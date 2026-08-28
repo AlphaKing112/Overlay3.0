@@ -233,10 +233,24 @@ export interface OverlaySettings {
   // Stream Snapshot (!pic Command) & Discord Integration
   discordPicWebhookUrl?: string;
   picCommandEnabled?: boolean;
+  picPointsEnabled?: boolean;
   picPointsCost?: number;
   picCooldownSeconds?: number;
   picShowOnOverlay?: boolean;
   picCustomMessage?: string;
+
+  // Stream Clipping (!clip Command) & Discord Integration
+  discordClipWebhookUrl?: string;
+  clipCommandEnabled?: boolean;
+  clipSourceMode?: 'twitch' | 'obs';
+  clipPointsEnabled?: boolean;
+  clipPointsCost?: number;
+  clipCooldownSeconds?: number;
+  clipDefaultDuration?: number;
+  clipMaxDuration?: number;
+  clipMinDuration?: number;
+  clipShowOnOverlay?: boolean;
+  clipCustomMessage?: string;
 }
 
 // Default settings (single source of truth)
@@ -419,10 +433,22 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   twitchClientId: process.env.NEXT_PUBLIC_TWITCH_CLIENT_ID || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw',
   discordPicWebhookUrl: '',
   picCommandEnabled: true,
+  picPointsEnabled: true,
   picPointsCost: 200,
   picCooldownSeconds: 15,
   picShowOnOverlay: true,
   picCustomMessage: '',
+  discordClipWebhookUrl: '',
+  clipCommandEnabled: true,
+  clipSourceMode: 'twitch',
+  clipPointsEnabled: true,
+  clipPointsCost: 300,
+  clipCooldownSeconds: 180,
+  clipDefaultDuration: 60,
+  clipMaxDuration: 60,
+  clipMinDuration: 10,
+  clipShowOnOverlay: true,
+  clipCustomMessage: '',
 };
 
 // Valid settings schema for validation
@@ -602,10 +628,22 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   pulsoidToken: 'string',
   discordPicWebhookUrl: 'string',
   picCommandEnabled: 'boolean',
+  picPointsEnabled: 'boolean',
   picPointsCost: 'number',
   picCooldownSeconds: 'number',
   picShowOnOverlay: 'boolean',
   picCustomMessage: 'string',
+  discordClipWebhookUrl: 'string',
+  clipCommandEnabled: 'boolean',
+  clipSourceMode: 'string',
+  clipPointsEnabled: 'boolean',
+  clipPointsCost: 'number',
+  clipCooldownSeconds: 'number',
+  clipDefaultDuration: 'number',
+  clipMaxDuration: 'number',
+  clipMinDuration: 'number',
+  clipShowOnOverlay: 'boolean',
+  clipCustomMessage: 'string',
 };
 
 // SSE message types

@@ -17,6 +17,8 @@ export default function SettingsConfigPage() {
   const [syncStatus, setSyncStatus] = useState<'connected' | 'disconnected' | 'syncing'>('disconnected');
   const [isTestingPicWebhook, setIsTestingPicWebhook] = useState(false);
   const [picTestStatus, setPicTestStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [isTestingClipWebhook, setIsTestingClipWebhook] = useState(false);
+  const [clipTestStatus, setClipTestStatus] = useState<{ success?: boolean; message?: string } | null>(null);
   const [isCheckingSeToken, setIsCheckingSeToken] = useState(false);
   const [seTokenStatus, setSeTokenStatus] = useState<{ success?: boolean; message?: string } | null>(null);
   const [isNavigatingToDashboard, setIsNavigatingToDashboard] = useState(false);
@@ -222,6 +224,38 @@ export default function SettingsConfigPage() {
     }
   };
 
+  // Test Discord Clip Webhook
+  const handleTestClipWebhook = async () => {
+    const targetUrl = settings.discordClipWebhookUrl || settings.discordPicWebhookUrl;
+    if (!targetUrl) {
+      setClipTestStatus({ success: false, message: 'Please enter a Discord Clip Webhook URL first (or configure Pic Webhook).' });
+      return;
+    }
+    setIsTestingClipWebhook(true);
+    setClipTestStatus(null);
+    try {
+      const res = await fetch('/api/clip-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test',
+          webhookUrl: targetUrl,
+          pointsCost: settings.clipPointsCost ?? 300
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setClipTestStatus({ success: true, message: '✅ Test notification posted to Discord clip channel successfully!' });
+      } else {
+        setClipTestStatus({ success: false, message: `❌ Discord test failed: ${data.error || 'Check webhook URL'}` });
+      }
+    } catch (err: any) {
+      setClipTestStatus({ success: false, message: `❌ Test error: ${err.message}` });
+    } finally {
+      setIsTestingClipWebhook(false);
+    }
+  };
+
   // Verify StreamElements Token
   const handleCheckSeToken = async () => {
     if (!settings.streamElementsToken) {
@@ -347,6 +381,40 @@ export default function SettingsConfigPage() {
             >
               ← Dashboard
             </button>
+            {settings.twitchToken ? (
+              <button
+                className="btn"
+                style={{ background: 'rgba(145, 70, 255, 0.2)', border: '1px solid #9146FF', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}
+                onClick={() => {
+                  if (confirm(`Disconnect from Twitch (@${settings.twitchUsername || 'User'})?`)) {
+                    handleSettingsChange({ twitchToken: '', twitchBroadcasterId: '', twitchUsername: '' });
+                  }
+                }}
+                title="Click to Disconnect Twitch"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                </svg>
+                {settings.twitchUsername ? `@${settings.twitchUsername}` : 'Twitch Connected'}
+              </button>
+            ) : (
+              <button
+                className="btn"
+                style={{ background: '#9146FF', color: 'white', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => {
+                  const clientId = API_KEYS.TWITCH_CLIENT_ID;
+                  const redirectUri = window.location.origin + '/twitch-auth';
+                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit');
+                  const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&force_verify=true`;
+                  window.location.href = authUrl;
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                </svg>
+                Twitch Login
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => window.open('/overlay', '_blank')}>
               👁️ Preview
             </button>
@@ -1059,19 +1127,40 @@ export default function SettingsConfigPage() {
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                 <div>
-                  <label className="input-label" style={{ fontWeight: 'bold' }}>💰 StreamElements Points Cost</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="input-label" style={{ fontWeight: 'bold', margin: 0 }}>💰 StreamElements Points</label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontSize: '0.78em', userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.picPointsEnabled ?? true}
+                        onChange={(e) => handleSettingsChange({ picPointsEnabled: e.target.checked })}
+                        style={{ width: '14px', height: '14px', accentColor: '#53FC19', cursor: 'pointer' }}
+                      />
+                      <span style={{ color: (settings.picPointsEnabled ?? true) ? '#53FC19' : '#94a3b8', fontWeight: 'bold' }}>
+                        {(settings.picPointsEnabled ?? true) ? 'POINTS ENABLED' : 'DISABLED (FREE)'}
+                      </span>
+                    </label>
+                  </div>
                   <input
                     type="number"
                     min="0"
                     max="1000000"
                     step="10"
                     className="text-input"
+                    disabled={settings.picPointsEnabled === false}
                     value={settings.picPointsCost ?? 200}
                     onChange={(e) => handleSettingsChange({ picPointsCost: parseInt(e.target.value) || 0 })}
-                    style={{ width: '100%', marginTop: '4px' }}
+                    style={{
+                      width: '100%',
+                      marginTop: '4px',
+                      opacity: settings.picPointsEnabled === false ? 0.45 : 1,
+                      cursor: settings.picPointsEnabled === false ? 'not-allowed' : 'text'
+                    }}
                   />
                   <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
-                    Points deducted from viewer via StreamElements (Default: 200).
+                    {(settings.picPointsEnabled ?? true)
+                      ? 'Points deducted from viewer via StreamElements (Default: 200).'
+                      : 'Points disabled — !pic is completely free for all viewers!'}
                   </span>
                 </div>
 
@@ -1158,6 +1247,270 @@ export default function SettingsConfigPage() {
                     color: picTestStatus.success ? '#53FC19' : '#ef4444'
                   }}>
                     {picTestStatus.message}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </section>
+
+          {/* Stream Clipping (!clip) & Discord Integration Section */}
+          <section className="settings-card" style={{ borderLeft: '4px solid #00d2ff' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2>🎬 Stream Clipping (!clip Command) & Discord</h2>
+                <p className="card-description">
+                  Allows viewers in Twitch chat to use <code>!clip</code> (or <code>!clip 45</code>, <code>!clip 30</code>) to clip the last N seconds of your stream via OBS Replay Buffer and automatically upload the video clip to your Discord clips channel!
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.clipCommandEnabled ?? true}
+                    onChange={(e) => handleSettingsChange({ clipCommandEnabled: e.target.checked })}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+                <span style={{ fontSize: '0.85em', color: (settings.clipCommandEnabled ?? true) ? '#00d2ff' : '#ef4444', fontWeight: 'bold' }}>
+                  {(settings.clipCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                </span>
+              </div>
+            </div>
+
+            <div className="form-grid">
+              <div style={{ background: 'rgba(145, 70, 255, 0.08)', border: '1px solid rgba(145, 70, 255, 0.25)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label className="input-label" style={{ fontWeight: 'bold', margin: 0, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  🎥 Clip Generation Engine
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      background: (settings.clipSourceMode ?? 'twitch') === 'twitch' ? 'rgba(145, 70, 255, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${(settings.clipSourceMode ?? 'twitch') === 'twitch' ? '#9146FF' : 'rgba(255, 255, 255, 0.1)'}`,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="clipSourceMode"
+                      value="twitch"
+                      checked={(settings.clipSourceMode ?? 'twitch') === 'twitch'}
+                      onChange={() => handleSettingsChange({ clipSourceMode: 'twitch' })}
+                      style={{ marginTop: '3px', accentColor: '#9146FF' }}
+                    />
+                    <div>
+                      <strong style={{ color: '#fff', fontSize: '0.9em', display: 'block' }}>🟣 Twitch Cloud Clip (Zero PC Storage)</strong>
+                      <span style={{ fontSize: '0.75em', opacity: 0.7, display: 'block', marginTop: '2px' }}>
+                        Recommended! Saves clip directly to Twitch servers & posts playable video embed to Discord. No files on your PC.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      background: settings.clipSourceMode === 'obs' ? 'rgba(0, 210, 255, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${settings.clipSourceMode === 'obs' ? '#00d2ff' : 'rgba(255, 255, 255, 0.1)'}`,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="clipSourceMode"
+                      value="obs"
+                      checked={settings.clipSourceMode === 'obs'}
+                      onChange={() => handleSettingsChange({ clipSourceMode: 'obs' })}
+                      style={{ marginTop: '3px', accentColor: '#00d2ff' }}
+                    />
+                    <div>
+                      <strong style={{ color: '#fff', fontSize: '0.9em', display: 'block' }}>🎬 OBS Replay Buffer MP4</strong>
+                      <span style={{ fontSize: '0.75em', opacity: 0.7, display: 'block', marginTop: '2px' }}>
+                        Saves local MP4 video file to your PC and uploads via local clip bridge.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="input-label" style={{ fontWeight: 'bold' }}>💬 Discord Clips Channel Webhook URL</label>
+                <input
+                  type="password"
+                  placeholder="https://discord.com/api/webhooks/... (leave empty to use Pic Webhook)"
+                  className="text-input"
+                  value={settings.discordClipWebhookUrl || ''}
+                  onChange={(e) => handleSettingsChange({ discordClipWebhookUrl: e.target.value })}
+                  style={{ width: '100%', fontFamily: 'monospace', marginTop: '4px' }}
+                />
+                <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                  Webhook for stream video clips. If left empty, it will fall back to your Discord Pic Webhook URL.
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="input-label" style={{ fontWeight: 'bold', margin: 0 }}>💰 StreamElements Points</label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontSize: '0.78em', userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.clipPointsEnabled ?? true}
+                        onChange={(e) => handleSettingsChange({ clipPointsEnabled: e.target.checked })}
+                        style={{ width: '14px', height: '14px', accentColor: '#00d2ff', cursor: 'pointer' }}
+                      />
+                      <span style={{ color: (settings.clipPointsEnabled ?? true) ? '#00d2ff' : '#94a3b8', fontWeight: 'bold' }}>
+                        {(settings.clipPointsEnabled ?? true) ? 'POINTS ENABLED' : 'DISABLED (FREE)'}
+                      </span>
+                    </label>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    step="10"
+                    className="text-input"
+                    disabled={settings.clipPointsEnabled === false}
+                    value={settings.clipPointsCost ?? 300}
+                    onChange={(e) => handleSettingsChange({ clipPointsCost: parseInt(e.target.value) || 0 })}
+                    style={{
+                      width: '100%',
+                      marginTop: '4px',
+                      opacity: settings.clipPointsEnabled === false ? 0.45 : 1,
+                      cursor: settings.clipPointsEnabled === false ? 'not-allowed' : 'text'
+                    }}
+                  />
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    {(settings.clipPointsEnabled ?? true)
+                      ? 'Points deducted from viewer via StreamElements (Default: 300).'
+                      : 'Points disabled — !clip is completely free for all viewers!'}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="input-label" style={{ fontWeight: 'bold' }}>⏱️ Per-Viewer Cooldown (Seconds)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1800"
+                    className="text-input"
+                    value={settings.clipCooldownSeconds ?? 180}
+                    onChange={(e) => handleSettingsChange({ clipCooldownSeconds: parseInt(e.target.value) || 180 })}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  />
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    Cooldown per viewer between !clip executions (Default: 180s = 3 mins).
+                  </span>
+                </div>
+
+                <div>
+                  <label className="input-label" style={{ fontWeight: 'bold' }}>⏳ Default Duration (Seconds)</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="60"
+                    className="text-input"
+                    value={settings.clipDefaultDuration ?? 60}
+                    onChange={(e) => handleSettingsChange({ clipDefaultDuration: parseInt(e.target.value) || 60 })}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  />
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    Default clip length when viewer types <code>!clip</code> (Default: 60s).
+                  </span>
+                </div>
+
+                <div>
+                  <label className="input-label" style={{ fontWeight: 'bold' }}>⚡ Max Duration (Seconds)</label>
+                  <input
+                    type="number"
+                    min="10"
+                    max="60"
+                    className="text-input"
+                    value={settings.clipMaxDuration ?? 60}
+                    onChange={(e) => handleSettingsChange({ clipMaxDuration: parseInt(e.target.value) || 60 })}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  />
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    Maximum seconds a viewer can request with <code>!clip &lt;sec&gt;</code> (Default: 60s).
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="input-label" style={{ fontWeight: 'bold' }}>📢 Custom Chat Reply Template (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="🎬 @{user} clipped the last {duration}s! Check it out in the Discord clips channel! 🎥"
+                  className="text-input"
+                  value={settings.clipCustomMessage || ''}
+                  onChange={(e) => handleSettingsChange({ clipCustomMessage: e.target.value })}
+                  style={{ width: '100%', marginTop: '4px' }}
+                />
+                <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                  Available tags: <code>&#123;user&#125;</code>, <code>&#123;duration&#125;</code>, <code>&#123;points&#125;</code>.
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9em' }}>✨ Show On-Screen Clip Toast on Overlay</div>
+                  <div style={{ fontSize: '0.75em', opacity: 0.6 }}>Displays an animated clipping notification card on stream when !clip is used.</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.clipShowOnOverlay ?? true}
+                    onChange={(e) => handleSettingsChange({ clipShowOnOverlay: e.target.checked })}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={handleTestClipWebhook}
+                    disabled={isTestingClipWebhook || (!settings.discordClipWebhookUrl && !settings.discordPicWebhookUrl)}
+                    className="secondary-btn"
+                    style={{
+                      background: 'rgba(0, 210, 255, 0.15)',
+                      borderColor: 'rgba(0, 210, 255, 0.5)',
+                      color: '#00d2ff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      cursor: (isTestingClipWebhook || (!settings.discordClipWebhookUrl && !settings.discordPicWebhookUrl)) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {isTestingClipWebhook ? '⏳ Testing Webhook...' : '🎬 Test Clip Webhook to Discord'}
+                  </button>
+                  <span style={{ fontSize: '0.78em', opacity: 0.7 }}>
+                    Sends a test notification directly to your Discord clips channel.
+                  </span>
+                </div>
+
+                {clipTestStatus && (
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    fontSize: '0.85em',
+                    fontWeight: 'bold',
+                    background: clipTestStatus.success ? 'rgba(0, 210, 255, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    border: `1px solid ${clipTestStatus.success ? 'rgba(0, 210, 255, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                    color: clipTestStatus.success ? '#00d2ff' : '#ef4444'
+                  }}>
+                    {clipTestStatus.message}
                   </div>
                 )}
               </div>
