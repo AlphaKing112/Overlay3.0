@@ -133,15 +133,13 @@ Designed for streamers using **Belabox**, **RTIRL GPS**, **OBS Studio**, **Twitc
    - Go to the **Storage** tab → click **Create Database** → select **KV (Redis)**.
    - Connect the KV database to your project.
 
-5. **Set Environment Variables**:
-   In Vercel Project Settings → **Environment Variables**, add:
-   - `ADMIN_PASSWORD`: Your password to access `/login` (e.g. `MySecurePassword123`)
+5. **Set Environment Variables on Vercel**:
+   In Vercel Project Settings → **Environment Variables**, add the **essential security keys**:
+   - `ADMIN_PASSWORD`: Your password to access `/login` and the admin panel (e.g. `MySecurePassword123`)
    - `API_SECRET`: A random 64-character string (e.g. generated via `openssl rand -hex 32`)
    - `NEXT_PUBLIC_API_SECRET`: Same value as `API_SECRET`
-   - `NEXT_PUBLIC_RTIRL_PULL_KEY`: Your RTIRL GPS Pull Key
-   - `NEXT_PUBLIC_LOCATIONIQ_KEY`: Your LocationIQ API Key
-   - `NEXT_PUBLIC_OPENWEATHERMAP_KEY`: Your OpenWeatherMap API Key
-   - `NEXT_PUBLIC_TWITCH_CLIENT_ID`: `xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw` (or your own Twitch Dev Client ID)
+
+   > 💡 **No other env vars required!** All other service keys (RTIRL GPS, LocationIQ, OpenWeatherMap, Pulsoid, Belabox, StreamElements, and Discord Webhooks) can be pasted and saved **directly in your Settings Page UI (`/settings`)** without needing to configure them in Vercel or redeploy!
 
 ---
 
