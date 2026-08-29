@@ -327,30 +327,70 @@ export async function POST(request: NextRequest) {
 
         // Post to Discord Webhook if configured
         if (targetWebhook && targetWebhook.startsWith('https://')) {
-          const nowIso = new Date().toISOString();
-          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const contentText = `🎬 **!clip** captured by **${name}**!${pointsCost > 0 ? ` (${pointsCost} StreamElements points)` : ''}${sceneName ? ` • \`${sceneName}\`` : ''}\n${clipUrl}`;
 
-          const discordPayload = {
-            content: `🎬 **!clip** captured by **${name}**!\n${clipUrl}`,
-            embeds: [
-              {
-                title: `🎬 Twitch Stream Clip`,
-                url: clipUrl,
-                description: `Clipped by **${name}** via \`!clip\` chat command${pointsCost > 0 ? ` (${pointsCost} points)` : ''}${sceneName ? `\n📺 Scene: \`${sceneName}\`` : ''}\n\n👉 [Watch on Twitch](${clipUrl}) • [Edit Clip](${editUrl})`,
-                color: 0x9146ff,
-                footer: {
-                  text: `Twitch Clips • Stream Overlay • ${timeStr}`
-                },
-                timestamp: nowIso
+          // Attempt to fetch direct MP4 from Twitch CDN to attach playable video directly in Discord
+          let uploadedAttachedVideo = false;
+          try {
+            // Brief wait for Twitch CDN rendering
+            await new Promise(r => setTimeout(r, 1200));
+
+            const clipMetaRes = await fetch(`https://api.twitch.tv/helix/clips?id=${encodeURIComponent(clipSlug)}`, {
+              headers: {
+                'Client-Id': clientId,
+                'Authorization': `Bearer ${token}`
               }
-            ]
-          };
+            });
 
-          fetch(targetWebhook, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(discordPayload)
-          }).catch(err => OverlayLogger.error('Failed to post Twitch clip to Discord webhook:', err));
+            if (clipMetaRes.ok) {
+              const metaData = await clipMetaRes.json();
+              const fetchedClip = metaData?.data?.[0];
+              const thumbUrl: string | undefined = fetchedClip?.thumbnail_url;
+
+              if (thumbUrl) {
+                // Twitch CDN direct mp4 URL pattern from thumbnail
+                const directMp4Url = thumbUrl
+                  .replace(/-preview-\d+x\d+\.(jpg|png|jpeg)/i, '.mp4')
+                  .replace(/-preview\.(jpg|png|jpeg)/i, '.mp4');
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                const vidRes = await fetch(directMp4Url, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (vidRes.ok) {
+                  const videoBuffer = await vidRes.arrayBuffer();
+                  if (videoBuffer && videoBuffer.byteLength > 10000 && videoBuffer.byteLength < 25 * 1024 * 1024) {
+                    const formData = new FormData();
+                    formData.append('payload_json', JSON.stringify({ content: contentText }));
+                    const fileBlob = new Blob([videoBuffer], { type: 'video/mp4' });
+                    formData.append('files[0]', fileBlob, `clip_${name}_${clipSlug}.mp4`);
+
+                    const discordRes = await fetch(targetWebhook, {
+                      method: 'POST',
+                      body: formData
+                    });
+
+                    if (discordRes.ok || discordRes.status === 204) {
+                      uploadedAttachedVideo = true;
+                      OverlayLogger.overlay('Attached playable MP4 video directly to Discord webhook!');
+                    }
+                  }
+                }
+              }
+            }
+          } catch (mp4Err) {
+            OverlayLogger.warn('Direct MP4 video upload to Discord failed, using native video link:', mp4Err);
+          }
+
+          // Fallback: Post clean link without custom embeds array so Discord unfurls the native interactive Twitch video player
+          if (!uploadedAttachedVideo) {
+            fetch(targetWebhook, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: contentText })
+            }).catch(err => OverlayLogger.error('Failed to post Twitch clip to Discord webhook:', err));
+          }
         }
 
         return NextResponse.json({
