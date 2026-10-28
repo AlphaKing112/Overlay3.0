@@ -34,8 +34,23 @@ export function useAnimatedValue(
   const [displayedValue, setDisplayedValue] = useState<number | null>(
     allowNull ? null : (targetValue ?? 0)
   );
+  const [prevTargetValue, setPrevTargetValue] = useState<number | null>(targetValue);
   const animationRef = useRef<number | null>(null);
   const currentValueRef = useRef<number | null>(displayedValue);
+
+  // Adjust state during render when null or immediate transitions occur (React 19 pattern)
+  if (targetValue !== prevTargetValue) {
+    setPrevTargetValue(targetValue);
+    if (targetValue === null && allowNull && displayedValue !== null) {
+      setDisplayedValue(null);
+    } else if (targetValue !== null) {
+      if (displayedValue === null) {
+        setDisplayedValue(targetValue);
+      } else if (Math.abs(targetValue - displayedValue) <= immediateThreshold) {
+        setDisplayedValue(targetValue);
+      }
+    }
+  }
 
   // Keep ref in sync with displayed value (for use in effect closure)
   useEffect(() => {
@@ -45,16 +60,10 @@ export function useAnimatedValue(
   useEffect(() => {
     // Handle null values
     if (targetValue === null) {
-      if (allowNull) {
-        setDisplayedValue(null);
-        currentValueRef.current = null;
-      }
       return;
     }
 
-    // If no displayed value yet, set it immediately
-    if (currentValueRef.current === null && allowNull) {
-      setDisplayedValue(targetValue);
+    if (currentValueRef.current === null) {
       currentValueRef.current = targetValue;
       return;
     }
@@ -69,9 +78,9 @@ export function useAnimatedValue(
     const startValue = currentValueRef.current ?? 0;
     const difference = targetValue - startValue;
 
-    // If difference is small, update immediately
+    // If difference is small, it was already updated during render
     if (Math.abs(difference) <= immediateThreshold) {
-      setDisplayedValue(targetValue);
+      currentValueRef.current = targetValue;
       return;
     }
 

@@ -15,13 +15,15 @@ export const CalorieTracker = ({ calories, goal, visible, scale = 1, x = 0, y = 
   const [shouldRender, setShouldRender] = useState(visible);
 
   useEffect(() => {
-    if (visible) {
-      setShouldRender(true);
-    } else {
+    if (!visible) {
       const timer = setTimeout(() => setShouldRender(false), 500);
       return () => clearTimeout(timer);
     }
   }, [visible]);
+
+  if (visible && !shouldRender) {
+    setShouldRender(true);
+  }
 
   const progress = useMemo(() => {
     return Math.min(Math.round((calories / goal) * 100), 100);

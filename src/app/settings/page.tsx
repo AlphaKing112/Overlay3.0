@@ -22,6 +22,7 @@ export default function SettingsConfigPage() {
   const [isCheckingSeToken, setIsCheckingSeToken] = useState(false);
   const [seTokenStatus, setSeTokenStatus] = useState<{ success?: boolean; message?: string } | null>(null);
   const [isNavigatingToDashboard, setIsNavigatingToDashboard] = useState(false);
+  const [mapFormat, setMapFormat] = useState<'1080p' | '1080x1920' | 'fill'>('1080p');
 
   const handleGoToDashboard = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -415,8 +416,29 @@ export default function SettingsConfigPage() {
                 Twitch Login
               </button>
             )}
-            <button className="btn btn-primary" onClick={() => window.open('/overlay', '_blank')}>
+            <button className="btn btn-primary" onClick={() => window.open('/overlay', '_blank')} title="Preview full stream overlay (/overlay)">
               👁️ Preview
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => window.open('/map', '_blank')}
+              title="Open full-screen map webpage in new tab (/map)"
+              style={{ background: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.35)', color: '#38bdf8', fontWeight: 'bold' }}
+            >
+              🗺️ Full Map
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                const url = `${window.location.origin}/map`;
+                navigator.clipboard.writeText(url);
+                setToast({ type: 'saved', message: '📋 Full Map OBS link copied to clipboard!' });
+                setTimeout(() => setToast(null), 3000);
+              }}
+              title="Copy Full Map URL to clipboard for OBS"
+              style={{ background: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.35)', color: '#4ade80', fontWeight: 'bold' }}
+            >
+              📋 Copy Map Link
             </button>
             <button
               className="btn btn-secondary"
@@ -709,6 +731,396 @@ export default function SettingsConfigPage() {
             <div className="section-header" style={{ marginBottom: '1.25rem', paddingBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
               <h2>🗺️ GPS, Minimap & Speed Timers</h2>
             </div>
+
+            {/* Dedicated Full Screen Map Webpage Box for OBS */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(15, 23, 42, 0.6))',
+              border: '1px solid rgba(56, 189, 248, 0.35)',
+              borderRadius: '12px',
+              padding: '16px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '1.2em' }}>🗺️</span>
+                    <strong style={{ fontSize: '1.05em', color: '#38bdf8' }}>Full Screen Map (OBS Browser Source)</strong>
+                    <span style={{ fontSize: '0.72em', background: '#38bdf8', color: '#000', fontWeight: 'bold', padding: '2px 6px', borderRadius: '4px' }}>NEW</span>
+                  </div>
+                  <div style={{ fontSize: '0.82em', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    A dedicated realtime GPS map webpage you can paste directly as a Browser Source in OBS Studio.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* Format Selector Dropdown */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#94a3b8' }}>Format:</label>
+                    <select
+                      value={settings.mapFormat || '1080p'}
+                      onChange={(e) => {
+                        const val = e.target.value as '1080p' | '720p' | '1080x1920' | '720x1280' | 'fill';
+                        handleSettingsChange({ mapFormat: val });
+                      }}
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.95)',
+                        color: '#38bdf8',
+                        border: '1px solid rgba(56, 189, 248, 0.4)',
+                        fontSize: '0.82em',
+                        padding: '5px 8px',
+                        borderRadius: '6px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="1080p">🖥️ 1080p Horizontal (1920x1080)</option>
+                      <option value="720p">📺 720p Horizontal (1280x720)</option>
+                      <option value="1080x1920">📱 1080x1920 Vertical (9:16)</option>
+                      <option value="720x1280">📱 720x1280 Vertical (9:16)</option>
+                      <option value="fill">📐 Auto-Fill Window (100%)</option>
+                    </select>
+                  </div>
+
+                  <button
+                    className="btn btn-secondary btn-small"
+                    onClick={() => {
+                      const fmt = settings.mapFormat || '1080p';
+                      const url = `${window.location.origin}/map${fmt !== 'fill' ? `?res=${fmt}` : ''}`;
+                      navigator.clipboard.writeText(url);
+                      const labels: Record<string, string> = {
+                        '1080p': '1080p Horizontal',
+                        '720p': '720p Horizontal',
+                        '1080x1920': '1080x1920 Vertical',
+                        '720x1280': '720x1280 Vertical',
+                        'fill': 'Full Window'
+                      };
+                      setToast({ type: 'saved', message: `📋 Full Map (${labels[fmt] || fmt}) link copied!` });
+                      setTimeout(() => setToast(null), 3000);
+                    }}
+                    style={{ background: 'rgba(56, 189, 248, 0.2)', border: '1px solid rgba(56, 189, 248, 0.4)', color: '#38bdf8', fontWeight: 'bold' }}
+                    title="Copy formatted /map URL to paste in OBS"
+                  >
+                    📋 Copy Map Link
+                  </button>
+                  <button
+                    className="btn btn-primary btn-small"
+                    onClick={() => {
+                      const fmt = settings.mapFormat || '1080p';
+                      const url = `/map${fmt !== 'fill' ? `?res=${fmt}` : ''}`;
+                      window.open(url, '_blank');
+                    }}
+                    style={{ fontWeight: 'bold' }}
+                    title="Open full map webpage in new tab"
+                  >
+                    🚀 Open Map
+                  </button>
+                </div>
+              </div>
+
+              {/* OBS Quick URL input & instructions */}
+              <div style={{ marginTop: '12px', background: 'rgba(0, 0, 0, 0.35)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.8em', opacity: 0.7, whiteSpace: 'nowrap' }}>OBS Browser Source URL:</span>
+                  <input
+                    type="text"
+                    readOnly
+                    value={typeof window !== 'undefined' ? `${window.location.origin}/map${(settings.mapFormat || '1080p') !== 'fill' ? `?res=${settings.mapFormat || '1080p'}` : ''}` : `/map?res=${settings.mapFormat || '1080p'}`}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: '6px',
+                      color: '#38bdf8',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85em',
+                      padding: '5px 10px',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <button
+                    className="btn btn-secondary btn-small"
+                    onClick={() => {
+                      const fmt = settings.mapFormat || '1080p';
+                      const url = `${window.location.origin}/map${fmt !== 'fill' ? `?res=${fmt}` : ''}`;
+                      navigator.clipboard.writeText(url);
+                      const labels: Record<string, string> = {
+                        '1080p': '1080p Horizontal',
+                        '720p': '720p Horizontal',
+                        '1080x1920': '1080x1920 Vertical',
+                        '720x1280': '720x1280 Vertical',
+                        'fill': 'Full Window'
+                      };
+                      setToast({ type: 'saved', message: `📋 Full Map (${labels[fmt] || fmt}) link copied!` });
+                      setTimeout(() => setToast(null), 3000);
+                    }}
+                    style={{ padding: '5px 12px', fontSize: '0.8em' }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div style={{ fontSize: '0.78em', color: 'rgba(255, 255, 255, 0.6)', marginTop: '8px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <span>
+                    📐 <strong>OBS Resolution:</strong>{' '}
+                    {settings.mapFormat === '1080x1920' ? (
+                      <strong style={{ color: '#38bdf8' }}>Width: 1080, Height: 1920</strong>
+                    ) : settings.mapFormat === '720x1280' ? (
+                      <strong style={{ color: '#38bdf8' }}>Width: 720, Height: 1280</strong>
+                    ) : settings.mapFormat === '720p' ? (
+                      <strong style={{ color: '#38bdf8' }}>Width: 1280, Height: 720</strong>
+                    ) : settings.mapFormat === '1080p' ? (
+                      <strong style={{ color: '#38bdf8' }}>Width: 1920, Height: 1080</strong>
+                    ) : (
+                      <strong style={{ color: '#38bdf8' }}>Match your OBS canvas (e.g. 1920x1080, 1280x720, 1080x1920, or 720x1280)</strong>
+                    )}
+                  </span>
+                  <span>⚡ <strong>FPS:</strong> 30 or 60</span>
+                  <span>💡 <strong>Realtime:</strong> Settings configured below update your OBS map automatically!</span>
+                </div>
+              </div>
+
+              {/* Map UI Elements Customization Panel */}
+              <div style={{ marginTop: '14px', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '10px', padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+                  <span style={{ fontSize: '0.88em', fontWeight: 'bold', color: '#38bdf8' }}>
+                    🎛️ Map UI & Telemetry Elements
+                  </span>
+                  <span style={{ fontSize: '0.75em', color: 'rgba(255, 255, 255, 0.5)' }}>
+                    Check elements to display on your OBS map
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowHud ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowHud: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>🎛️ Master HUD Overlay</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowSpeed ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowSpeed: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>⚡ Speedometer</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowTime ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowTime: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>🕐 Local Clock</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowAltitude ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowAltitude: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>⛰️ Altitude / Height</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowCoords ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowCoords: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>📍 GPS Coordinates</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowLocation ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowLocation: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>🗺️ Location Name</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowHeading ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowHeading: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>🧭 Compass / Heading</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowStatus ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowStatus: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>🟢 GPS Live Badge</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.mapShowTrail ?? true}
+                      onChange={(e) => handleSettingsChange({ mapShowTrail: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.82em', fontWeight: '600' }}>✨ Breadcrumb Trail</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Map Zoom Level Control */}
+              <div style={{ marginTop: '12px', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '10px', padding: '12px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.88em', fontWeight: 'bold', color: '#38bdf8' }}>
+                      🔍 Map Zoom Level
+                    </span>
+                    <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: '#60a5fa', background: 'rgba(96, 165, 250, 0.15)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(96, 165, 250, 0.3)' }}>
+                      {(settings.mapZoom ?? 15).toFixed(1)}x
+                    </span>
+                  </div>
+
+                  {/* Preset quick buttons */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { label: '🏙️ Street (17x)', value: 17 },
+                      { label: '📍 Normal (15x)', value: 15 },
+                      { label: '🌆 City (13x)', value: 13 },
+                      { label: '🗺️ Region (10x)', value: 10 },
+                      { label: '🌍 World (5x)', value: 5 }
+                    ].map(preset => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => handleSettingsChange({ mapZoom: preset.value })}
+                        style={{
+                          background: (settings.mapZoom ?? 15) === preset.value ? 'rgba(56, 189, 248, 0.35)' : 'rgba(255, 255, 255, 0.05)',
+                          border: `1px solid ${(settings.mapZoom ?? 15) === preset.value ? '#38bdf8' : 'rgba(255, 255, 255, 0.12)'}`,
+                          color: (settings.mapZoom ?? 15) === preset.value ? '#38bdf8' : '#cbd5e1',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.75em',
+                          fontWeight: 'bold',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => handleSettingsChange({ mapZoom: Math.max(1, (settings.mapZoom ?? 15) - 1) })}
+                    style={{ padding: '4px 10px', fontSize: '0.85em', fontWeight: 'bold' }}
+                    title="Zoom Out"
+                  >
+                    ➖ Zoom Out
+                  </button>
+                  <input
+                    type="range"
+                    min="1"
+                    max="20"
+                    step="0.5"
+                    value={settings.mapZoom ?? 15}
+                    onChange={(e) => handleSettingsChange({ mapZoom: parseFloat(e.target.value) })}
+                    className="slider"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => handleSettingsChange({ mapZoom: Math.min(20, (settings.mapZoom ?? 15) + 1) })}
+                    style={{ padding: '4px 10px', fontSize: '0.85em', fontWeight: 'bold' }}
+                    title="Zoom In"
+                  >
+                    ➕ Zoom In
+                  </button>
+                </div>
+              </div>
+
+              {/* Map UI & HUD Scale Control */}
+              <div style={{ marginTop: '12px', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '10px', padding: '12px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.88em', fontWeight: 'bold', color: '#38bdf8' }}>
+                      📐 Map UI & HUD Scale
+                    </span>
+                    <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: '#60a5fa', background: 'rgba(96, 165, 250, 0.15)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(96, 165, 250, 0.3)' }}>
+                      {Math.round((settings.mapUiScale ?? 1.0) * 100)}%
+                    </span>
+                  </div>
+
+                  {/* Preset quick buttons */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Compact (75%)', value: 0.75 },
+                      { label: 'Normal (100%)', value: 1.0 },
+                      { label: 'Large (125%)', value: 1.25 },
+                      { label: 'Extra Large (150%)', value: 1.5 }
+                    ].map(preset => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => handleSettingsChange({ mapUiScale: preset.value })}
+                        style={{
+                          background: (settings.mapUiScale ?? 1.0) === preset.value ? 'rgba(56, 189, 248, 0.35)' : 'rgba(255, 255, 255, 0.05)',
+                          border: `1px solid ${(settings.mapUiScale ?? 1.0) === preset.value ? '#38bdf8' : 'rgba(255, 255, 255, 0.12)'}`,
+                          color: (settings.mapUiScale ?? 1.0) === preset.value ? '#38bdf8' : '#cbd5e1',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.75em',
+                          fontWeight: 'bold',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => handleSettingsChange({ mapUiScale: Math.max(0.5, Math.round(((settings.mapUiScale ?? 1.0) - 0.1) * 100) / 100) })}
+                    style={{ padding: '4px 10px', fontSize: '0.85em', fontWeight: 'bold' }}
+                    title="Scale Down"
+                  >
+                    ➖ Scale Down
+                  </button>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2.0"
+                    step="0.05"
+                    value={settings.mapUiScale ?? 1.0}
+                    onChange={(e) => handleSettingsChange({ mapUiScale: parseFloat(e.target.value) })}
+                    className="slider"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => handleSettingsChange({ mapUiScale: Math.min(2.0, Math.round(((settings.mapUiScale ?? 1.0) + 0.1) * 100) / 100) })}
+                    style={{ padding: '4px 10px', fontSize: '0.85em', fontWeight: 'bold' }}
+                    title="Scale Up"
+                  >
+                    ➕ Scale Up
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
               
               <div className="setting-group">

@@ -54,9 +54,9 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: '/overlay',
+        source: '/:path(overlay|map)',
         headers: [
-          // Allow embedding the overlay (e.g., OBS) via CSP frame-ancestors
+          // Allow embedding the overlay & map (e.g., OBS) via CSP frame-ancestors
           {
             key: 'Content-Security-Policy',
             value: "frame-ancestors *; default-src 'self' blob: data: https:; img-src 'self' https: data:; script-src 'self' https://cdn.jsdelivr.net https://*.firebaseio.com https://www.googletagmanager.com https://static.cloudflareinsights.com 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http: https: ws: wss:; style-src 'self' 'unsafe-inline' https:; worker-src 'self' blob:;",

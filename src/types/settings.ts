@@ -81,6 +81,20 @@ export interface OverlaySettings {
   minimapScale?: number;
   showBackground?: boolean;
   mapStyle?: 'auto' | 'standard' | 'dark' | 'gta' | 'gta5';
+  mapFormat?: '1080p' | '720p' | '1080x1920' | '720x1280' | 'fill';
+  mapShowSpeed?: boolean;
+  mapShowTime?: boolean;
+  mapShowAltitude?: boolean;
+  mapShowCoords?: boolean;
+  mapShowLocation?: boolean;
+  mapShowHeading?: boolean;
+  mapShowStatus?: boolean;
+  mapShowTrail?: boolean;
+  mapShowHud?: boolean;
+  mapShowControls?: boolean;
+  mapPitch?: number;
+  mapZoom?: number;
+  mapUiScale?: number;
   bitrateDisplay?: DisplayMode;
   bitrateAnchor?: 'time' | 'location';
   showLowBitrateAlert?: boolean;
@@ -290,6 +304,20 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   minimapScale: 100,
   showBackground: true,
   mapStyle: 'auto',
+  mapFormat: '1080p',
+  mapShowSpeed: true,
+  mapShowTime: true,
+  mapShowAltitude: true,
+  mapShowCoords: true,
+  mapShowLocation: true,
+  mapShowHeading: true,
+  mapShowStatus: true,
+  mapShowTrail: true,
+  mapShowHud: true,
+  mapShowControls: true,
+  mapPitch: 0,
+  mapZoom: 15,
+  mapUiScale: 1.0,
   bitrateDisplay: 'auto',
   bitrateAnchor: 'location',
   showLowBitrateAlert: true,
@@ -484,6 +512,20 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   minimapScale: 'number',
   showBackground: 'boolean',
   mapStyle: 'string',
+  mapFormat: 'string',
+  mapShowSpeed: 'boolean',
+  mapShowTime: 'boolean',
+  mapShowAltitude: 'boolean',
+  mapShowCoords: 'boolean',
+  mapShowLocation: 'boolean',
+  mapShowHeading: 'boolean',
+  mapShowStatus: 'boolean',
+  mapShowTrail: 'boolean',
+  mapShowHud: 'boolean',
+  mapShowControls: 'boolean',
+  mapPitch: 'number',
+  mapZoom: 'number',
+  mapUiScale: 'number',
   bitrateDisplay: 'string',
   bitrateAnchor: 'string',
   showLowBitrateAlert: 'boolean',

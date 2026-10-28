@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   
-  // Add version parameter to overlay URL server-side to prevent OBS caching
+  // Add version parameter to overlay & map URLs server-side to prevent OBS caching
   // This ensures the version parameter is present BEFORE OBS caches the page
-  if (pathname === '/overlay') {
+  if (pathname === '/overlay' || pathname === '/map') {
     const hasVersion = searchParams.has('v');
     
     if (!hasVersion) {
@@ -24,6 +24,7 @@ export function middleware(request: NextRequest) {
     '/login',
     '/api/login',
     '/overlay',
+    '/map',
     '/twitch-auth',
     '/api/get-settings',
     '/api/save-settings',
@@ -70,5 +71,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/settings', '/api/:path*', '/login', '/overlay', '/twitch-auth']
+  matcher: ['/', '/settings', '/api/:path*', '/login', '/overlay', '/map', '/twitch-auth']
 };

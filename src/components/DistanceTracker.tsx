@@ -118,34 +118,39 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
 
   useEffect(() => {
     if (availableLabels.length <= 1) {
-      setActiveLabelIndex(0);
-      setLabelFadeState('in');
       return;
     }
 
     const rotationIntervalMs = isDemo ? 5000 : 8000; // 8 seconds for live overlay, 5s for admin preview
+    let fadeTimer: NodeJS.Timeout | null = null;
 
     const interval = setInterval(() => {
       setLabelFadeState('out');
-      setTimeout(() => {
+      fadeTimer = setTimeout(() => {
         setActiveLabelIndex((prev) => (prev + 1) % availableLabels.length);
         setLabelFadeState('in');
       }, 400);
     }, rotationIntervalMs);
 
-    return () => clearInterval(interval);
-  }, [labelsKey, isDemo]);
+    return () => {
+      clearInterval(interval);
+      if (fadeTimer) clearTimeout(fadeTimer);
+    };
+  }, [availableLabels.length, labelsKey, isDemo]);
 
-  const displayedLabelText = availableLabels[activeLabelIndex] || availableLabels[0] || '';
+  const safeLabelIndex = availableLabels.length <= 1 ? 0 : (activeLabelIndex % availableLabels.length);
+  const displayedLabelText = availableLabels[safeLabelIndex] || availableLabels[0] || '';
 
   useEffect(() => {
-    if (visible) {
-      setShouldRender(true);
-    } else if (!isDemo) {
+    if (!visible && !isDemo) {
       const timer = setTimeout(() => setShouldRender(false), 400);
       return () => clearTimeout(timer);
     }
   }, [visible, isDemo]);
+
+  if (visible && !shouldRender) {
+    setShouldRender(true);
+  }
 
   const percentage = useMemo(() => {
     if (!goal || goal <= 0) return 0;

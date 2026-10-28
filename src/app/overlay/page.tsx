@@ -206,14 +206,9 @@ function OverlayPage() {
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
 
   // Persistent storage keys
-  const STORAGE_KEY = 'overlay-completed-todos';
   const CACHED_STATE_KEY = 'overlay-cached-state';
   const DISTANCE_STORAGE_KEY = 'overlay-total-distance';
   const CALORIES_PER_KM = 62; // Average walking calories per km for 70kg person at 5km/h
-
-  // Todo completion tracking with localStorage persistence
-  const [completedTodoTimestamps, setCompletedTodoTimestamps] = useState<Map<string, number>>(new Map()); // Track when todos were completed
-  const completedTodoTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map()); // Track timers for hiding completed todos
 
   // Social media rotation state and logic
   const [socialVisible, setSocialVisible] = useState(true);
@@ -671,9 +666,6 @@ function OverlayPage() {
   useEffect(() => {
     return () => {
       clearTimer(minimapFadeTimeoutRef);
-      // Cleanup completed todo timers
-      completedTodoTimersRef.current.forEach((timer) => clearTimeout(timer));
-      completedTodoTimersRef.current.clear();
     };
   }, []);
 
@@ -940,66 +932,14 @@ function OverlayPage() {
   }, [timezone, formatTime]);
 
 
-  // Filter todos based on completion timestamps (hide if completed > 60 seconds ago)
+  // Filter todos: show all todos that are not marked hidden
   const visibleTodos = useMemo(() => {
     if (!settings.todos || settings.todos.length === 0) {
       return [];
     }
 
-    const now = Date.now();
-    const ONE_MINUTE = 60 * 1000; // 60 seconds in milliseconds
-
-    return settings.todos.filter((todo) => {
-      // Don't show hidden todos
-      if (todo.hidden) {
-        return false;
-      }
-
-      if (!todo.completed) {
-        // Always show incomplete todos
-        return true;
-      }
-
-      // For completed todos, check if they were completed less than 60 seconds ago
-      const completionTime = completedTodoTimestamps.get(todo.id);
-      if (!completionTime) {
-        // No completion timestamp in state - check localStorage for persistence
-        try {
-          const stored = localStorage.getItem(STORAGE_KEY);
-          if (stored) {
-            const storedTimestamps = JSON.parse(stored) as Record<string, number>;
-            const storedTimestamp = storedTimestamps[todo.id];
-
-            if (storedTimestamp) {
-              // Found in localStorage - check if it's still within 60 seconds
-              const timeSinceCompletion = now - storedTimestamp;
-              const shouldShow = timeSinceCompletion < ONE_MINUTE;
-              if (!shouldShow) {
-                OverlayLogger.overlay(`Hiding completed todo ${todo.id} - completed ${Math.round(timeSinceCompletion / 1000)}s ago`);
-              }
-              return shouldShow;
-            }
-          }
-        } catch (error) {
-          // If localStorage check fails, show the todo (graceful degradation)
-          OverlayLogger.warn('Failed to check localStorage for todo visibility', { error });
-          return true;
-        }
-
-        // No timestamp found in localStorage - this means it was completed more than 60 seconds ago
-        // and was cleaned up, OR it was never tracked. Hide it to be safe.
-        OverlayLogger.overlay(`Hiding completed todo ${todo.id} - no timestamp found`);
-        return false;
-      }
-
-      const timeSinceCompletion = now - completionTime;
-      const shouldShow = timeSinceCompletion < ONE_MINUTE;
-      if (!shouldShow) {
-        OverlayLogger.overlay(`Hiding completed todo ${todo.id} - completed ${Math.round(timeSinceCompletion / 1000)}s ago`);
-      }
-      return shouldShow;
-    });
-  }, [settings.todos, completedTodoTimestamps]);
+    return settings.todos.filter((todo) => !todo.hidden);
+  }, [settings.todos]);
 
   // Donation goals memoized JSX — only custom goals list (no Total Tips / Daily Tips)
   const donationGoalsJSX = useMemo(() => {
@@ -1196,48 +1136,11 @@ function OverlayPage() {
   ]);
 
 
-  // Load completed todo timestamps from localStorage on mount and set up timers
+  // Clean up legacy completed todo timestamps and load total distance from localStorage on mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      // Only log if there are timestamps to load (reduces noise)
-      if (stored) {
-        const timestamps = JSON.parse(stored) as Record<string, number>;
-        const now = Date.now();
-        const ONE_MINUTE = 60 * 1000;
-
-        // Filter out timestamps older than 60 seconds (cleanup old data)
-        const validTimestamps = new Map<string, number>();
-        Object.entries(timestamps).forEach(([id, timestamp]) => {
-          const timeSinceCompletion = now - timestamp;
-          if (timeSinceCompletion < ONE_MINUTE) {
-            validTimestamps.set(id, timestamp);
-
-            // Set up timer to hide this todo when it reaches 60 seconds
-            const remainingTime = ONE_MINUTE - timeSinceCompletion;
-            const timer = setTimeout(() => {
-              setCompletedTodoTimestamps((current) => {
-                const updated = new Map(current);
-                updated.delete(id);
-                return updated;
-              });
-              completedTodoTimersRef.current.delete(id);
-            }, remainingTime);
-
-            completedTodoTimersRef.current.set(id, timer);
-          }
-        });
-
-        setCompletedTodoTimestamps(validTimestamps);
-        // Only log if we actually loaded timestamps (reduces noise on fresh loads)
-        if (validTimestamps.size > 0) {
-          OverlayLogger.overlay(`Loaded ${validTimestamps.size} completed todo timestamps from localStorage`);
-        }
-      }
-    } catch (error) {
-      // Ignore localStorage errors (e.g., in private browsing mode)
-      OverlayLogger.warn('Failed to load completed todo timestamps from localStorage', { error });
-    }
+      localStorage.removeItem('overlay-completed-todos');
+    } catch {}
 
     // Load total distance from localStorage
     try {
@@ -2611,147 +2514,6 @@ function OverlayPage() {
   }, [settings.twitchUsername]);
 
 
-  // Persist completed todo timestamps to localStorage whenever they change
-  // Also clean up old timestamps (> 60 seconds) periodically
-  useEffect(() => {
-    try {
-      const now = Date.now();
-      const ONE_MINUTE = 60 * 1000;
-
-      // Load existing timestamps to preserve ones not in current state
-      const existing = localStorage.getItem(STORAGE_KEY);
-      const allTimestamps: Record<string, number> = existing
-        ? JSON.parse(existing) as Record<string, number>
-        : {};
-
-      // Update with current state timestamps
-      completedTodoTimestamps.forEach((timestamp, id) => {
-        allTimestamps[id] = timestamp;
-      });
-
-      // Clean up timestamps older than 60 seconds
-      const cleaned: Record<string, number> = {};
-      Object.entries(allTimestamps).forEach(([id, timestamp]) => {
-        const timeSinceCompletion = now - timestamp;
-        if (timeSinceCompletion < ONE_MINUTE) {
-          cleaned[id] = timestamp;
-        }
-      });
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-    } catch (error) {
-      // Ignore localStorage errors (e.g., quota exceeded)
-      OverlayLogger.warn('Failed to save completed todo timestamps to localStorage', { error });
-    }
-  }, [completedTodoTimestamps]);
-
-  // Track when todos are marked complete and set timer to hide them after 60 seconds
-  useEffect(() => {
-    if (!settings.todos || settings.todos.length === 0) {
-      // Clear timestamps and timers if todos are cleared
-      setCompletedTodoTimestamps(new Map());
-      completedTodoTimersRef.current.forEach((timer) => clearTimeout(timer));
-      completedTodoTimersRef.current.clear();
-      return;
-    }
-
-    const now = Date.now();
-    const ONE_MINUTE = 60 * 1000; // 60 seconds in milliseconds
-
-    // Use functional update to avoid dependency on completedTodoTimestamps
-    setCompletedTodoTimestamps((prevTimestamps) => {
-      const newTimestamps = new Map(prevTimestamps);
-
-      if (!settings.todos) return newTimestamps;
-
-      // Track newly completed todos
-      settings.todos.forEach((todo) => {
-        if (todo.completed) {
-          // Check if this todo was just completed (not in timestamps yet)
-          if (!prevTimestamps.has(todo.id)) {
-            // Check localStorage to see if this was completed before (persistence check)
-            try {
-              const stored = localStorage.getItem(STORAGE_KEY);
-              if (stored) {
-                const storedTimestamps = JSON.parse(stored) as Record<string, number>;
-                const storedTimestamp = storedTimestamps[todo.id];
-
-                if (storedTimestamp) {
-                  // Found in localStorage - check if it's still within 60 seconds
-                  const timeSinceCompletion = now - storedTimestamp;
-                  if (timeSinceCompletion < ONE_MINUTE) {
-                    // Still within 60 seconds - use the stored timestamp
-                    newTimestamps.set(todo.id, storedTimestamp);
-
-                    // Set up timer for remaining time
-                    const remainingTime = ONE_MINUTE - timeSinceCompletion;
-                    const timer = setTimeout(() => {
-                      setCompletedTodoTimestamps((current) => {
-                        const updated = new Map(current);
-                        updated.delete(todo.id);
-                        return updated;
-                      });
-                      completedTodoTimersRef.current.delete(todo.id);
-                    }, remainingTime);
-
-                    completedTodoTimersRef.current.set(todo.id, timer);
-                    return; // Skip adding new timestamp
-                  }
-                  // If stored timestamp is > 60 seconds old, don't add it (todo will be hidden)
-                  // Todo was completed more than 60 seconds ago - don't add timestamp (no logging for routine operation)
-                  return; // Don't add timestamp, todo will be filtered out
-                }
-              }
-            } catch (error) {
-              // If localStorage check fails, proceed with new timestamp
-              OverlayLogger.warn('Failed to check localStorage for todo timestamp', { error });
-            }
-
-            // No stored timestamp or it's expired - record new timestamp
-            newTimestamps.set(todo.id, now);
-
-            // Set timer to hide this specific todo after 60 seconds
-            const timer = setTimeout(() => {
-              setCompletedTodoTimestamps((current) => {
-                const updated = new Map(current);
-                updated.delete(todo.id);
-                return updated;
-              });
-              completedTodoTimersRef.current.delete(todo.id);
-            }, ONE_MINUTE);
-
-            completedTodoTimersRef.current.set(todo.id, timer);
-          }
-        } else {
-          // Todo is incomplete - remove from timestamps if it was there
-          if (prevTimestamps.has(todo.id)) {
-            // Clear timer if it exists
-            const timer = completedTodoTimersRef.current.get(todo.id);
-            if (timer) {
-              clearTimeout(timer);
-              completedTodoTimersRef.current.delete(todo.id);
-            }
-            newTimestamps.delete(todo.id);
-          }
-        }
-      });
-
-      // Remove timestamps for todos that no longer exist
-      prevTimestamps.forEach((timestamp, todoId) => {
-        const todoExists = settings.todos?.some((t) => t.id === todoId);
-        if (!todoExists) {
-          const timer = completedTodoTimersRef.current.get(todoId);
-          if (timer) {
-            clearTimeout(timer);
-            completedTodoTimersRef.current.delete(todoId);
-          }
-          newTimestamps.delete(todoId);
-        }
-      });
-
-      return newTimestamps;
-    });
-  }, [settings.todos]); // Removed completedTodoTimestamps from dependencies to avoid infinite loop
 
   // Load settings and set up real-time updates
   useEffect(() => {
@@ -2815,7 +2577,6 @@ function OverlayPage() {
           sseActiveRef.current = true;
 
           if (data.type === 'settings_update') {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { type: _type, timestamp: _timestamp, ...settingsData } = data;
             setSettings(prev => {
               const mergedSettings = {
@@ -4006,11 +3767,11 @@ function OverlayPage() {
     // 1. They're used inside the listener callback, not during setup
     // 2. The listener is set up once and doesn't need to be recreated when functions change
     // 3. If functions need to access latest values, they should use refs (which they already do)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => {
       // Reset flag on unmount so listener can be set up again if component remounts
       rtirlListenerSetupRef.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - RTIRL listener should only be set up once on mount
 
   // Fade-in delay: Start overlay hidden, then fade in after 2 seconds to allow everything to load
@@ -4369,7 +4130,7 @@ function OverlayPage() {
     const altitudeM = displayedAltitude;
     const altitudeFt = metersToFeet(altitudeM);
     return { value: altitudeM, formatted: `${altitudeM.toLocaleString()} m (${altitudeFt.toLocaleString()} ft)` };
-  }, [currentAltitude, displayedAltitude, settings.altitudeDisplay, altitudeUpdateTimestamp]);
+  }, [currentAltitude, displayedAltitude, settings.altitudeDisplay]);
 
   // Speed display logic
   const speedDisplay = useMemo(() => {
@@ -4401,7 +4162,7 @@ function OverlayPage() {
     const speedKmh = displayedSpeed;
     const speedMph = kmhToMph(speedKmh);
     return { value: speedKmh, formatted: `${Math.round(speedKmh)} km/h (${Math.round(speedMph)} mph)` };
-  }, [currentSpeed, displayedSpeed, settings.speedDisplay, speedUpdateTimestamp]);
+  }, [currentSpeed, displayedSpeed, settings.speedDisplay]);
 
   // Bitrate display logic
   const bitrateDisplay = useMemo(() => {
@@ -4427,7 +4188,7 @@ function OverlayPage() {
       isStale,
       warningLevel: (effectiveBitrate <= 0) ? 'none' : (effectiveBitrate < criticalThreshold ? 'red' : (effectiveBitrate < lowThreshold ? 'yellow' : 'none'))
     };
-  }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp, settings.lowBitrateThreshold, settings.criticalBitrateThreshold, settings.showBitrateWarnings]);
+  }, [currentBitrate, displayedBitrate, currentRtt, settings.bitrateDisplay, bitrateUpdateTimestamp, settings.lowBitrateThreshold, settings.criticalBitrateThreshold]);
 
   // Periodic bitrate stats fetcher
   useEffect(() => {

@@ -6,11 +6,8 @@ import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 export const dynamic = 'force-dynamic';
 
 declare global {
-  // eslint-disable-next-line no-var
   var __cachedObsTelemetry: ObsTelemetryStats | undefined;
-  // eslint-disable-next-line no-var
   var __cachedObsTelemetryTime: number | undefined;
-  // eslint-disable-next-line no-var
   var __lastKvTelemetryWriteTime: number | undefined;
 }
 

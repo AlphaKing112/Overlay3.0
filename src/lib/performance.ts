@@ -8,12 +8,12 @@ import React from 'react';
  */
 export function useRenderPerformance(componentName: string) {
   const renderCount = React.useRef(0);
-  const lastRenderTime = React.useRef(performance.now());
+  const lastRenderTime = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     renderCount.current++;
     const now = performance.now();
-    const timeSinceLastRender = now - lastRenderTime.current;
+    const timeSinceLastRender = lastRenderTime.current !== null ? now - lastRenderTime.current : Infinity;
     lastRenderTime.current = now;
 
     if (renderCount.current > 10 && timeSinceLastRender < 100) {

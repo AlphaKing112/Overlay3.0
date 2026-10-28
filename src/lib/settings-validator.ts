@@ -218,13 +218,16 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Validate mapStyle
   if (settings.mapStyle !== undefined) {
-    const validStyles = ['auto', 'standard', 'dark', 'gta', 'gta5'];
-    if (typeof settings.mapStyle === 'string' && validStyles.includes(settings.mapStyle)) {
-      cleanSettings.mapStyle = settings.mapStyle as any;
-    } else {
-      // Fallback to auto if invalid
-      cleanSettings.mapStyle = 'auto';
-      console.warn('Invalid value for mapStyle, defaulting to auto');
+    const validStyles = ['auto', 'dark', 'gta5'];
+    if (typeof settings.mapStyle === 'string') {
+      if (validStyles.includes(settings.mapStyle)) {
+        cleanSettings.mapStyle = settings.mapStyle as any;
+      } else if (settings.mapStyle === 'standard' || settings.mapStyle === 'gta') {
+        cleanSettings.mapStyle = 'gta5';
+      } else {
+        cleanSettings.mapStyle = 'auto';
+        console.warn('Invalid value for mapStyle, defaulting to auto');
+      }
     }
   }
 
@@ -238,9 +241,29 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     }
   }
 
+  // Validate Map Settings
+  if (settings.mapFormat !== undefined) {
+    if (settings.mapFormat === '1080p' || settings.mapFormat === '720p' || settings.mapFormat === '1080x1920' || settings.mapFormat === '720x1280' || settings.mapFormat === 'fill') {
+      cleanSettings.mapFormat = settings.mapFormat;
+    }
+  }
+  if (settings.mapShowSpeed !== undefined) cleanSettings.mapShowSpeed = Boolean(settings.mapShowSpeed);
+  if (settings.mapShowTime !== undefined) cleanSettings.mapShowTime = Boolean(settings.mapShowTime);
+  if (settings.mapShowAltitude !== undefined) cleanSettings.mapShowAltitude = Boolean(settings.mapShowAltitude);
+  if (settings.mapShowCoords !== undefined) cleanSettings.mapShowCoords = Boolean(settings.mapShowCoords);
+  if (settings.mapShowLocation !== undefined) cleanSettings.mapShowLocation = Boolean(settings.mapShowLocation);
+  if (settings.mapShowHeading !== undefined) cleanSettings.mapShowHeading = Boolean(settings.mapShowHeading);
+  if (settings.mapShowStatus !== undefined) cleanSettings.mapShowStatus = Boolean(settings.mapShowStatus);
+  if (settings.mapShowTrail !== undefined) cleanSettings.mapShowTrail = Boolean(settings.mapShowTrail);
+  if (settings.mapShowHud !== undefined) cleanSettings.mapShowHud = Boolean(settings.mapShowHud);
+  if (settings.mapShowControls !== undefined) cleanSettings.mapShowControls = Boolean(settings.mapShowControls);
+  if (typeof settings.mapPitch === 'number') cleanSettings.mapPitch = Math.max(0, Math.min(60, settings.mapPitch));
+  if (typeof settings.mapZoom === 'number') cleanSettings.mapZoom = Math.max(1, Math.min(20, settings.mapZoom));
+  if (typeof settings.mapUiScale === 'number' && !isNaN(settings.mapUiScale)) cleanSettings.mapUiScale = Math.max(0.5, Math.min(2.5, settings.mapUiScale));
+
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'obsStreamCommandSignal') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'mapFormat' && key !== 'mapShowSpeed' && key !== 'mapShowTime' && key !== 'mapShowAltitude' && key !== 'mapShowCoords' && key !== 'mapShowLocation' && key !== 'mapShowHeading' && key !== 'mapShowStatus' && key !== 'mapShowTrail' && key !== 'mapShowHud' && key !== 'mapShowControls' && key !== 'mapPitch' && key !== 'mapZoom' && key !== 'mapUiScale' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'obsStreamCommandSignal') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -285,6 +308,20 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     minimapScale: cleanSettings.minimapScale ?? DEFAULT_OVERLAY_SETTINGS.minimapScale,
     showBackground: cleanSettings.showBackground ?? DEFAULT_OVERLAY_SETTINGS.showBackground,
     mapStyle: cleanSettings.mapStyle ?? DEFAULT_OVERLAY_SETTINGS.mapStyle,
+    mapFormat: cleanSettings.mapFormat ?? DEFAULT_OVERLAY_SETTINGS.mapFormat,
+    mapShowSpeed: cleanSettings.mapShowSpeed ?? DEFAULT_OVERLAY_SETTINGS.mapShowSpeed,
+    mapShowTime: cleanSettings.mapShowTime ?? DEFAULT_OVERLAY_SETTINGS.mapShowTime,
+    mapShowAltitude: cleanSettings.mapShowAltitude ?? DEFAULT_OVERLAY_SETTINGS.mapShowAltitude,
+    mapShowCoords: cleanSettings.mapShowCoords ?? DEFAULT_OVERLAY_SETTINGS.mapShowCoords,
+    mapShowLocation: cleanSettings.mapShowLocation ?? DEFAULT_OVERLAY_SETTINGS.mapShowLocation,
+    mapShowHeading: cleanSettings.mapShowHeading ?? DEFAULT_OVERLAY_SETTINGS.mapShowHeading,
+    mapShowStatus: cleanSettings.mapShowStatus ?? DEFAULT_OVERLAY_SETTINGS.mapShowStatus,
+    mapShowTrail: cleanSettings.mapShowTrail ?? DEFAULT_OVERLAY_SETTINGS.mapShowTrail,
+    mapShowHud: cleanSettings.mapShowHud ?? DEFAULT_OVERLAY_SETTINGS.mapShowHud,
+    mapShowControls: cleanSettings.mapShowControls ?? DEFAULT_OVERLAY_SETTINGS.mapShowControls,
+    mapPitch: cleanSettings.mapPitch ?? DEFAULT_OVERLAY_SETTINGS.mapPitch,
+    mapZoom: cleanSettings.mapZoom ?? DEFAULT_OVERLAY_SETTINGS.mapZoom,
+    mapUiScale: cleanSettings.mapUiScale ?? DEFAULT_OVERLAY_SETTINGS.mapUiScale,
     bitrateDisplay: cleanSettings.bitrateDisplay ?? DEFAULT_OVERLAY_SETTINGS.bitrateDisplay,
     bitrateAnchor: cleanSettings.bitrateAnchor ?? DEFAULT_OVERLAY_SETTINGS.bitrateAnchor,
     showLowBitrateAlert: cleanSettings.showLowBitrateAlert ?? DEFAULT_OVERLAY_SETTINGS.showLowBitrateAlert,

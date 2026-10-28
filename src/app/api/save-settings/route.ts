@@ -132,12 +132,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const updates = body?.settings || body || {};
       const allowedKeys = [
         'startLat', 'startLon', 'distanceCurrent', 'donationGoals',
-        'shoutout', 'shoutoutDuration', 'shoutoutX', 'shoutoutY', 'shoutoutScale',
-        'shoutoutPermBroadcaster', 'shoutoutPermMods', 'shoutoutPermVips', 'shoutoutPermEveryone',
-        'totalTipCurrent', 'dailyTipGoal', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent',
-        'obsStreamCommandSignal', 'obsStreamCommandsEnabled', 'obsTelemetryEnabled', 'obsTelemetryInterval',
-        'discordPicWebhookUrl', 'picCommandEnabled', 'picPointsEnabled', 'picPointsCost', 'picCooldownSeconds', 'picShowOnOverlay', 'picCustomMessage',
-        'discordClipWebhookUrl', 'clipCommandEnabled', 'clipSourceMode', 'clipPointsEnabled', 'clipPointsCost', 'clipCooldownSeconds', 'clipDefaultDuration', 'clipMaxDuration', 'clipMinDuration', 'clipShowOnOverlay', 'clipCustomMessage'
+        'shoutout', 'totalTipCurrent', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent',
+        'obsStreamCommandSignal'
       ];
       const updateKeys = Object.keys(updates);
       const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));

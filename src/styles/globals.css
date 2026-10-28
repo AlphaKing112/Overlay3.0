@@ -1859,6 +1859,7 @@ body.overlay-page {
   text-transform: uppercase;
   background: linear-gradient(90deg, #c084fc, #53FC19);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   text-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
 }

@@ -33,131 +33,119 @@ const MINIMAP_CONFIG = {
 } as const;
 
 
-// Available map styles - easily switch between them
+// Available map styles - 100% Vector, Free & Watermark-Free via OpenFreeMap
 const MAP_STYLES: Record<string, maplibregl.StyleSpecification> = {
-  // CartoDB Voyager (clean, colorful, perfect for daytime)
-  voyager: {
-    version: 8 as const,
-    sources: {
-      'carto-voyager-base': {
-        type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png'
-        ] as string[],
-        tileSize: 256,
-        attribution: '© OpenStreetMap contributors, © CartoDB'
-      },
-      'carto-voyager-labels': {
-        type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png'
-        ] as string[],
-        tileSize: 256
-      }
-    },
-    layers: [
-      {
-        id: 'carto-voyager-base',
-        type: 'raster' as const,
-        source: 'carto-voyager-base',
-        minzoom: 0,
-        maxzoom: 19
-      },
-      {
-        id: 'carto-voyager-labels',
-        type: 'raster' as const,
-        source: 'carto-voyager-labels',
-        minzoom: 0,
-        maxzoom: 19
-      }
-    ]
-  },
-  // CartoDB Dark Matter (clean, dark, perfect for nighttime)
+  // Dark Vector Style (clean midnight cyberpunk map, no API keys, no watermarks)
   dark: {
     version: 8 as const,
+    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
     sources: {
-      'carto-dark-base': {
-        type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png'
-        ] as string[],
-        tileSize: 256,
-        attribution: '© OpenStreetMap contributors, © CartoDB'
-      },
-      'carto-dark-labels': {
-        type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png'
-        ] as string[],
-        tileSize: 256
+      'ofm': {
+        type: 'vector' as const,
+        url: 'https://tiles.openfreemap.org/planet'
       }
     },
     layers: [
+      { id: 'bg', type: 'background' as const, paint: { 'background-color': '#0c1017' } },
+      { id: 'lc-rock', type: 'fill' as const, source: 'ofm', 'source-layer': 'landcover', filter: ['in', 'class', 'rock', 'bare_rock', 'scree'] as any, paint: { 'fill-color': '#161b22' } },
+      { id: 'lc-wood', type: 'fill' as const, source: 'ofm', 'source-layer': 'landcover', filter: ['in', 'class', 'wood', 'forest'] as any, paint: { 'fill-color': '#0d1a15' } },
+      { id: 'lc-grass', type: 'fill' as const, source: 'ofm', 'source-layer': 'landcover', filter: ['in', 'class', 'grass', 'meadow', 'wetland', 'crop'] as any, paint: { 'fill-color': '#0e1d18' } },
+      { id: 'lc-scrub', type: 'fill' as const, source: 'ofm', 'source-layer': 'landcover', filter: ['in', 'class', 'scrub', 'shrub'] as any, paint: { 'fill-color': '#0e1c17' } },
+      { id: 'lc-sand', type: 'fill' as const, source: 'ofm', 'source-layer': 'landcover', filter: ['in', 'class', 'sand', 'beach'] as any, paint: { 'fill-color': '#1c1b16' } },
+      { id: 'water', type: 'fill' as const, source: 'ofm', 'source-layer': 'water', paint: { 'fill-color': '#060a12', 'fill-antialias': true } },
+      { id: 'waterway', type: 'line' as const, source: 'ofm', 'source-layer': 'waterway', paint: { 'line-color': '#060a12', 'line-width': 1.5 } },
+      { id: 'lu-farm', type: 'fill' as const, source: 'ofm', 'source-layer': 'landuse', filter: ['in', 'class', 'farmland', 'farmyard', 'agriculture'] as any, paint: { 'fill-color': '#0e1d17' } },
+      { id: 'lu-military', type: 'fill' as const, source: 'ofm', 'source-layer': 'landuse', filter: ['==', 'class', 'military'] as any, paint: { 'fill-color': '#1b1922' } },
+      { id: 'lu-cemetery', type: 'fill' as const, source: 'ofm', 'source-layer': 'landuse', filter: ['==', 'class', 'cemetery'] as any, paint: { 'fill-color': '#121a17' } },
+      { id: 'lu-residential', type: 'fill' as const, source: 'ofm', 'source-layer': 'landuse', filter: ['in', 'class', 'residential', 'commercial', 'industrial', 'retail', 'hospital', 'school', 'university', 'neighbourhood', 'suburb'] as any, paint: { 'fill-color': '#0c1017' } },
+      { id: 'park', type: 'fill' as const, source: 'ofm', 'source-layer': 'park', paint: { 'fill-color': '#0e1f18' } },
+      { id: 'aeroway-fill', type: 'fill' as const, source: 'ofm', 'source-layer': 'aeroway', minzoom: 11, filter: ['in', 'class', 'runway', 'taxiway'] as any, paint: { 'fill-color': '#181e28' } },
+      { id: 'aeroway-line', type: 'line' as const, source: 'ofm', 'source-layer': 'aeroway', minzoom: 11, paint: { 'line-color': '#202836', 'line-width': 2 } },
+      { id: 'building', type: 'fill' as const, source: 'ofm', 'source-layer': 'building', minzoom: 13, paint: { 'fill-color': '#141a24', 'fill-outline-color': '#1f2737' } },
+      { id: 'road-path', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 14, filter: ['in', 'class', 'path', 'track', 'footway', 'cycleway'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#1e2636', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 1.2, 16, 2.5, 18, 4.5] as any } },
+      { id: 'road-service', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 13, filter: ['==', 'class', 'service'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#232c3e', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 1.5, 15, 3.8, 18, 7.0] as any } },
+      { id: 'road-minor', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 12, filter: ['in', 'class', 'minor', 'street', 'street_limited', 'residential'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#283347', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 1.5, 14, 3.8, 16, 7.5, 18, 13.0] as any } },
+      { id: 'road-secondary', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 10, filter: ['in', 'class', 'secondary', 'tertiary'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#33415c', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 1.5, 13, 3.8, 16, 9.5, 18, 16.0] as any } },
+      { id: 'road-primary', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 8, filter: ['==', 'class', 'primary'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#3e5072', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 8, 1.5, 11, 3.2, 14, 7.0, 16, 12.0, 18, 20.0] as any } },
+      { id: 'road-trunk', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 6, filter: ['==', 'class', 'trunk'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#475d86', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 6, 1.2, 9, 2.8, 13, 6.5, 16, 14.0, 18, 24.0] as any } },
+      { id: 'road-motorway', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 4, filter: ['==', 'class', 'motorway'] as any, layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const }, paint: { 'line-color': '#5772a4', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 4, 1.0, 8, 2.5, 12, 6.0, 16, 16.0, 18, 28.0] as any } },
       {
-        id: 'carto-dark-base',
-        type: 'raster' as const,
-        source: 'carto-dark-base',
-        minzoom: 0,
-        maxzoom: 19
+        id: 'label-road-minor', type: 'symbol' as const, source: 'ofm', 'source-layer': 'transportation_name',
+        filter: ['in', 'class', 'minor', 'service', 'street', 'street_limited'] as any,
+        layout: {
+          'symbol-placement': 'line' as const,
+          'text-field': ['get', 'name'] as any,
+          'text-font': ['Noto Sans Bold'] as any,
+          'text-size': 10,
+          'text-max-angle': 30,
+          'text-letter-spacing': 0.05,
+          'text-padding': 2,
+          'text-rotation-alignment': 'map' as const,
+          'text-pitch-alignment': 'viewport' as const,
+        } as any,
+        paint: {
+          'text-color': '#8b9bb4',
+          'text-halo-color': '#0c1017',
+          'text-halo-width': 2,
+        } as any,
       },
       {
-        id: 'carto-dark-labels',
-        type: 'raster' as const,
-        source: 'carto-dark-labels',
-        minzoom: 0,
-        maxzoom: 19
+        id: 'label-road-secondary', type: 'symbol' as const, source: 'ofm', 'source-layer': 'transportation_name',
+        filter: ['in', 'class', 'secondary', 'tertiary'] as any,
+        layout: {
+          'symbol-placement': 'line' as const,
+          'text-field': ['get', 'name'] as any,
+          'text-font': ['Noto Sans Bold'] as any,
+          'text-size': 11,
+          'text-max-angle': 30,
+          'text-letter-spacing': 0.05,
+          'text-padding': 2,
+          'text-rotation-alignment': 'map' as const,
+          'text-pitch-alignment': 'viewport' as const,
+        } as any,
+        paint: {
+          'text-color': '#b0c4de',
+          'text-halo-color': '#0c1017',
+          'text-halo-width': 2,
+        } as any,
+      },
+      {
+        id: 'label-road-primary', type: 'symbol' as const, source: 'ofm', 'source-layer': 'transportation_name',
+        filter: ['in', 'class', 'primary', 'trunk', 'motorway'] as any,
+        layout: {
+          'symbol-placement': 'line' as const,
+          'text-field': ['get', 'name'] as any,
+          'text-font': ['Noto Sans Bold'] as any,
+          'text-size': 13,
+          'text-max-angle': 30,
+          'text-letter-spacing': 0.1,
+          'text-padding': 2,
+          'text-rotation-alignment': 'map' as const,
+          'text-pitch-alignment': 'viewport' as const,
+        } as any,
+        paint: {
+          'text-color': '#e2e8f0',
+          'text-halo-color': '#0c1017',
+          'text-halo-width': 2.5,
+        } as any,
+      },
+      {
+        id: 'label-places', type: 'symbol' as const, source: 'ofm', 'source-layer': 'place',
+        filter: ['in', 'class', 'city', 'town', 'village', 'suburb', 'neighbourhood'] as any,
+        layout: {
+          'text-field': ['get', 'name'] as any,
+          'text-font': ['Noto Sans Bold'] as any,
+          'text-size': 12,
+          'text-letter-spacing': 0.05,
+        } as any,
+        paint: {
+          'text-color': '#f1f5f9',
+          'text-halo-color': '#0c1017',
+          'text-halo-width': 2,
+        } as any,
       }
     ]
-  },
-  // GTA V Style (Inverted Voyager Base for defined streets + Light Labels)
-  gta: {
-    version: 8 as const,
-    sources: {
-      'carto-voyager-base': {
-        type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png'
-        ] as string[],
-        tileSize: 256,
-        attribution: '© CartoDB'
-      },
-      'carto-light-labels': {
-        type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'
-        ] as string[],
-        tileSize: 256
-      }
-    },
-    layers: [
-      {
-        id: 'carto-voyager-base',
-        type: 'raster' as const,
-        source: 'carto-voyager-base',
-        minzoom: 0,
-        maxzoom: 19
-      },
-      {
-        id: 'carto-light-labels',
-        type: 'raster' as const,
-        source: 'carto-light-labels',
-        minzoom: 0,
-        maxzoom: 19
-      }
-    ]
-  },
+  } as any,
 
   // GTA 5 Style - Authentic GTA V color palette using free vector tiles
   // Colors based on the GTA V minimap: white city blocks, black roads, olive green terrain,
@@ -247,43 +235,43 @@ const MAP_STYLES: Record<string, maplibregl.StyleSpecification> = {
       { id: 'road-path', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 14,
         filter: ['in', 'class', 'path', 'track', 'footway', 'cycleway'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 0.4, 16, 1.2, 18, 2.5] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 1.2, 16, 2.5, 18, 4.5] as any } },
 
       // Roads - service/private drives (Only visible when zoomed in close)
       { id: 'road-service', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 13,
         filter: ['==', 'class', 'service'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 0.5, 15, 1.8, 18, 3.5] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 1.5, 15, 3.8, 18, 7.0] as any } },
 
       // Roads - minor streets / local residential (Only visible at neighborhood zoom 12+)
       { id: 'road-minor', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 12,
         filter: ['in', 'class', 'minor', 'street', 'street_limited', 'residential'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.5, 15, 2.5, 18, 5] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 1.5, 14, 3.8, 16, 7.5, 18, 13.0] as any } },
 
       // Roads - secondary / tertiary (Visible at city zoom 10+)
       { id: 'road-secondary', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 10,
         filter: ['in', 'class', 'secondary', 'tertiary'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 0.5, 13, 1.8, 16, 4, 18, 7.5] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 1.5, 13, 3.8, 16, 9.5, 18, 16.0] as any } },
 
       // Roads - primary arteries (Visible at metro zoom 8+)
       { id: 'road-primary', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 8,
         filter: ['==', 'class', 'primary'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 8, 0.5, 11, 1.5, 15, 4.5, 18, 9] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 8, 1.5, 11, 3.2, 14, 7.0, 16, 12.0, 18, 20.0] as any } },
 
       // Roads - trunk roads (Visible at regional zoom 6+)
       { id: 'road-trunk', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 6,
         filter: ['==', 'class', 'trunk'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 6, 0.4, 9, 1.2, 13, 3, 18, 11] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 6, 1.2, 9, 2.8, 13, 6.5, 16, 14.0, 18, 24.0] as any } },
 
       // Roads - motorways / highways (Visible at country zoom 4+)
       { id: 'road-motorway', type: 'line' as const, source: 'ofm', 'source-layer': 'transportation', minzoom: 4,
         filter: ['==', 'class', 'motorway'] as any,
         layout: { 'line-join': 'round' as const, 'line-cap': 'round' as const },
-        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 4, 0.3, 8, 1.0, 12, 2.5, 16, 7, 18, 14] as any } },
+        paint: { 'line-color': '#111111', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 4, 1.0, 8, 2.5, 12, 6.0, 16, 16.0, 18, 28.0] as any } },
 
       // Buildings - light gray fill (Only visible when zoomed in close 13+)
       { id: 'building', type: 'fill' as const, source: 'ofm', 'source-layer': 'building', minzoom: 13,
@@ -308,7 +296,7 @@ const MAP_STYLES: Record<string, maplibregl.StyleSpecification> = {
         paint: {
           'text-color': '#ffffff',
           'text-halo-color': '#000000',
-          'text-halo-width': 2,
+          'text-halo-width': 2.5,
         } as any,
       },
 
@@ -397,20 +385,16 @@ export default function MapLibreMinimap({
       return;
     }
 
-    // Determine which style to use
-    let styleToUse: any = MAP_STYLES.voyager; // Default
+    // Determine which style to use (GTA 5 or Dark Vector)
+    let styleToUse: any = MAP_STYLES.gta5; // Default to GTA 5 vector
 
-    if (mapStyle === 'gta') {
-      styleToUse = MAP_STYLES.gta;
-    } else if (mapStyle === 'gta5') {
-      styleToUse = MAP_STYLES.gta5;
-    } else if (mapStyle === 'dark') {
+    if (mapStyle === 'dark') {
       styleToUse = MAP_STYLES.dark;
-    } else if (mapStyle === 'standard') {
-      styleToUse = MAP_STYLES.voyager;
+    } else if (mapStyle === 'gta5' || mapStyle === 'gta' || mapStyle === 'standard') {
+      styleToUse = MAP_STYLES.gta5;
     } else {
-      // Auto mode (default behavior)
-      styleToUse = isNight ? MAP_STYLES.dark : MAP_STYLES.voyager;
+      // Auto mode (GTA 5 during daytime, Dark Vector at night)
+      styleToUse = isNight ? MAP_STYLES.dark : MAP_STYLES.gta5;
     }
 
     // Initialize map
@@ -493,24 +477,7 @@ export default function MapLibreMinimap({
     }
 
     // Calculate movement distance if we have a previous position
-    // Calculate movement distance if previous position exists
-    // Note: Movement distance calculation is available for future pan threshold logic
-    if (prevPosition.current) {
-      const [prevLon, prevLat] = prevPosition.current;
-      // Simple distance calculation (Haversine approximation)
-      const R = 6371000; // Earth radius in meters
-      const dLat = (lat - prevLat) * Math.PI / 180;
-      const dLon = (lon - prevLon) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(prevLat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      // Movement distance calculated but not currently used
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const _movementDistance = R * c;
-    }
-
-    const MIN_PAN_DISTANCE = 100; // Only pan map if movement > 100m
+    const MIN_PAN_DISTANCE = 100;
     const shouldUpdateNow = timeSinceLastUpdate >= THROTTLE_MS;
 
     const updateMap = () => {
@@ -588,24 +555,20 @@ export default function MapLibreMinimap({
   useEffect(() => {
     if (!map.current) return;
 
-    let styleToUse: any = MAP_STYLES.voyager;
+    let styleToUse: any = MAP_STYLES.gta5;
 
-    if (mapStyle === 'gta') {
-      styleToUse = MAP_STYLES.gta;
-    } else if (mapStyle === 'gta5') {
-      styleToUse = MAP_STYLES.gta5;
-    } else if (mapStyle === 'dark') {
+    if (mapStyle === 'dark') {
       styleToUse = MAP_STYLES.dark;
-    } else if (mapStyle === 'standard') {
-      styleToUse = MAP_STYLES.voyager;
+    } else if (mapStyle === 'gta5' || mapStyle === 'gta' || mapStyle === 'standard') {
+      styleToUse = MAP_STYLES.gta5;
     } else {
-      // Auto mode
-      styleToUse = isNight ? MAP_STYLES.dark : MAP_STYLES.voyager;
+      // Auto mode (GTA 5 in daytime, Dark Vector at night)
+      styleToUse = isNight ? MAP_STYLES.dark : MAP_STYLES.gta5;
     }
 
     try {
       map.current.setStyle(styleToUse);
-      console.log(`🗺️ Map style updated to ${mapStyle === 'auto' ? (isNight ? 'dark' : 'light') : mapStyle} mode`);
+      console.log(`🗺️ Map style updated to ${mapStyle === 'auto' ? (isNight ? 'dark' : 'gta5') : mapStyle} mode`);
     } catch (error) {
       console.error('Failed to update map style:', error);
     }
@@ -643,24 +606,18 @@ export default function MapLibreMinimap({
       ref={mapContainer}
       style={{
         width: "100%",
-        height: "100%", // Fill parent container which is controlled by overlay/page.tsx
-        // Fixed size is now handled by parent container scale
+        height: "100%",
         borderRadius: shape === 'square' ? "14px" : "50%",
         overflow: "hidden",
         position: "relative",
-        background: "#f8fafc",
+        background: "#0c1017",
         border: "2px solid rgba(255, 255, 255, 0.9)",
         boxShadow: "0 2px 4px rgba(0, 0, 0, 0.2)",
         transform: "translateZ(0)",
         outline: "none",
         WebkitFontSmoothing: "antialiased",
         MozOsxFontSmoothing: "grayscale",
-        // CSS filter transformations per map style
-        // GTA (original): invert+grayscale for blueprint look
-        // GTA5: uses a custom vector style - no CSS filter needed
-        filter: mapStyle === 'gta'
-          ? 'invert(1) grayscale(1) brightness(3) contrast(1.3)'
-          : 'none'
+        filter: "none"
       }}
     />
   );

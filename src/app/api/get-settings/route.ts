@@ -3,6 +3,7 @@ import { kv } from '@vercel/kv';
 import { logKVUsage } from '@/lib/api-auth';
 import { validateEnvironment } from '@/lib/env-validator';
 import { OverlayLogger } from '@/lib/logger';
+import { DEFAULT_OVERLAY_SETTINGS } from '@/types/settings';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3;
@@ -38,9 +39,6 @@ async function handleGET() {
     }
   }
 
-  // Import default settings to ensure all fields exist
-  const { DEFAULT_OVERLAY_SETTINGS } = await import('@/types/settings');
-  
   const combinedSettings = {
     ...DEFAULT_OVERLAY_SETTINGS,
     ...(settings || {})
