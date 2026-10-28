@@ -2215,11 +2215,35 @@ export default function AdminPage() {
             </div>
           </CollapsibleSection>
 
-          {/* Location & Weather Section */}
+          {/* Location, Time & Weather Section */}
           <CollapsibleSection
             id="location"
-            title="Location & Weather"
+            title="Location, Time & Weather"
             icon="📍"
+            headerRight={
+              <button
+                type="button"
+                className="btn"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '0.25rem 0.75rem',
+                  minHeight: 'auto',
+                  background: (settings.showTime ?? true) ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                  border: `1px solid ${(settings.showTime ?? true) ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)'}`,
+                  color: (settings.showTime ?? true) ? '#f87171' : '#4ade80',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  borderRadius: '5px'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSettingsChange({ showTime: !(settings.showTime ?? true) });
+                }}
+                title={(settings.showTime ?? true) ? 'Click to disable time from overlay' : 'Click to enable time on overlay'}
+              >
+                {(settings.showTime ?? true) ? '🕒 Time: ON (Click to Disable)' : '🕒 Time: OFF (Click to Enable)'}
+              </button>
+            }
             isCollapsed={isSectionCollapsed('location')}
             onToggle={() => toggleSection('location')}
           >
@@ -2312,6 +2336,48 @@ export default function AdminPage() {
             </div>
 
             {(settings.showTimeWeatherLocation ?? true) && (<>
+            {/* Show Time on Overlay Toggle & Button */}
+            <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+              <div className="toggle-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <label className="group-label" style={{ margin: 0 }}>🕒 Time Display on Overlay</label>
+                  <div className="setting-description" style={{ fontSize: '0.8em', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Show or hide the real-time clock from your stream overlay.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{
+                      fontSize: '0.82rem',
+                      padding: '0.4rem 0.85rem',
+                      minHeight: 'auto',
+                      background: (settings.showTime ?? true) ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                      border: `1px solid ${(settings.showTime ?? true) ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)'}`,
+                      color: (settings.showTime ?? true) ? '#f87171' : '#4ade80',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onClick={() => handleSettingsChange({ showTime: !(settings.showTime ?? true) })}
+                    title={(settings.showTime ?? true) ? 'Click to disable time from overlay' : 'Click to enable time on overlay'}
+                  >
+                    {(settings.showTime ?? true) ? '🚫 Disable Time' : '✅ Enable Time'}
+                  </button>
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={settings.showTime ?? true}
+                      onChange={(e) => handleSettingsChange({ showTime: e.target.checked })}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
               <label className="group-label">Weather Display</label>
               <div className="checkbox-group" style={{ marginBottom: '12px' }}>
@@ -2362,6 +2428,17 @@ export default function AdminPage() {
                   </div>
                 </>
               )}
+              <div className="checkbox-group" style={{ marginTop: '10px' }}>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.showTime ?? true}
+                    onChange={(e) => handleSettingsChange({ showTime: e.target.checked })}
+                    className="checkbox-input"
+                  />
+                  <span className="checkbox-text">🕒 Show Time on Overlay</span>
+                </label>
+              </div>
               <div className="checkbox-group" style={{ marginTop: '10px' }}>
                 <label className="checkbox-label">
                   <input

@@ -1314,6 +1314,47 @@ export default function SettingsConfigPage() {
                 </span>
               </div>
 
+              <div className="setting-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '12px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="input-label" style={{ fontWeight: 'bold', margin: 0 }}>
+                      🕒 Stream Overlay Clock / Time
+                    </label>
+                    <span style={{ fontSize: '0.82em', fontWeight: 'bold', color: (settings.showTime ?? true) ? '#4ade80' : '#f87171' }}>
+                      {(settings.showTime ?? true) ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    Show or hide the real-time clock widget on your main stream overlay.
+                  </span>
+                </div>
+                <div style={{ marginTop: '12px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    style={{
+                      background: (settings.showTime ?? true) ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                      borderColor: (settings.showTime ?? true) ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)',
+                      color: (settings.showTime ?? true) ? '#f87171' : '#4ade80',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => handleSettingsChange({ showTime: !(settings.showTime ?? true) })}
+                    title={(settings.showTime ?? true) ? 'Click to disable time from overlay' : 'Click to enable time on overlay'}
+                  >
+                    {(settings.showTime ?? true) ? '🚫 Disable Overlay Time' : '✅ Enable Overlay Time'}
+                  </button>
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={settings.showTime ?? true}
+                      onChange={(e) => handleSettingsChange({ showTime: e.target.checked })}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+              </div>
+
             </div>
           </section>
 

@@ -4284,7 +4284,7 @@ function OverlayPage() {
   // Shared rendering logic for time and date
   const renderTimeDateContent = (isRightAligned: boolean) => (
     <>
-      {isValidTimezone(timezone) && timeDisplay.time && (
+      {isValidTimezone(timezone) && timeDisplay.time && (settings.showTime ?? true) && (
         <div className={`time time-line ${!isRightAligned ? 'time-left' : ''}`} style={isRightAligned ? { justifyContent: 'flex-end', width: '100%' } : { width: '100%' }}>
           <div className="time-display" style={isRightAligned ? { justifyContent: 'flex-end' } : {}}>
             <span className="time-value">{timeDisplay.time.split(' ')[0]}</span>
@@ -4365,7 +4365,9 @@ function OverlayPage() {
 
   const showTimeWeatherLocation = settings.showTimeWeatherLocation !== false;
   const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
-  const showTimeDate = showTimeWeatherLocation && ((isValidTimezone(timezone) && (!!timeDisplay.time || !!timeDisplay.date)) || !!API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && !!bitrateJSX));
+  const isTimeVisible = (settings.showTime ?? true) && isValidTimezone(timezone) && !!timeDisplay.time;
+  const isDateVisible = (settings.showDate ?? true) && isValidTimezone(timezone) && !!timeDisplay.date;
+  const showTimeDate = showTimeWeatherLocation && (isTimeVisible || isDateVisible || !!API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && !!bitrateJSX));
 
   return (
     <ErrorBoundary autoReload={false}>

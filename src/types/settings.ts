@@ -66,6 +66,7 @@ export interface OverlaySettings {
   showTimeWeatherLocation?: boolean;
   weatherConditionDisplay: DisplayMode;
   temperatureUnit?: 'both' | 'F';
+  showTime?: boolean;
   showDate?: boolean;
   showMinimap: boolean;
   minimapSpeedBased: boolean;
@@ -289,6 +290,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   showTimeWeatherLocation: true,
   weatherConditionDisplay: 'auto',
   temperatureUnit: 'both',
+  showTime: true,
   showDate: true,
   showMinimap: false,
   minimapSpeedBased: false,
@@ -499,6 +501,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   showTimeWeatherLocation: 'boolean',
   weatherConditionDisplay: 'string',
   temperatureUnit: 'string',
+  showTime: 'boolean',
   showDate: 'boolean',
   showMinimap: 'boolean',
   minimapSpeedBased: 'boolean',

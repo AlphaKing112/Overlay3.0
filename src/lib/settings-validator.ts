@@ -292,6 +292,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     temperatureUnit: (cleanSettings.temperatureUnit === 'F' || cleanSettings.temperatureUnit === 'both')
       ? cleanSettings.temperatureUnit
       : DEFAULT_OVERLAY_SETTINGS.temperatureUnit,
+    showTime: cleanSettings.showTime ?? DEFAULT_OVERLAY_SETTINGS.showTime,
     showDate: cleanSettings.showDate ?? DEFAULT_OVERLAY_SETTINGS.showDate,
     showMinimap: cleanSettings.showMinimap ?? DEFAULT_OVERLAY_SETTINGS.showMinimap,
     minimapSpeedBased: cleanSettings.minimapSpeedBased ?? DEFAULT_OVERLAY_SETTINGS.minimapSpeedBased,
