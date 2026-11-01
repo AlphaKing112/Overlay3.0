@@ -29,6 +29,9 @@ function LowBitrateContent() {
   const [availableScenes, setAvailableScenes] = useState<string[]>([]);
   const [telemetry, setTelemetry] = useState<ObsTelemetryStats | null>(null);
   const [isSwitchingScene, setIsSwitchingScene] = useState<boolean>(false);
+  const [showObsLogs, setShowObsLogs] = useState<boolean>(false);
+  const [isScanningScenes, setIsScanningScenes] = useState<boolean>(false);
+  const [customSceneMode, setCustomSceneMode] = useState<boolean>(false);
 
   // Auto-switch State Machine (NOALBS: LIVE | LOW | OFFLINE | IDLE)
   const [autoSwitchState, setAutoSwitchState] = useState<'LIVE' | 'LOW' | 'OFFLINE' | 'IDLE'>('IDLE');
@@ -81,9 +84,8 @@ function LowBitrateContent() {
     showToast('OBS WebSocket password removed.', 'info');
   };
 
-  // Local OBS WebSocket connection inside Browser Source when mode === 'overlay'
+  // Local OBS WebSocket connection on streamer's PC (works in BOTH dashboard & overlay modes)
   useEffect(() => {
-    if (mode !== 'overlay') return;
     let isActive = true;
     let retryTimer: NodeJS.Timeout;
 
@@ -126,6 +128,21 @@ function LowBitrateContent() {
           }
         });
 
+        obs.on('SceneListChanged' as any, async (d: any) => {
+          try {
+            const rawScenes = d?.scenes || (await obs.call('GetSceneList'))?.scenes || [];
+            const newScenes = rawScenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean);
+            if (newScenes.length > 0) {
+              setAvailableScenes(newScenes);
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ online: true, scenes: newScenes })
+              }).catch(() => {});
+            }
+          } catch {}
+        });
+
         obs.on('ConnectionClosed', () => {
           localObsRef.current = null;
           setObsConnected(false);
@@ -147,7 +164,7 @@ function LowBitrateContent() {
         localObsRef.current = null;
       }
     };
-  }, [mode, settings.obsWebsocketPort, settings.obsWebsocketPassword]);
+  }, [settings.obsWebsocketPort, settings.obsWebsocketPassword]);
 
   // Cloud Scene Switch Signal Listener when mode === 'overlay'
   const lastProcessedSceneSignalRef = useRef<number>(0);
@@ -239,7 +256,7 @@ function LowBitrateContent() {
       if (res.ok) {
         const data = await res.json();
         setObsConnected(Boolean(data.connected));
-        if (data.scenes && Array.isArray(data.scenes)) {
+        if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
           setAvailableScenes(data.scenes);
         }
         if (data.currentScene) {
@@ -259,13 +276,16 @@ function LowBitrateContent() {
     return () => clearInterval(sceneInterval);
   }, [refreshObsScenes]);
 
-  // 3. Fetch OBS Telemetry (FPS, Dropped Frames, CPU)
+  // 3. Fetch OBS Telemetry (FPS, Dropped Frames, CPU, Scenes)
   const fetchTelemetry = useCallback(async () => {
     try {
       const res = await fetch('/api/obs-telemetry');
       if (res.ok) {
         const data = await res.json();
         setTelemetry(data);
+        if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
+          setAvailableScenes(data.scenes);
+        }
         if (data.currentScene) {
           setCurrentScene(data.currentScene);
         }
@@ -276,6 +296,78 @@ function LowBitrateContent() {
   useEffect(() => {
     fetchTelemetry();
     const telInterval = setInterval(fetchTelemetry, 4000);
+    return () => clearInterval(telInterval);
+  }, [fetchTelemetry]);
+
+  // On-demand manual scan of OBS scenes (directly asks local OBS WebSocket + fallback to telemetry)
+  const handleScanObsScenes = async () => {
+    setIsScanningScenes(true);
+    try {
+      // 1. Try active local OBS WebSocket instance
+      if (localObsRef.current) {
+        try {
+          const sceneData: any = await localObsRef.current.call('GetSceneList');
+          const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+          if (scenes.length > 0) {
+            setAvailableScenes(scenes);
+            if (sceneData?.currentProgramSceneName) setCurrentScene(sceneData.currentProgramSceneName);
+            showToast(`Found ${scenes.length} scenes from OBS!`, 'success');
+            setIsScanningScenes(false);
+            return;
+          }
+        } catch (callErr) {
+          console.warn('Local OBS call failed, attempting fresh connection:', callErr);
+        }
+      }
+
+      // 2. Try fresh connection to local OBS WebSocket
+      try {
+        const { default: OBSWebSocket } = await import('obs-websocket-js');
+        const obs = new OBSWebSocket();
+        const wsPort = settings.obsWebsocketPort || 4455;
+        const targetUrl = `ws://127.0.0.1:${wsPort}`;
+        const targetPass = settings.obsWebsocketPassword || '';
+        await obs.connect(targetUrl, targetPass || undefined);
+        localObsRef.current = obs;
+        setObsConnected(true);
+
+        const sceneData: any = await obs.call('GetSceneList').catch(() => null);
+        const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+        if (scenes.length > 0) {
+          setAvailableScenes(scenes);
+          if (sceneData?.currentProgramSceneName) setCurrentScene(sceneData.currentProgramSceneName);
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ online: true, currentScene: sceneData?.currentProgramSceneName, scenes })
+          }).catch(() => {});
+          showToast(`Connected to OBS: Detected ${scenes.length} scenes!`, 'success');
+          setIsScanningScenes(false);
+          return;
+        }
+      } catch (connErr) {
+        console.warn('Direct WebSocket scan failed, checking telemetry fallback:', connErr);
+      }
+
+      // 3. Fallback: Query telemetry KV endpoint
+      const res = await fetch('/api/obs-telemetry');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
+          setAvailableScenes(data.scenes);
+          showToast(`Loaded ${data.scenes.length} scenes from OBS overlay telemetry!`, 'success');
+          setIsScanningScenes(false);
+          return;
+        }
+      }
+
+      showToast('Could not reach OBS. Make sure OBS is open with Tools → WebSocket Server Settings enabled (Port 4455).', 'warning');
+    } catch (err: any) {
+      showToast(`Scan error: ${err?.message || err}`, 'error');
+    } finally {
+      setIsScanningScenes(false);
+    }
+  };
     return () => clearInterval(telInterval);
   }, [fetchTelemetry]);
 
@@ -1507,29 +1599,357 @@ function LowBitrateContent() {
                   />
                 </div>
 
-                {/* Dropped Frames & OBS Health */}
-                {telemetry && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '12px', textAlign: 'center' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>FPS</div>
-                      <strong style={{ fontSize: '0.9rem', color: '#38bdf8' }}>{telemetry.fps ? Math.round(telemetry.fps) : '60'}</strong>
+                {/* OBS Health Telemetry Enable / Disable & Interval Settings */}
+                <div style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label style={{ margin: 0, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
+                      <span>📊</span> OBS Health Telemetry (Dropped Frames, CPU, FPS)
+                    </label>
+                    <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
+                      (Syncs live OBS stats to dashboard)
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', maxWidth: '100%' }}>
+                    {settings.obsTelemetryEnabled && (
+                      <select
+                        value={settings.obsTelemetryInterval || 45}
+                        onChange={(e) => saveSettingsUpdates({ obsTelemetryInterval: parseInt(e.target.value, 10) || 45 })}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.8em',
+                          background: 'rgba(0,0,0,0.5)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          borderRadius: '6px',
+                          color: '#fff',
+                          outline: 'none',
+                          cursor: 'pointer'
+                        }}
+                        title="Select Telemetry Sync Interval"
+                      >
+                        <option value={15}>⚡ Fast (15s)</option>
+                        <option value={30}>⏱️ Normal (30s)</option>
+                        <option value={45}>🍃 Eco (45s - Recommended)</option>
+                        <option value={60}>💤 Low Data (60s)</option>
+                      </select>
+                    )}
+                    <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.obsTelemetryEnabled || false}
+                        onChange={(e) => saveSettingsUpdates({ obsTelemetryEnabled: e.target.checked })}
+                        style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#38bdf8', flexShrink: 0 }}
+                      />
+                      <span style={{ fontSize: '0.85em', color: settings.obsTelemetryEnabled ? '#38bdf8' : 'rgba(255,255,255,0.4)', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                        {settings.obsTelemetryEnabled ? 'ENABLED' : 'DISABLED'}
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Live OBS Studio Telemetry Bar (Shown when enabled) */}
+                {settings.obsTelemetryEnabled && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    background: telemetry?.online ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.02)',
+                    border: telemetry?.online ? '1px solid rgba(83, 252, 25, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <span style={{ fontSize: '0.85em', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', color: telemetry?.online ? '#53FC19' : 'rgba(255,255,255,0.6)' }}>
+                        <span>{telemetry?.online ? '🟢' : '⚪'}</span>
+                        <span>OBS Studio Telemetry {telemetry?.online ? '(Live Cloud Sync)' : '(Waiting for OBS / Overlay)'}</span>
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        {(currentScene || telemetry?.currentScene) && (
+                          <span style={{ fontSize: '0.8em', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                            🎬 Scene: {currentScene || telemetry?.currentScene}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowObsLogs(prev => !prev)}
+                          style={{
+                            fontSize: '0.78em',
+                            background: showObsLogs ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                            color: showObsLogs ? '#38bdf8' : 'rgba(255, 255, 255, 0.85)',
+                            border: showObsLogs ? '1px solid rgba(56, 189, 248, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
+                            padding: '3px 9px',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            transition: 'all 0.2s ease'
+                          }}
+                          title="View OBS Event and Diagnostic Logs"
+                        >
+                          <span>📜</span>
+                          <span>{showObsLogs ? 'Hide Logs' : 'View Logs'}</span>
+                          {telemetry?.logs && telemetry.logs.length > 0 && (
+                            <span style={{ background: '#38bdf8', color: '#000', fontSize: '0.75em', padding: '1px 5px', borderRadius: '10px', fontWeight: 'bold' }}>
+                              {Math.min(25, telemetry.logs.length)}
+                            </span>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>Dropped Frames</div>
-                      <strong style={{ fontSize: '0.9rem', color: (telemetry.droppedFrames || 0) > 0 ? '#f87171' : '#4ade80' }}>
-                        {telemetry.droppedFrames ?? 0} ({telemetry.droppedFramesPercent?.toFixed(1) ?? '0.0'}%)
-                      </strong>
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>CPU Usage</div>
-                      <strong style={{ fontSize: '0.9rem', color: '#fff' }}>{telemetry.cpuUsagePercent ? `${telemetry.cpuUsagePercent.toFixed(1)}%` : '0%'}</strong>
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>Uptime</div>
-                      <strong style={{ fontSize: '0.9rem', color: '#fff' }}>{telemetry.uptimeTimecode || '00:00:00'}</strong>
-                    </div>
+
+                    {telemetry?.online ? (
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+                        gap: '8px',
+                        paddingTop: '6px',
+                        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                        fontFamily: 'monospace',
+                        fontSize: '0.85em'
+                      }}>
+                        {/* Dropped Frames */}
+                        <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Dropped Frames</div>
+                          <div style={{
+                            fontWeight: 'bold',
+                            color: (telemetry.droppedFramesPercent ?? 0) > 2 ? '#ef4444' : ((telemetry.droppedFramesPercent ?? 0) > 0.5 ? '#f59e0b' : '#4ade80')
+                          }}>
+                            {telemetry.droppedFrames ?? 0} ({telemetry.droppedFramesPercent?.toFixed(1) ?? '0.0'}%)
+                          </div>
+                        </div>
+
+                        {/* Output Bitrate */}
+                        <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>OBS Bitrate</div>
+                          <div style={{ fontWeight: 'bold', color: '#4ade80' }}>
+                            📶 {telemetry.outputBitrateKbps ? `${telemetry.outputBitrateKbps.toLocaleString()} kbps` : (currentBitrate ? `${currentBitrate.toLocaleString()} kbps` : '0 kbps')}
+                          </div>
+                        </div>
+
+                        {/* Stream Uptime */}
+                        <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Live Uptime</div>
+                          <div style={{ fontWeight: 'bold', color: telemetry.streaming ? '#60a5fa' : 'rgba(255,255,255,0.4)' }}>
+                            📡 {telemetry.streaming ? (telemetry.uptimeTimecode || 'LIVE') : '00:00:00'}
+                          </div>
+                        </div>
+
+                        {/* CPU Usage */}
+                        <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>CPU Usage</div>
+                          <div style={{
+                            fontWeight: 'bold',
+                            color: (telemetry.cpuUsagePercent ?? 0) > 50 ? '#ef4444' : ((telemetry.cpuUsagePercent ?? 0) > 20 ? '#f59e0b' : '#38bdf8')
+                          }}>
+                            🖥️ {telemetry.cpuUsagePercent ? `${telemetry.cpuUsagePercent.toFixed(1)}%` : '0%'}
+                          </div>
+                        </div>
+
+                        {/* FPS */}
+                        <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Framerate</div>
+                          <div style={{ fontWeight: 'bold', color: '#e2e8f0' }}>
+                            🎯 {telemetry.fps ? `${Math.round(telemetry.fps)} FPS` : '60.0 FPS'}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {telemetry?.error ? (
+                          <div style={{ fontSize: '0.8em', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                            ⚠️ {telemetry.error}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.8em', color: 'rgba(255, 255, 255, 0.45)', fontStyle: 'italic' }}>
+                            Overlay browser source in OBS will automatically stream Dropped Frames, Uptime, CPU %, and FPS to this dashboard when OBS is running.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Collapsible OBS Event & Diagnostic Log Viewer */}
+                    {showObsLogs && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '10px 12px',
+                        background: '#090d16',
+                        border: '1px solid rgba(56, 189, 248, 0.25)',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.07)', paddingBottom: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <span>📋</span> Current OBS Logs (Recent {Math.min(25, telemetry?.logs?.length || 0)})
+                            </span>
+                            {telemetry?.obsVersion && (
+                              <span style={{ fontSize: '0.72em', opacity: 0.75, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
+                                OBS v{telemetry.obsVersion} {telemetry.platform ? `(${telemetry.platform})` : ''}
+                              </span>
+                            )}
+                            {typeof telemetry?.memoryUsageMb === 'number' && (
+                              <span style={{ fontSize: '0.72em', opacity: 0.75, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
+                                RAM: {telemetry.memoryUsageMb} MB
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const format12h = (msg: string, ts?: number) => {
+                                  if (/^\[\d{1,2}:\d{2}\s+(AM|PM)\]/i.test(msg)) return msg;
+                                  const clean = msg.replace(/^\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?:\s*/i, '').replace(/^\[\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?\]\s*/i, '');
+                                  if (ts) {
+                                    const d = new Date(ts);
+                                    let h = d.getHours();
+                                    const ampm = h >= 12 ? 'PM' : 'AM';
+                                    h = h % 12 || 12;
+                                    const m = String(d.getMinutes()).padStart(2, '0');
+                                    return `[${h}:${m} ${ampm}] ${clean}`;
+                                  }
+                                  return clean;
+                                };
+                                const recentLogs = (telemetry?.logs || []).slice(-25);
+                                const logText = recentLogs.map(l => format12h(l.message, l.timestamp)).join('\n') || 'No logs recorded yet.';
+                                navigator.clipboard.writeText(logText);
+                                showToast('📋 25 recent OBS logs copied to clipboard!', 'success');
+                              }}
+                              style={{
+                                fontSize: '0.72em',
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                color: '#fff',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              📋 Copy Logs
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '3px',
+                          fontFamily: 'Consolas, "Courier New", monospace',
+                          fontSize: '0.78em',
+                          background: '#040711',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(255, 255, 255, 0.05)'
+                        }}>
+                          {telemetry?.logs && telemetry.logs.length > 0 ? (
+                            telemetry.logs.slice(-25).map((logItem, idx) => {
+                              let displayMsg = logItem.message;
+                              if (!/^\[\d{1,2}:\d{2}\s+(AM|PM)\]/i.test(displayMsg)) {
+                                const clean = displayMsg.replace(/^\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?:\s*/i, '').replace(/^\[\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?\]\s*/i, '');
+                                if (logItem.timestamp) {
+                                  const d = new Date(logItem.timestamp);
+                                  let h = d.getHours();
+                                  const ampm = h >= 12 ? 'PM' : 'AM';
+                                  h = h % 12 || 12;
+                                  const m = String(d.getMinutes()).padStart(2, '0');
+                                  displayMsg = `[${h}:${m} ${ampm}] ${clean}`;
+                                } else {
+                                  displayMsg = clean;
+                                }
+                              }
+
+                              const hasNonZeroDropped = /(?:⚠️\s*Dropped frames|frame drop spike|render lag|\bDropped:\s*[1-9]\d*|\+\d+\s*dropped)/i.test(displayMsg);
+                              const isActualError = logItem.level === 'error' && !/Dropped:\s*0\s*\(/i.test(displayMsg);
+                              const isFrameDropError = hasNonZeroDropped || isActualError;
+
+                              const isWarn = !isFrameDropError && (
+                                logItem.level === 'warn' ||
+                                /====\s*Streaming Stop\s*====|====\s*Recording Stop\s*====|User stopped the stream|MUTED|disconnected|Connection closed/i.test(displayMsg)
+                              );
+
+                              const isSuccess = !isFrameDropError && !isWarn && (
+                                logItem.level === 'success' ||
+                                /====\s*Streaming Start\s*====|====\s*Recording Start\s*====|Connection successful|Connected to OBS|UNMUTED/i.test(displayMsg)
+                              );
+
+                              const timeMatch = displayMsg.match(/^(\[\d{1,2}:\d{2}\s+[AP]M\])\s*(.*)$/);
+                              const timePart = timeMatch ? timeMatch[1] : '';
+                              const restPart = timeMatch ? timeMatch[2] : displayMsg;
+
+                              let tagColor = '#94a3b8';
+                              if (isFrameDropError) {
+                                tagColor = '#ef4444';
+                              } else if (isWarn) {
+                                tagColor = '#fbbf24';
+                              } else if (isSuccess) {
+                                tagColor = '#4ade80';
+                              } else if (restPart.startsWith('[system-health]')) {
+                                tagColor = '#38bdf8';
+                              } else if (restPart.startsWith('[scene-manager]')) {
+                                tagColor = '#c084fc';
+                              } else if (restPart.startsWith('[audio-subsystem]')) {
+                                tagColor = '#f472b6';
+                              } else if (restPart.startsWith('[video-pipeline]')) {
+                                tagColor = '#2dd4bf';
+                              } else if (restPart.startsWith('[obs-startup]') || restPart.startsWith('[obs-websocket]')) {
+                                tagColor = '#60a5fa';
+                              } else if (restPart.startsWith('[rtmp stream')) {
+                                tagColor = '#f59e0b';
+                              }
+
+                              return (
+                                <div key={logItem.id || idx} style={{ lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap', display: 'flex', gap: '6px' }}>
+                                  {timePart && (
+                                    <span style={{ color: 'rgba(255, 255, 255, 0.4)', flexShrink: 0, userSelect: 'none' }}>
+                                      {timePart}
+                                    </span>
+                                  )}
+                                  <span style={{ color: tagColor, fontWeight: isFrameDropError ? 'bold' : 'normal' }}>
+                                    {restPart}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div style={{ color: 'rgba(255, 255, 255, 0.45)', fontStyle: 'italic', padding: '8px 0' }}>
+                              No OBS logs recorded yet. Logs will stream directly from OBS Studio when the overlay browser source is loaded in OBS.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {/* OBS Stream Commands Toggle */}
+                <div style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(83, 252, 25, 0.25)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label style={{ margin: 0, color: '#53FC19', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
+                      <span>⚡</span> OBS Stream Commands (!start, !end &amp; !refresh)
+                    </label>
+                    <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
+                      (Allow chat/remote commands to control stream)
+                    </span>
+                  </div>
+                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsStreamCommandsEnabled ?? true}
+                      onChange={(e) => saveSettingsUpdates({ obsStreamCommandsEnabled: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#53FC19' }}
+                    />
+                    <span style={{ fontSize: '0.85em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
+                      {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </label>
+                </div>
               </section>
 
             </div>

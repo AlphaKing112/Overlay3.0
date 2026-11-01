@@ -340,6 +340,76 @@ export default function AdminPage() {
   const [shoutoutDuration, setShoutoutDuration] = useState(15);
   const [isTriggeringShoutout, setIsTriggeringShoutout] = useState(false);
 
+  // Chat Commands sub-navigation tab & webhook test states
+  const [commandSubTab, setCommandSubTab] = useState<'all' | 'clip' | 'pic' | 'so'>('all');
+  const [isTestingPicWebhook, setIsTestingPicWebhook] = useState(false);
+  const [picTestStatus, setPicTestStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [isTestingClipWebhook, setIsTestingClipWebhook] = useState(false);
+  const [clipTestStatus, setClipTestStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+
+  // Test Discord Pic Webhook
+  const handleTestPicWebhook = async () => {
+    if (!settings.discordPicWebhookUrl) {
+      setPicTestStatus({ success: false, message: 'Please enter a Discord Webhook URL first.' });
+      return;
+    }
+    setIsTestingPicWebhook(true);
+    setPicTestStatus(null);
+    try {
+      const res = await fetch('/api/pic-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test',
+          webhookUrl: settings.discordPicWebhookUrl,
+          pointsCost: settings.picPointsCost ?? 200
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPicTestStatus({ success: true, message: '✅ Test snapshot card posted to Discord successfully!' });
+      } else {
+        setPicTestStatus({ success: false, message: `❌ Discord test failed: ${data.error || 'Check webhook URL'}` });
+      }
+    } catch (err: any) {
+      setPicTestStatus({ success: false, message: `❌ Test error: ${err.message}` });
+    } finally {
+      setIsTestingPicWebhook(false);
+    }
+  };
+
+  // Test Discord Clip Webhook
+  const handleTestClipWebhook = async () => {
+    const targetUrl = settings.discordClipWebhookUrl || settings.discordPicWebhookUrl;
+    if (!targetUrl) {
+      setClipTestStatus({ success: false, message: 'Please enter a Discord Clip Webhook URL first (or configure Pic Webhook).' });
+      return;
+    }
+    setIsTestingClipWebhook(true);
+    setClipTestStatus(null);
+    try {
+      const res = await fetch('/api/clip-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test',
+          webhookUrl: targetUrl,
+          pointsCost: settings.clipPointsCost ?? 300
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setClipTestStatus({ success: true, message: '✅ Test notification posted to Discord clip channel successfully!' });
+      } else {
+        setClipTestStatus({ success: false, message: `❌ Discord test failed: ${data.error || 'Check webhook URL'}` });
+      }
+    } catch (err: any) {
+      setClipTestStatus({ success: false, message: `❌ Test error: ${err.message}` });
+    } finally {
+      setIsTestingClipWebhook(false);
+    }
+  };
+
   const handleTestChatAnnouncement = async () => {
     if (!settings.twitchToken || !settings.twitchBroadcasterId) {
       setToast({ type: 'error', message: 'Twitch is not connected! Please click the Twitch Login button at the top to connect.' });
@@ -683,7 +753,7 @@ export default function AdminPage() {
     latestMergedSettingsRef.current = mergedSettings;
 
     // Save critical toggle switches immediately (0ms delay) so refreshing instantly loads saved value
-    const isInstantSaveKey = updates.obsStreamCommandsEnabled !== undefined || updates.shoutout !== undefined || updates.obsTelemetryEnabled !== undefined || updates.obsTelemetryInterval !== undefined || updates.picCommandEnabled !== undefined || updates.picShowOnOverlay !== undefined;
+    const isInstantSaveKey = updates.obsStreamCommandsEnabled !== undefined || updates.shoutout !== undefined || updates.obsTelemetryEnabled !== undefined || updates.obsTelemetryInterval !== undefined || updates.picCommandEnabled !== undefined || updates.picShowOnOverlay !== undefined || updates.clipCommandEnabled !== undefined || updates.clipShowOnOverlay !== undefined || updates.clipPointsEnabled !== undefined || updates.picPointsEnabled !== undefined;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -1459,11 +1529,6 @@ export default function AdminPage() {
               {syncStatus === 'syncing' && '🟡 Saving...'}
               {syncStatus === 'disconnected' && '🔴 Offline'}
             </div>
-            <div className={`sync-status ${obsStatus}`} title={`OBS: ${obsStatus}`} style={{ marginLeft: '10px' }}>
-              OBS: {obsStatus === 'connected' && '🟢'}
-              {obsStatus === 'connecting' && '🟡'}
-              {obsStatus === 'disconnected' && '🔴'}
-            </div>
           </div>
           <div className="header-actions">
             <button
@@ -1571,644 +1636,52 @@ export default function AdminPage() {
       <main className="main-content">
         <div className="settings-container">
 
-          {/* OBS Connection Section */}
-          <CollapsibleSection
-            id="obs"
-            title="OBS Websocket & Auto-Switch"
-            icon="🎥"
-            headerRight={
-              <span className={`status-badge status-${obsStatus}`} style={{ fontSize: '0.75em' }}>
-                {obsStatus === 'connected' ? '🟢 Connected' : obsStatus === 'connecting' ? '🟡 Connecting' : '⚪ Disconnected'}
-              </span>
-            }
-            isCollapsed={isSectionCollapsed('obs')}
-            onToggle={() => toggleSection('obs')}
+          {/* NOALBS Low Bitrate & Switcher Studio Banner */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(99, 102, 241, 0.12))',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+              borderRadius: '12px',
+              padding: '16px 20px',
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}
           >
-            <div className="setting-group">
-              <label className="group-label">Connection URL</label>
-              <input
-                type="text"
-                value={obsUrlInput}
-                onChange={(e) => setObsUrlInput(e.target.value)}
-                placeholder="ws://127.0.0.1:4455"
-                className="text-input"
-              />
-            </div>
-            <div className="setting-group" style={{ marginTop: '12px' }}>
-              <label className="group-label">Password</label>
-              <input
-                type="password"
-                value={obsPasswordInput}
-                onChange={(e) => setObsPasswordInput(e.target.value)}
-                placeholder="Leave blank if no password"
-                className="text-input"
-              />
-            </div>
-            <div className="setting-group" style={{ marginTop: '12px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {obsStatus === 'connected' ? (
-                <button className="btn" style={{ background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.4)', color: '#ff6b6b' }} onClick={disconnectFromOBS}>
-                  Disconnect
-                </button>
-              ) : (
-                <button className="btn btn-primary" onClick={connectToOBS} disabled={obsStatus === 'connecting'}>
-                  {obsStatus === 'connecting' ? 'Connecting...' : 'Connect to OBS'}
-                </button>
-              )}
-              {obsStatus === 'connected' && (
-                <button
-                  className="btn"
-                  disabled={isStreamingToggling}
-                  onClick={() => triggerObsStreamCommand(isStreaming ? 'stop' : 'start')}
-                  style={{
-                    background: isStreamingToggling
-                      ? 'rgba(100,100,100,0.5)'
-                      : isStreaming
-                        ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
-                        : 'linear-gradient(135deg, #16a34a, #15803d)',
-                    color: '#fff',
-                    border: isStreaming ? '1px solid rgba(248,113,113,0.4)' : '1px solid rgba(74,222,128,0.4)',
-                    fontWeight: 700,
-                    letterSpacing: '0.03em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    minWidth: '160px',
-                    justifyContent: 'center',
-                    transition: 'background 0.3s ease',
-                  }}
-                >
-                  {isStreamingToggling ? (
-                    <>
-                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#facc15', boxShadow: '0 0 6px #facc15', animation: 'pulse 1s infinite' }} />
-                      {isStreaming ? 'Stopping...' : 'Starting...'}
-                    </>
-                  ) : isStreaming ? (
-                    <>
-                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 8px #f87171' }} />
-                      🔴 Stop Stream
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 8px #4ade80' }} />
-                      ▶ Start Stream
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Stream Status (Changes to LIVE when OBS or Belabox is streaming) */}
-              {(() => {
-                const liveBitrate = (detectedLiveBitrate !== null && detectedLiveBitrate > 0)
-                  ? detectedLiveBitrate
-                  : (obsTelemetry?.outputBitrateKbps && obsTelemetry.outputBitrateKbps > 0 ? obsTelemetry.outputBitrateKbps : null);
-                const isLive = Boolean(liveBitrate || isStreaming || obsTelemetry?.streaming);
-
-                return (
-                  <span style={{
-                    fontSize: '0.82em',
-                    padding: '6px 12px',
-                    borderRadius: '6px',
-                    background: isLive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                    color: isLive ? '#4ade80' : 'rgba(255, 255, 255, 0.5)',
-                    border: isLive ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
-                    fontWeight: 'bold',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    {isLive
-                      ? `🟢 LIVE ${liveBitrate ? `(${liveBitrate} kbps)` : ''}`
-                      : '⚪ STREAM OFFLINE'}
-                  </span>
-                );
-              })()}
-            </div>
-
-            {/* OBS Telemetry Enable / Disable Toggle */}
-            <div className="setting-group" style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <label className="group-label" style={{ margin: 0, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
-                  <span>📊</span> OBS Health Telemetry (Dropped Frames, CPU, FPS)
-                </label>
-                <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
-                  (Syncs live OBS stats to dashboard)
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', maxWidth: '100%' }}>
-                {settings.obsTelemetryEnabled && (
-                  <select
-                    className="text-input"
-                    value={settings.obsTelemetryInterval || 45}
-                    onChange={(e) => handleSettingsChange({ obsTelemetryInterval: parseInt(e.target.value, 10) || 45 })}
-                    style={{ padding: '4px 8px', fontSize: '0.8em', width: 'auto', maxWidth: '100%' }}
-                    title="Select Telemetry Sync Interval"
-                  >
-                    <option value={15}>⚡ Fast (15s)</option>
-                    <option value={30}>⏱️ Normal (30s)</option>
-                    <option value={45}>🍃 Eco (45s - Recommended)</option>
-                    <option value={60}>💤 Low Data (60s)</option>
-                  </select>
-                )}
-                <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.obsTelemetryEnabled || false}
-                    onChange={(e) => handleSettingsChange({ obsTelemetryEnabled: e.target.checked })}
-                    style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#38bdf8', flexShrink: 0 }}
-                  />
-                  <span style={{ fontSize: '0.85em', color: settings.obsTelemetryEnabled ? '#38bdf8' : 'rgba(255,255,255,0.4)', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                    {settings.obsTelemetryEnabled ? 'ENABLED' : 'DISABLED'}
-                  </span>
-                </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '1.8rem' }}>⚡</span>
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fbbf24' }}>
+                  NOALBS Low Bitrate &amp; OBS Switcher Studio
+                </div>
+                <div style={{ fontSize: '0.82rem', opacity: 0.8, color: '#e2e8f0', marginTop: '2px' }}>
+                  OBS WebSocket connection, automatic low-bitrate scene switching, stream telemetry, and diagnostics are managed in Switcher Studio.
+                </div>
               </div>
             </div>
-
-            {/* Live OBS Studio Telemetry Bar (Shown when enabled) */}
-            {settings.obsTelemetryEnabled && (
-              <div style={{
-                marginTop: '12px',
-                padding: '12px 16px',
-                borderRadius: '10px',
-                background: obsTelemetry?.online ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.02)',
-                border: obsTelemetry?.online ? '1px solid rgba(83, 252, 25, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+            <button
+              type="button"
+              className="btn"
+              onClick={() => router.push('/low-bitrate')}
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#000',
+                fontWeight: 'bold',
+                padding: '8px 18px',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                  <span style={{ fontSize: '0.85em', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', color: obsTelemetry?.online ? '#53FC19' : 'rgba(255,255,255,0.6)' }}>
-                    <span>{obsTelemetry?.online ? '🟢' : '⚪'}</span>
-                    <span>OBS Studio Telemetry {obsTelemetry?.online ? '(Live Cloud Sync)' : '(Waiting for OBS / Overlay)'}</span>
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    {obsTelemetry?.currentScene && (
-                      <span style={{ fontSize: '0.8em', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                        🎬 Scene: {obsTelemetry.currentScene}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setShowObsLogs(prev => !prev)}
-                      style={{
-                        fontSize: '0.78em',
-                        background: showObsLogs ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)',
-                        color: showObsLogs ? '#38bdf8' : 'rgba(255, 255, 255, 0.85)',
-                        border: showObsLogs ? '1px solid rgba(56, 189, 248, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
-                        padding: '3px 9px',
-                        borderRadius: '5px',
-                        cursor: 'pointer',
-                        fontWeight: 'bold',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        transition: 'all 0.2s ease'
-                      }}
-                      title="View OBS Event and Diagnostic Logs"
-                    >
-                      <span>📜</span>
-                      <span>{showObsLogs ? 'Hide Logs' : 'View Logs'}</span>
-                      {obsTelemetry?.logs && obsTelemetry.logs.length > 0 && (
-                        <span style={{ background: '#38bdf8', color: '#000', fontSize: '0.75em', padding: '1px 5px', borderRadius: '10px', fontWeight: 'bold' }}>
-                          {Math.min(25, obsTelemetry.logs.length)}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {obsTelemetry?.online ? (
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
-                    gap: '8px',
-                    paddingTop: '6px',
-                    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                    fontFamily: 'monospace',
-                    fontSize: '0.85em'
-                  }}>
-                    {/* Dropped Frames */}
-                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Dropped Frames</div>
-                      <div style={{
-                        fontWeight: 'bold',
-                        color: (obsTelemetry.droppedFramesPercent ?? 0) > 2 ? '#ef4444' : ((obsTelemetry.droppedFramesPercent ?? 0) > 0.5 ? '#f59e0b' : '#4ade80')
-                      }}>
-                        {obsTelemetry.droppedFrames ?? 0} ({obsTelemetry.droppedFramesPercent ?? 0}%)
-                      </div>
-                    </div>
-
-                    {/* Output Bitrate */}
-                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>OBS Bitrate</div>
-                      <div style={{ fontWeight: 'bold', color: '#4ade80' }}>
-                        📶 {obsTelemetry.outputBitrateKbps ? `${obsTelemetry.outputBitrateKbps} kbps` : (detectedLiveBitrate ? `${detectedLiveBitrate} kbps` : '0 kbps')}
-                      </div>
-                    </div>
-
-                    {/* Stream Uptime */}
-                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Live Uptime</div>
-                      <div style={{ fontWeight: 'bold', color: obsTelemetry.streaming ? '#60a5fa' : 'rgba(255,255,255,0.4)' }}>
-                        📡 {obsTelemetry.streaming ? (obsTelemetry.uptimeTimecode || 'LIVE') : '00:00:00'}
-                      </div>
-                    </div>
-
-                    {/* CPU Usage */}
-                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>CPU Usage</div>
-                      <div style={{
-                        fontWeight: 'bold',
-                        color: (obsTelemetry.cpuUsagePercent ?? 0) > 50 ? '#ef4444' : ((obsTelemetry.cpuUsagePercent ?? 0) > 20 ? '#f59e0b' : '#38bdf8')
-                      }}>
-                        🖥️ {obsTelemetry.cpuUsagePercent ?? 0}%
-                      </div>
-                    </div>
-
-                    {/* FPS */}
-                    <div style={{ padding: '6px 10px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.75em', opacity: 0.6, textTransform: 'uppercase' }}>Framerate</div>
-                      <div style={{ fontWeight: 'bold', color: '#e2e8f0' }}>
-                        🎯 {obsTelemetry.fps ? `${obsTelemetry.fps} FPS` : '60.0 FPS'}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {obsTelemetry?.error ? (
-                      <div style={{ fontSize: '0.8em', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                        ⚠️ {obsTelemetry.error}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: '0.8em', color: 'rgba(255, 255, 255, 0.45)', fontStyle: 'italic' }}>
-                        Overlay browser source in OBS will automatically stream Dropped Frames, Uptime, CPU %, and FPS to this dashboard when OBS is running.
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Collapsible OBS Event & Diagnostic Log Viewer */}
-                {showObsLogs && (
-                  <div style={{
-                    marginTop: '8px',
-                    padding: '10px 12px',
-                    background: '#090d16',
-                    border: '1px solid rgba(56, 189, 248, 0.25)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.07)', paddingBottom: '6px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          <span>📋</span> Current OBS Logs (Recent {Math.min(25, obsTelemetry?.logs?.length || 0)})
-                        </span>
-                        {obsTelemetry?.obsVersion && (
-                          <span style={{ fontSize: '0.72em', opacity: 0.75, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
-                            OBS v{obsTelemetry.obsVersion} {obsTelemetry.platform ? `(${obsTelemetry.platform})` : ''}
-                          </span>
-                        )}
-                        {typeof obsTelemetry?.memoryUsageMb === 'number' && (
-                          <span style={{ fontSize: '0.72em', opacity: 0.75, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
-                            RAM: {obsTelemetry.memoryUsageMb} MB
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const format12h = (msg: string, ts?: number) => {
-                              if (/^\[\d{1,2}:\d{2}\s+(AM|PM)\]/i.test(msg)) return msg;
-                              const clean = msg.replace(/^\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?:\s*/i, '').replace(/^\[\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?\]\s*/i, '');
-                              if (ts) {
-                                const d = new Date(ts);
-                                let h = d.getHours();
-                                const ampm = h >= 12 ? 'PM' : 'AM';
-                                h = h % 12 || 12;
-                                const m = String(d.getMinutes()).padStart(2, '0');
-                                return `[${h}:${m} ${ampm}] ${clean}`;
-                              }
-                              return clean;
-                            };
-                            const recentLogs = (obsTelemetry?.logs || []).slice(-25);
-                            const logText = recentLogs.map(l => format12h(l.message, l.timestamp)).join('\n') || 'No logs recorded yet.';
-                            navigator.clipboard.writeText(logText);
-                            setToast({ type: 'saved', message: '📋 25 recent OBS logs copied to clipboard!' });
-                            setTimeout(() => setToast(null), 2500);
-                          }}
-                          style={{
-                            fontSize: '0.72em',
-                            background: 'rgba(255, 255, 255, 0.08)',
-                            color: '#fff',
-                            border: '1px solid rgba(255, 255, 255, 0.15)',
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          📋 Copy Logs
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{
-                      maxHeight: '220px',
-                      overflowY: 'auto',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '3px',
-                      fontFamily: 'Consolas, "Courier New", monospace',
-                      fontSize: '0.78em',
-                      background: '#040711',
-                      padding: '8px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(255, 255, 255, 0.05)'
-                    }}>
-                      {obsTelemetry?.logs && obsTelemetry.logs.length > 0 ? (
-                        obsTelemetry.logs.slice(-25).map((logItem, idx) => {
-                          let displayMsg = logItem.message;
-                          if (!/^\[\d{1,2}:\d{2}\s+(AM|PM)\]/i.test(displayMsg)) {
-                            const clean = displayMsg.replace(/^\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?:\s*/i, '').replace(/^\[\d{1,2}:\d{2}(:\d{2})?(\.\d{1,3})?\s*(AM|PM)?\]\s*/i, '');
-                            if (logItem.timestamp) {
-                              const d = new Date(logItem.timestamp);
-                              let h = d.getHours();
-                              const ampm = h >= 12 ? 'PM' : 'AM';
-                              h = h % 12 || 12;
-                              const m = String(d.getMinutes()).padStart(2, '0');
-                              displayMsg = `[${h}:${m} ${ampm}] ${clean}`;
-                            } else {
-                              displayMsg = clean;
-                            }
-                          }
-
-                          // Check if this line is an actual frame drop or error (NOT standard 0 dropped system-health)
-                          const hasNonZeroDropped = /(?:⚠️\s*Dropped frames|frame drop spike|render lag|\bDropped:\s*[1-9]\d*|\+\d+\s*dropped)/i.test(displayMsg);
-                          const isActualError = logItem.level === 'error' && !/Dropped:\s*0\s*\(/i.test(displayMsg);
-                          const isFrameDropError = hasNonZeroDropped || isActualError;
-
-                          const isWarn = !isFrameDropError && (
-                            logItem.level === 'warn' ||
-                            /====\s*Streaming Stop\s*====|====\s*Recording Stop\s*====|User stopped the stream|MUTED|disconnected|Connection closed/i.test(displayMsg)
-                          );
-
-                          const isSuccess = !isFrameDropError && !isWarn && (
-                            logItem.level === 'success' ||
-                            /====\s*Streaming Start\s*====|====\s*Recording Start\s*====|Connection successful|Connected to OBS|UNMUTED/i.test(displayMsg)
-                          );
-
-                          // Parse timestamp and tag
-                          const timeMatch = displayMsg.match(/^(\[\d{1,2}:\d{2}\s+[AP]M\])\s*(.*)$/);
-                          const timePart = timeMatch ? timeMatch[1] : '';
-                          const restPart = timeMatch ? timeMatch[2] : displayMsg;
-
-                          // Color tag prefix
-                          let tagColor = '#94a3b8';
-                          if (isFrameDropError) {
-                            tagColor = '#ef4444'; // Red ONLY for dropped frames / errors
-                          } else if (isWarn) {
-                            tagColor = '#fbbf24'; // Amber for stops / warnings
-                          } else if (isSuccess) {
-                            tagColor = '#4ade80'; // Green for starts / connects
-                          } else if (restPart.startsWith('[system-health]')) {
-                            tagColor = '#38bdf8'; // Cyan for system health (never red if 0 drops)
-                          } else if (restPart.startsWith('[scene-manager]')) {
-                            tagColor = '#c084fc'; // Purple for scene switches
-                          } else if (restPart.startsWith('[audio-subsystem]')) {
-                            tagColor = '#f472b6'; // Pink for audio
-                          } else if (restPart.startsWith('[video-pipeline]')) {
-                            tagColor = '#2dd4bf'; // Teal for video settings
-                          } else if (restPart.startsWith('[obs-startup]') || restPart.startsWith('[obs-websocket]')) {
-                            tagColor = '#60a5fa'; // Blue for OBS startup
-                          } else if (restPart.startsWith('[rtmp stream')) {
-                            tagColor = '#f59e0b'; // Amber for RTMP
-                          }
-
-                          return (
-                            <div key={logItem.id || idx} style={{ lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap', display: 'flex', gap: '6px' }}>
-                              {timePart && (
-                                <span style={{ color: 'rgba(255, 255, 255, 0.4)', flexShrink: 0, userSelect: 'none' }}>
-                                  {timePart}
-                                </span>
-                              )}
-                              <span style={{ color: tagColor, fontWeight: isFrameDropError ? 'bold' : 'normal' }}>
-                                {restPart}
-                              </span>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div style={{ color: 'rgba(255, 255, 255, 0.45)', fontStyle: 'italic', padding: '8px 0' }}>
-                          No OBS logs recorded yet. Logs will stream directly from OBS Studio when the overlay browser source is loaded in OBS.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* OBS Stream Commands Toggle */}
-            <div className="setting-group" style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(83, 252, 25, 0.25)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <label className="group-label" style={{ margin: 0, color: '#53FC19', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
-                  <span>⚡</span> OBS Stream Commands (!start, !end & !refresh)
-                </label>
-                <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
-                  (Allow chat/remote commands to control stream)
-                </span>
-              </div>
-              <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-                <input
-                  type="checkbox"
-                  checked={settings.obsStreamCommandsEnabled ?? true}
-                  onChange={(e) => handleSettingsChange({ obsStreamCommandsEnabled: e.target.checked })}
-                  style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#53FC19' }}
-                />
-                <span style={{ fontSize: '0.85em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
-                  {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
-                </span>
-              </label>
-            </div>
-
-            {obsErrorLog && (
-              <div className="setting-group" style={{ marginTop: '12px', padding: '12px', backgroundColor: 'rgba(255, 0, 0, 0.1)', border: '1px solid rgba(255, 0, 0, 0.3)', borderRadius: '8px' }}>
-                <label className="group-label" style={{ color: '#ff6b6b' }}>⚠️ Connection Error</label>
-                <div style={{ fontSize: '0.85em', color: '#ffc9c9', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {obsErrorLog}
-                </div>
-                <div style={{ fontSize: '0.8em', color: '#ff9999', marginTop: '8px' }}>
-                  <strong>Tips:</strong>
-                  <ul style={{ paddingLeft: '20px', marginTop: '4px', marginBottom: 0 }}>
-                    <li>Ensure you are using your PC&apos;s local IP (e.g. 192.168.x.x) on your phone.</li>
-                    <li>Ensure OBS is open and WebSocket Server is enabled (Tools &gt; WebSocket Server Settings).</li>
-                    <li>If you deployed to Vercel (https://), mobile browsers block connecting to a local insecure websocket (ws://). Run the Admin panel locally (http://192.168.x.x:3000) from your PC to bypass this.</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {obsStatus === 'connected' && obsScenes.length > 0 && (
-              <>
-                <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
-                  <label className="group-label">OBS Scenes</label>
-                  <RadioGroup
-                    value={obsCurrentScene}
-                    onChange={async (value) => {
-                      try {
-                        await obsRef.current?.call('SetCurrentProgramScene', { sceneName: value });
-                        setObsCurrentScene(value);
-                      } catch (e: any) {
-                        console.warn("Failed to set scene", e?.message || e);
-                      }
-                    }}
-                    options={obsScenes.map(scene => ({
-                      value: scene.sceneName,
-                      label: scene.sceneName,
-                      icon: '🎬'
-                    }))}
-                  />
-                </div>
-                
-                {/* Auto Switch Scene Toggle */}
-                <div className="setting-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
-                  <div className="toggle-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <label className="group-label" style={{ margin: 0 }}>Auto-switch Scenes</label>
-                      <div className="setting-description" style={{ fontSize: '0.8em', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        Automatically switch to specific scenes when your stream connects or disconnects.
-                      </div>
-                    </div>
-                    <label className="toggle-switch">
-                      <input
-                        type="checkbox"
-                        checked={settings.obsAutoSwitchSceneToggle || false}
-                        onChange={(e) => handleSettingsChange({ obsAutoSwitchSceneToggle: e.target.checked })}
-                      />
-                      <span className="slider"></span>
-                    </label>
-                  </div>
-                  
-                  {settings.obsAutoSwitchSceneToggle && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                      <div>
-                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Offline Scene</label>
-                        <select
-                          className="text-input"
-                          value={settings.obsOfflineSceneName || ''}
-                          onChange={(e) => handleSettingsChange({ obsOfflineSceneName: e.target.value })}
-                          style={{ marginTop: '8px' }}
-                        >
-                          <option value="">-- Select a Scene --</option>
-                          {obsScenes.map(scene => (
-                            <option key={scene.sceneName} value={scene.sceneName}>
-                              {scene.sceneName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Live Scene</label>
-                        <select
-                          className="text-input"
-                          value={settings.obsLiveSceneName || ''}
-                          onChange={(e) => handleSettingsChange({ obsLiveSceneName: e.target.value })}
-                          style={{ marginTop: '8px' }}
-                        >
-                          <option value="">-- Select a Scene --</option>
-                          {obsScenes.map(scene => (
-                            <option key={scene.sceneName} value={scene.sceneName}>
-                              {scene.sceneName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Low Bitrate Scene (NOALBS)</label>
-                        <select
-                          className="text-input"
-                          value={settings.obsLowSceneName || ''}
-                          onChange={(e) => handleSettingsChange({ obsLowSceneName: e.target.value })}
-                          style={{ marginTop: '8px' }}
-                        >
-                          <option value="">-- Select a Scene (Default: &quot;low&quot;) --</option>
-                          {obsScenes.map(scene => (
-                            <option key={scene.sceneName} value={scene.sceneName}>
-                              {scene.sceneName}
-                            </option>
-                          ))}
-                        </select>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
-                          <span style={{ fontSize: '0.78em', opacity: 0.7 }}>
-                            Add <code>/low-bitrate?mode=overlay</code> as Browser Source in OBS.
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn-small"
-                            onClick={() => router.push('/low-bitrate')}
-                            style={{ fontSize: '0.72rem', padding: '2px 8px', background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}
-                          >
-                            ⚡ Open Switcher Studio
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Refresh Scene (for !refresh command)</label>
-                        <select
-                          className="text-input"
-                          value={settings.obsRefreshSceneName || ''}
-                          onChange={(e) => handleSettingsChange({ obsRefreshSceneName: e.target.value })}
-                          style={{ marginTop: '8px' }}
-                        >
-                          <option value="">-- Select a Scene (Default: &quot;refresh&quot;) --</option>
-                          {obsScenes.map(scene => (
-                            <option key={scene.sceneName} value={scene.sceneName}>
-                              {scene.sceneName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Live Status Display */}
-                      <div style={{
-                        background: 'rgba(0,0,0,0.3)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '6px',
-                        padding: '10px 14px',
-                        fontSize: '0.82em',
-                        color: autoSwitchStatus.startsWith('✅') ? '#4ade80' : autoSwitchStatus.startsWith('❌') ? '#f87171' : 'var(--text-secondary)',
-                        fontFamily: 'monospace'
-                      }}>
-                        <strong style={{ color: 'var(--text-primary)' }}>Auto-Switch Status: </strong>{autoSwitchStatus}
-                      </div>
-
-                      {/* Debugger toggle */}
-                      <div className="toggle-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
-                        <div>
-                          <label className="group-label" style={{ margin: 0, fontSize: '0.9em' }}>Show Debugger on Overlay</label>
-                          <div className="setting-description" style={{ fontSize: '0.78em', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                            Displays a real-time debug panel on the overlay screen. Turn off when not needed.
-                          </div>
-                        </div>
-                        <label className="toggle-switch">
-                          <input
-                            type="checkbox"
-                            checked={settings.obsAutoSwitchDebugger || false}
-                            onChange={(e) => handleSettingsChange({ obsAutoSwitchDebugger: e.target.checked })}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </CollapsibleSection>
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <span>🚀</span> Open Switcher Studio
+            </button>
+          </div>
 
           {/* Global Styling & Fonts Section */}
           <CollapsibleSection
@@ -4633,66 +4106,107 @@ export default function AdminPage() {
             isCollapsed={isSectionCollapsed('shoutout')}
             onToggle={() => toggleSection('shoutout')}
           >
-
-            <div style={{ padding: '14px 18px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.3)', borderRadius: '10px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '1.2em' }}>💬</span>
-                  <strong style={{ color: '#d8b4fe', fontSize: '1em' }}>Twitch Chat Commands</strong>
-                </div>
+            {/* Top Bar: Connection & Navigation */}
+            <div style={{ padding: '14px 18px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    <span style={{ fontSize: '0.78em', color: '#d8b4fe', fontWeight: 'bold' }}>!start / !end:</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsStreamCommandsEnabled ?? true}
-                      onChange={(e) => handleSettingsChange({ obsStreamCommandsEnabled: e.target.checked })}
-                      style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#53FC19' }}
-                    />
-                    <span style={{ fontSize: '0.78em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
-                      {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </label>
-                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    <span style={{ fontSize: '0.78em', color: '#53FC19', fontWeight: 'bold' }}>!pic:</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.picCommandEnabled ?? true}
-                      onChange={(e) => handleSettingsChange({ picCommandEnabled: e.target.checked })}
-                      style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#53FC19' }}
-                    />
-                    <span style={{ fontSize: '0.78em', color: (settings.picCommandEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
-                      {(settings.picCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </label>
-                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    <span style={{ fontSize: '0.78em', color: '#00d2ff', fontWeight: 'bold' }}>!clip:</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.clipCommandEnabled ?? true}
-                      onChange={(e) => handleSettingsChange({ clipCommandEnabled: e.target.checked })}
-                      style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#00d2ff' }}
-                    />
-                    <span style={{ fontSize: '0.78em', color: (settings.clipCommandEnabled ?? true) ? '#00d2ff' : '#ef4444', fontWeight: 'bold' }}>
-                      {(settings.clipCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </label>
+                  <span style={{ fontSize: '1.2em' }}>💬</span>
+                  <strong style={{ color: '#ffffff', fontSize: '1.05em' }}>Twitch Stream Commands Hub</strong>
                   <span style={{ fontSize: '0.8em', padding: '3px 10px', borderRadius: '6px', background: twitchIrcStatus === 'connected' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', color: twitchIrcStatus === 'connected' ? '#22c55e' : '#ef4444', border: twitchIrcStatus === 'connected' ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(239,68,68,0.4)', fontWeight: 'bold' }}>
                     {twitchIrcStatus === 'connected' ? `🟢 Connected to #${settings.twitchUsername}` : '🔴 Twitch Chat Not Connected'}
                   </span>
                 </div>
+
+                {/* Command Filter Tabs */}
+                <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCommandSubTab('all')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontSize: '0.82em',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      background: commandSubTab === 'all' ? 'rgba(255,255,255,0.18)' : 'transparent',
+                      color: commandSubTab === 'all' ? '#ffffff' : '#94a3b8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    🌐 All Commands
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCommandSubTab('clip')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontSize: '0.82em',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      background: commandSubTab === 'clip' ? 'rgba(0,210,255,0.25)' : 'transparent',
+                      color: commandSubTab === 'clip' ? '#00d2ff' : '#94a3b8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    🎬 !clip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCommandSubTab('pic')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontSize: '0.82em',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      background: commandSubTab === 'pic' ? 'rgba(83,252,25,0.25)' : 'transparent',
+                      color: commandSubTab === 'pic' ? '#53FC19' : '#94a3b8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    📸 !pic
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCommandSubTab('so')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontSize: '0.82em',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      background: commandSubTab === 'so' ? 'rgba(145,70,255,0.25)' : 'transparent',
+                      color: commandSubTab === 'so' ? '#d8b4fe' : '#94a3b8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    📣 !so
+                  </button>
+                </div>
               </div>
-              <p style={{ fontSize: '0.85em', opacity: 0.85, margin: 0, lineHeight: 1.5 }}>
-                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#00d2ff' }}>!clip [title]</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#00d2ff' }}>!clip &lt;sec&gt; [title]</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#00d2ff' }}>!clip30/45/60 [title]</code>: Clip the stream with an optional custom title (e.g. <code>!clip bird stolen</code> or <code>!clip45 epic shot</code>) and post it to Twitch &amp; Discord.<br />
-                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!pic</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!picture</code>: Spends {settings.picPointsCost ?? 200} StreamElements points to take a stream photo and send it to Discord.<br />
-                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#53FC19' }}>!start</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#ef4444' }}>!end</code>: Start or end your OBS stream directly from chat.<br />
-                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>!refresh</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>!ref</code>: Switch to Refresh scene for 2.5s and back to Live scene to reset SRT audio feed.<br />
-                • <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#d8b4fe' }}>!so username</code> / <code style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: '4px', color: '#d8b4fe' }}>!shoutout username</code>: Promote a collab streamer with a Twitch profile card.
-              </p>
+
+              {/* Safe Relocation Banner for !start / !end */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(0,0,0,0.25)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap', gap: '8px', fontSize: '0.82em' }}>
+                <span style={{ color: '#94a3b8' }}>
+                  💡 Stream start/end (<code>!start</code> / <code>!end</code>), SRT refresh (<code>!ref</code>), and OBS auto-switching are managed on the dedicated <strong style={{ color: '#53FC19' }}>NOALBS Low Bitrate</strong> page.
+                </span>
+                <a
+                  href="/low-bitrate"
+                  style={{ color: '#53FC19', textDecoration: 'none', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(83, 252, 25, 0.12)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(83, 252, 25, 0.3)' }}
+                >
+                  Go to NOALBS Page →
+                </a>
+              </div>
+
               {!settings.twitchUsername && (
-                <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(145, 70, 255, 0.2)' }}>
+                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
                   <label style={{ fontSize: '0.8em', color: '#d8b4fe', display: 'block', marginBottom: '4px' }}>
-                    Enter Twitch Username (or click Twitch Login at top):
+                    Twitch Channel Username (or log in with Twitch at top of dashboard):
                   </label>
                   <input
                     type="text"
@@ -4706,275 +4220,744 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Active Shoutout Banner */}
-            {(() => {
-              const shoutout = settings.shoutout;
-              if (!shoutout || !shoutout.active) return null;
-              const shoutoutDuration = shoutout.durationSeconds || settings.shoutoutDuration || 15;
-              const triggeredAt = shoutout.triggeredAt || 0;
-              const isExpired = !triggeredAt || (timeTick - triggeredAt) > (shoutoutDuration * 1000);
-              if (isExpired) return null;
-
-              return (
-                <div style={{ padding: '16px', background: 'rgba(83, 252, 25, 0.12)', border: '1px solid rgba(83, 252, 25, 0.4)', borderRadius: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {shoutout.avatarUrl ? (
-                      <img src={shoutout.avatarUrl} alt={shoutout.displayName} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid #53FC19', objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#9146FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2em' }}>🟣</div>
-                    )}
+            {/* ======================================================== */}
+            {/* SUB-PANEL 1: 🎬 !clip (Stream Video Clips & Titles)      */}
+            {/* ======================================================== */}
+            {(commandSubTab === 'all' || commandSubTab === 'clip') && (
+              <div style={{
+                background: 'rgba(0, 210, 255, 0.04)',
+                border: '1px solid rgba(0, 210, 255, 0.25)',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)'
+              }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.4em' }}>🎬</span>
                     <div>
-                      <div style={{ fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#53FC19', fontWeight: 'bold' }}>⚡ Active Shoutout On Stream</div>
-                      <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#ffffff' }}>@{shoutout.displayName}</div>
-                      {shoutout.gameName && (
-                        <div style={{ fontSize: '0.8em', opacity: 0.8 }}>Playing <span style={{ color: '#d8b4fe' }}>{shoutout.gameName}</span></div>
-                      )}
+                      <h3 style={{ margin: 0, fontSize: '1.15em', color: '#00d2ff', fontWeight: 'bold' }}>Stream Video Clips (!clip)</h3>
+                      <div style={{ fontSize: '0.78em', opacity: 0.75, marginTop: '2px' }}>
+                        Create Twitch Helix cloud clips or OBS replay buffer clips with Sery_Bot-style custom titles
+                      </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-small"
-                    style={{ padding: '8px 14px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 'bold' }}
-                    onClick={handleClearShoutout}
-                  >
-                    🚫 Hide Shoutout
-                  </button>
-                </div>
-              );
-            })()}
 
-            {/* Manual Shoutout Trigger Controls */}
-            <div className="setting-group">
-              <label className="input-label" style={{ fontSize: '0.9em', fontWeight: 'bold' }}>Twitch Username to Shoutout</label>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                <input
-                  type="text"
-                  placeholder="e.g. xQc, Pokimane..."
-                  className="text-input"
-                  value={shoutoutUsername}
-                  onChange={(e) => setShoutoutUsername(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleTriggerShoutout(); }}
-                  style={{ flex: 1, fontFamily: 'monospace', fontSize: '1em' }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={isTriggeringShoutout}
-                  onClick={() => handleTriggerShoutout()}
-                  style={{ background: '#9146FF', color: 'white', padding: '0 20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
-                  {isTriggeringShoutout ? 'Fetching...' : '📣 Shoutout'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={handleTestChatAnnouncement}
-                  style={{ padding: '0 16px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  title="Post a test announcement message to your Twitch chat"
-                >
-                  🧪 Test Chat Response
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '12px' }}>
-              {/* Custom Subtitle Message */}
-              <div style={{ flex: '1 1 220px' }}>
-                <label className="input-label" style={{ fontSize: '0.85em', opacity: 0.85 }}>Custom Card Label / Message</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Collab Streamer or Check them out!"
-                  className="text-input"
-                  value={shoutoutMessage}
-                  onChange={(e) => setShoutoutMessage(e.target.value)}
-                  style={{ width: '100%', marginTop: '4px' }}
-                />
-              </div>
-
-              {/* Display Duration Slider */}
-              <div style={{ flex: '1 1 180px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <label style={{ fontSize: '0.85em', opacity: 0.85 }}>Display Duration</label>
-                  <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#9146FF' }}>{settings.shoutoutDuration || 15}s</span>
-                </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="60"
-                  step="5"
-                  value={settings.shoutoutDuration || 15}
-                  onChange={(e) => {
-                    const dur = parseInt(e.target.value);
-                    setShoutoutDuration(dur);
-                    handleSettingsChange({ shoutoutDuration: dur });
-                  }}
-                  style={{ width: '100%', marginTop: '6px' }}
-                />
-              </div>
-            </div>
-
-            {/* Twitch Chat Announcement Template Input */}
-            <div className="setting-group" style={{ marginTop: '16px' }}>
-              <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#d8b4fe' }}>
-                💬 Twitch Chat Announcement Message Template
-              </label>
-              <div style={{ fontSize: '0.75em', opacity: 0.75, marginBottom: '6px', lineHeight: 1.4 }}>
-                Variables available: <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{username}"}</code>, <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{game}"}</code>, <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{url}"}</code>
-              </div>
-              <input
-                type="text"
-                className="text-input"
-                value={settings.shoutoutAnnouncementTemplate ?? '📣 Shoutout to @{username} {game}at {url} !'}
-                onChange={(e) => handleSettingsChange({ shoutoutAnnouncementTemplate: e.target.value })}
-                placeholder="📣 Shoutout to @{username} {game}at {url} !"
-                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.9em' }}
-              />
-            </div>
-
-            {/* Scale & Position Controls */}
-            <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-              <h3 style={{ fontSize: '1.05em', marginBottom: '12px', opacity: 0.9 }}>Alert Scale & Position</h3>
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                {/* Scale Control */}
-                <div style={{ flex: '1 1 180px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Alert Scale</label>
-                    <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#9146FF' }}>
-                      {Math.round((settings.shoutoutScale || 1.0) * 100)}%
+                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(0, 210, 255, 0.3)' }}>
+                    <span style={{ fontSize: '0.85em', color: '#00d2ff', fontWeight: 'bold' }}>!clip Master Switch:</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.clipCommandEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ clipCommandEnabled: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#00d2ff' }}
+                    />
+                    <span style={{ fontSize: '0.85em', color: (settings.clipCommandEnabled ?? true) ? '#00d2ff' : '#ef4444', fontWeight: 'bold' }}>
+                      {(settings.clipCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
                     </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2.0"
-                    step="0.05"
-                    value={settings.shoutoutScale || 1.0}
-                    onChange={(e) => handleSettingsChange({ shoutoutScale: parseFloat(e.target.value) })}
-                    style={{ width: '100%' }}
-                  />
+                  </label>
                 </div>
 
-                {/* Position Controls (Nudge Buttons) */}
-                <div style={{ flex: '1 1 200px' }}>
-                  <label style={{ fontSize: '0.85em', opacity: 0.8, display: 'block', marginBottom: '4px' }}>Position Nudge (Pixels)</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                    {/* Up Button */}
+                {/* Command Syntax Badges */}
+                <div style={{ background: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', border: '1px solid rgba(0, 210, 255, 0.12)' }}>
+                  <div style={{ fontSize: '0.75em', color: '#00d2ff', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 'bold', marginBottom: '6px' }}>Supported Chat Syntax:</div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <code style={{ background: 'rgba(0, 210, 255, 0.15)', color: '#00d2ff', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!clip [title]</code>
+                    <code style={{ background: 'rgba(0, 210, 255, 0.15)', color: '#00d2ff', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!clip &lt;sec&gt; [title]</code>
+                    <code style={{ background: 'rgba(0, 210, 255, 0.15)', color: '#00d2ff', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!clip30/45/60 [title]</code>
+                    <code style={{ background: 'rgba(255, 255, 255, 0.08)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!replay</code>
+                    <code style={{ background: 'rgba(255, 255, 255, 0.08)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!highlight</code>
+                  </div>
+                  <div style={{ fontSize: '0.78em', opacity: 0.75, marginTop: '6px' }}>
+                    Example: <code style={{ color: '#00d2ff' }}>!clip bird stolen</code> or <code style={{ color: '#00d2ff' }}>!clip 45 epic shot</code> — custom title is automatically embedded into Twitch and Discord!
+                  </div>
+                </div>
+
+                {/* Engine Selector */}
+                <div style={{ marginBottom: '16px' }}>
+                  <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#00d2ff', marginBottom: '8px', display: 'block' }}>
+                    🎥 Clip Generation Engine
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      padding: '12px 14px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      background: (settings.clipSourceMode ?? 'twitch') === 'twitch' ? 'rgba(145, 70, 255, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${(settings.clipSourceMode ?? 'twitch') === 'twitch' ? '#9146FF' : 'rgba(255, 255, 255, 0.1)'}`
+                    }}>
+                      <input
+                        type="radio"
+                        name="clipSourceMode_main"
+                        checked={(settings.clipSourceMode ?? 'twitch') === 'twitch'}
+                        onChange={() => handleSettingsChange({ clipSourceMode: 'twitch' })}
+                        style={{ marginTop: '3px', accentColor: '#9146FF' }}
+                      />
+                      <div>
+                        <strong style={{ color: '#fff', fontSize: '0.9em', display: 'block' }}>🟣 Twitch Cloud Clip (Zero PC Storage)</strong>
+                        <span style={{ fontSize: '0.78em', opacity: 0.75 }}>
+                          Recommended! Saves clip directly to Twitch servers & posts playable video embed to Discord. No files on your PC.
+                        </span>
+                      </div>
+                    </label>
+
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      padding: '12px 14px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      background: settings.clipSourceMode === 'obs' ? 'rgba(0, 210, 255, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${settings.clipSourceMode === 'obs' ? '#00d2ff' : 'rgba(255, 255, 255, 0.1)'}`
+                    }}>
+                      <input
+                        type="radio"
+                        name="clipSourceMode_main"
+                        checked={settings.clipSourceMode === 'obs'}
+                        onChange={() => handleSettingsChange({ clipSourceMode: 'obs' })}
+                        style={{ marginTop: '3px', accentColor: '#00d2ff' }}
+                      />
+                      <div>
+                        <strong style={{ color: '#fff', fontSize: '0.9em', display: 'block' }}>🖥️ OBS Replay Buffer (Local PC)</strong>
+                        <span style={{ fontSize: '0.78em', opacity: 0.75 }}>
+                          Saves local MP4 video file to your PC and uploads via local clip bridge (<code>scripts/clip-bridge.js</code>).
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Grid Settings: Points, Cooldown, Duration */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '16px' }}>
+                  {/* StreamElements Points */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1' }}>StreamElements Points</label>
+                      <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.clipPointsEnabled ?? true}
+                          onChange={(e) => handleSettingsChange({ clipPointsEnabled: e.target.checked })}
+                          style={{ cursor: 'pointer', accentColor: '#00d2ff' }}
+                        />
+                        <span style={{ fontSize: '0.75em', color: (settings.clipPointsEnabled ?? true) ? '#00d2ff' : '#94a3b8', fontWeight: 'bold' }}>
+                          {(settings.clipPointsEnabled ?? true) ? 'REQUIRED' : 'FREE'}
+                        </span>
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        disabled={settings.clipPointsEnabled === false}
+                        value={settings.clipPointsCost ?? 300}
+                        onChange={(e) => handleSettingsChange({ clipPointsCost: parseInt(e.target.value) || 0 })}
+                        className="text-input"
+                        style={{ width: '100%', padding: '6px 10px', fontSize: '0.9em', opacity: settings.clipPointsEnabled === false ? 0.45 : 1 }}
+                      />
+                      <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>pts</span>
+                    </div>
+                  </div>
+
+                  {/* Cooldown */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>Cooldown Per Viewer</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="5"
+                        max="3600"
+                        step="15"
+                        value={settings.clipCooldownSeconds ?? 180}
+                        onChange={(e) => handleSettingsChange({ clipCooldownSeconds: parseInt(e.target.value) || 180 })}
+                        className="text-input"
+                        style={{ width: '100%', padding: '6px 10px', fontSize: '0.9em' }}
+                      />
+                      <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>sec</span>
+                    </div>
+                  </div>
+
+                  {/* Default Duration */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>Default Clip Length</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="5"
+                        max="60"
+                        step="5"
+                        value={settings.clipDefaultDuration ?? 60}
+                        onChange={(e) => handleSettingsChange({ clipDefaultDuration: parseInt(e.target.value) || 60 })}
+                        className="text-input"
+                        style={{ width: '100%', padding: '6px 10px', fontSize: '0.9em' }}
+                      />
+                      <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>sec</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Discord Webhook URL & Test */}
+                <div style={{ marginBottom: '16px' }}>
+                  <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#00d2ff' }}>
+                    💬 Discord Clips Channel Webhook URL
+                  </label>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      type="password"
+                      placeholder="https://discord.com/api/webhooks/... (leave empty to use Pic Webhook)"
+                      className="text-input"
+                      value={settings.discordClipWebhookUrl || ''}
+                      onChange={(e) => handleSettingsChange({ discordClipWebhookUrl: e.target.value })}
+                      style={{ flex: '1 1 320px', fontFamily: 'monospace', fontSize: '0.88em' }}
+                    />
                     <button
                       type="button"
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ shoutoutY: (settings.shoutoutY || 0) + 10 })}
+                      className="btn btn-secondary"
+                      onClick={handleTestClipWebhook}
+                      disabled={isTestingClipWebhook || (!settings.discordClipWebhookUrl && !settings.discordPicWebhookUrl)}
+                      style={{
+                        padding: '0 16px',
+                        fontWeight: 'bold',
+                        color: '#00d2ff',
+                        borderColor: '#00d2ff',
+                        cursor: (isTestingClipWebhook || (!settings.discordClipWebhookUrl && !settings.discordPicWebhookUrl)) ? 'not-allowed' : 'pointer'
+                      }}
                     >
-                      ▲
+                      {isTestingClipWebhook ? '⏳ Testing...' : '🧪 Test Clip Webhook'}
                     </button>
+                  </div>
+                  {clipTestStatus && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.82em',
+                      background: clipTestStatus.success ? 'rgba(0, 210, 255, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      border: `1px solid ${clipTestStatus.success ? 'rgba(0, 210, 255, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                      color: clipTestStatus.success ? '#00d2ff' : '#ef4444'
+                    }}>
+                      {clipTestStatus.message}
+                    </div>
+                  )}
+                </div>
 
-                    {/* Left, Reset, Right */}
-                    <div style={{ display: 'flex', gap: '4px' }}>
+                {/* Toast on Overlay & Chat Reply Template */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.clipShowOnOverlay ?? true}
+                      onChange={(e) => handleSettingsChange({ clipShowOnOverlay: e.target.checked })}
+                      style={{ width: '18px', height: '18px', accentColor: '#00d2ff', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '0.88em', display: 'block', color: '#fff' }}>✨ Show Clip Toast on Stream Overlay</strong>
+                      <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Displays an animated on-screen notification card with clip title when created</span>
+                    </div>
+                  </label>
+
+                  <div>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
+                      Custom Chat Reply Template
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="🎬 @{user} clipped: {title} {url}"
+                      value={settings.clipCustomMessage || ''}
+                      onChange={(e) => handleSettingsChange({ clipCustomMessage: e.target.value })}
+                      className="text-input"
+                      style={{ width: '100%', fontSize: '0.88em', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* SUB-PANEL 2: 📸 !pic (Stream Snapshots & Discord)        */}
+            {/* ======================================================== */}
+            {(commandSubTab === 'all' || commandSubTab === 'pic') && (
+              <div style={{
+                background: 'rgba(83, 252, 25, 0.04)',
+                border: '1px solid rgba(83, 252, 25, 0.25)',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)'
+              }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.4em' }}>📸</span>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.15em', color: '#53FC19', fontWeight: 'bold' }}>Stream Snapshots (!pic)</h3>
+                      <div style={{ fontSize: '0.78em', opacity: 0.75, marginTop: '2px' }}>
+                        Allows viewers to capture a live photo snapshot from your stream and post directly to Discord
+                      </div>
+                    </div>
+                  </div>
+
+                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', background: 'rgba(0,0,0,0.3)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(83, 252, 25, 0.3)' }}>
+                    <span style={{ fontSize: '0.85em', color: '#53FC19', fontWeight: 'bold' }}>!pic Master Switch:</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.picCommandEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ picCommandEnabled: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#53FC19' }}
+                    />
+                    <span style={{ fontSize: '0.85em', color: (settings.picCommandEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
+                      {(settings.picCommandEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </label>
+                </div>
+
+                {/* Command Syntax Badges */}
+                <div style={{ background: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', border: '1px solid rgba(83, 252, 25, 0.12)' }}>
+                  <div style={{ fontSize: '0.75em', color: '#53FC19', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 'bold', marginBottom: '6px' }}>Supported Chat Syntax:</div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <code style={{ background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!pic</code>
+                    <code style={{ background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!picture</code>
+                    <code style={{ background: 'rgba(255, 255, 255, 0.08)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!screenshot</code>
+                    <code style={{ background: 'rgba(255, 255, 255, 0.08)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!snap</code>
+                  </div>
+                </div>
+
+                {/* Grid Settings: Points, Cooldown */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '16px' }}>
+                  {/* StreamElements Points */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1' }}>StreamElements Points</label>
+                      <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.picPointsEnabled ?? true}
+                          onChange={(e) => handleSettingsChange({ picPointsEnabled: e.target.checked })}
+                          style={{ cursor: 'pointer', accentColor: '#53FC19' }}
+                        />
+                        <span style={{ fontSize: '0.75em', color: (settings.picPointsEnabled ?? true) ? '#53FC19' : '#94a3b8', fontWeight: 'bold' }}>
+                          {(settings.picPointsEnabled ?? true) ? 'REQUIRED' : 'FREE'}
+                        </span>
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        disabled={settings.picPointsEnabled === false}
+                        value={settings.picPointsCost ?? 200}
+                        onChange={(e) => handleSettingsChange({ picPointsCost: parseInt(e.target.value) || 0 })}
+                        className="text-input"
+                        style={{ width: '100%', padding: '6px 10px', fontSize: '0.9em', opacity: settings.picPointsEnabled === false ? 0.45 : 1 }}
+                      />
+                      <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>pts</span>
+                    </div>
+                  </div>
+
+                  {/* Cooldown */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>Cooldown Per Viewer</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="5"
+                        max="3600"
+                        step="5"
+                        value={settings.picCooldownSeconds ?? 15}
+                        onChange={(e) => handleSettingsChange({ picCooldownSeconds: parseInt(e.target.value) || 15 })}
+                        className="text-input"
+                        style={{ width: '100%', padding: '6px 10px', fontSize: '0.9em' }}
+                      />
+                      <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>sec</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Discord Webhook URL & Test */}
+                <div style={{ marginBottom: '16px' }}>
+                  <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#53FC19' }}>
+                    💬 Discord Pictures Channel Webhook URL
+                  </label>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      type="password"
+                      placeholder="https://discord.com/api/webhooks/..."
+                      className="text-input"
+                      value={settings.discordPicWebhookUrl || ''}
+                      onChange={(e) => handleSettingsChange({ discordPicWebhookUrl: e.target.value })}
+                      style={{ flex: '1 1 320px', fontFamily: 'monospace', fontSize: '0.88em' }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleTestPicWebhook}
+                      disabled={isTestingPicWebhook || !settings.discordPicWebhookUrl}
+                      style={{
+                        padding: '0 16px',
+                        fontWeight: 'bold',
+                        color: '#53FC19',
+                        borderColor: '#53FC19',
+                        cursor: (isTestingPicWebhook || !settings.discordPicWebhookUrl) ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {isTestingPicWebhook ? '⏳ Testing...' : '🧪 Test Pic Webhook'}
+                    </button>
+                  </div>
+                  {picTestStatus && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.82em',
+                      background: picTestStatus.success ? 'rgba(83, 252, 25, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      border: `1px solid ${picTestStatus.success ? 'rgba(83, 252, 25, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                      color: picTestStatus.success ? '#53FC19' : '#ef4444'
+                    }}>
+                      {picTestStatus.message}
+                    </div>
+                  )}
+                </div>
+
+                {/* Toast on Overlay & Chat Reply Template */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.picShowOnOverlay ?? true}
+                      onChange={(e) => handleSettingsChange({ picShowOnOverlay: e.target.checked })}
+                      style={{ width: '18px', height: '18px', accentColor: '#53FC19', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '0.88em', display: 'block', color: '#fff' }}>✨ Show Snapshot Toast on Stream Overlay</strong>
+                      <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Displays a camera shutter animation card on screen when !pic is triggered</span>
+                    </div>
+                  </label>
+
+                  <div>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
+                      Custom Chat Reply Template
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="📸 @{user} snapped a picture! Check Discord!"
+                      value={settings.picCustomMessage || ''}
+                      onChange={(e) => handleSettingsChange({ picCustomMessage: e.target.value })}
+                      className="text-input"
+                      style={{ width: '100%', fontSize: '0.88em', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* SUB-PANEL 3: 📣 !so (Collab Streamer Shoutouts)          */}
+            {/* ======================================================== */}
+            {(commandSubTab === 'all' || commandSubTab === 'so') && (
+              <div style={{
+                background: 'rgba(145, 70, 255, 0.04)',
+                border: '1px solid rgba(145, 70, 255, 0.25)',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '10px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)'
+              }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.4em' }}>📣</span>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.15em', color: '#d8b4fe', fontWeight: 'bold' }}>Collab Shoutouts (!so &amp; !shoutout)</h3>
+                      <div style={{ fontSize: '0.78em', opacity: 0.75, marginTop: '2px' }}>
+                        Promote fellow streamers with an animated profile card and Twitch chat announcement
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <code style={{ background: 'rgba(145, 70, 255, 0.15)', color: '#d8b4fe', padding: '4px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!so &lt;user&gt;</code>
+                    <code style={{ background: 'rgba(145, 70, 255, 0.15)', color: '#d8b4fe', padding: '4px 8px', borderRadius: '6px', fontSize: '0.85em' }}>!shoutout &lt;user&gt;</code>
+                  </div>
+                </div>
+
+                {/* Active Shoutout Banner */}
+                {(() => {
+                  const shoutout = settings.shoutout;
+                  if (!shoutout || !shoutout.active) return null;
+                  const shoutoutDuration = shoutout.durationSeconds || settings.shoutoutDuration || 15;
+                  const triggeredAt = shoutout.triggeredAt || 0;
+                  const isExpired = !triggeredAt || (timeTick - triggeredAt) > (shoutoutDuration * 1000);
+                  if (isExpired) return null;
+
+                  return (
+                    <div style={{ padding: '14px 18px', background: 'rgba(83, 252, 25, 0.12)', border: '1px solid rgba(83, 252, 25, 0.4)', borderRadius: '10px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {shoutout.avatarUrl ? (
+                          <img src={shoutout.avatarUrl} alt={shoutout.displayName} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid #53FC19', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#9146FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2em' }}>🟣</div>
+                        )}
+                        <div>
+                          <div style={{ fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#53FC19', fontWeight: 'bold' }}>⚡ Active Shoutout On Stream</div>
+                          <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#ffffff' }}>@{shoutout.displayName}</div>
+                          {shoutout.gameName && (
+                            <div style={{ fontSize: '0.8em', opacity: 0.8 }}>Playing <span style={{ color: '#d8b4fe' }}>{shoutout.gameName}</span></div>
+                          )}
+                        </div>
+                      </div>
                       <button
                         type="button"
                         className="btn btn-secondary btn-small"
-                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ shoutoutX: (settings.shoutoutX || 0) - 10 })}
+                        style={{ padding: '8px 14px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 'bold' }}
+                        onClick={handleClearShoutout}
                       >
-                        ◀
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ shoutoutX: 0, shoutoutY: 0 })}
-                      >
-                        Reset
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                        onClick={() => handleSettingsChange({ shoutoutX: (settings.shoutoutX || 0) + 10 })}
-                      >
-                        ▶
+                        🚫 Hide Shoutout
                       </button>
                     </div>
+                  );
+                })()}
 
-                    {/* Down Button */}
+                {/* Manual Shoutout Trigger Controls */}
+                <div className="setting-group" style={{ marginBottom: '16px' }}>
+                  <label className="input-label" style={{ fontSize: '0.88em', fontWeight: 'bold', color: '#d8b4fe' }}>Twitch Username to Shoutout</label>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      type="text"
+                      placeholder="e.g. xQc, Pokimane, KaiCenat..."
+                      className="text-input"
+                      value={shoutoutUsername}
+                      onChange={(e) => setShoutoutUsername(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleTriggerShoutout(); }}
+                      style={{ flex: '1 1 200px', fontFamily: 'monospace', fontSize: '0.95em' }}
+                    />
                     <button
                       type="button"
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ shoutoutY: (settings.shoutoutY || 0) - 10 })}
+                      className="btn btn-primary"
+                      disabled={isTriggeringShoutout}
+                      onClick={() => handleTriggerShoutout()}
+                      style={{ background: '#9146FF', color: 'white', padding: '0 20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
-                      ▼
+                      {isTriggeringShoutout ? 'Fetching...' : '📣 Shoutout'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleTestChatAnnouncement}
+                      style={{ padding: '0 16px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      title="Post a test announcement message to your Twitch chat"
+                    >
+                      🧪 Test Chat Response
                     </button>
                   </div>
                 </div>
+
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                  {/* Custom Subtitle Message */}
+                  <div style={{ flex: '1 1 220px' }}>
+                    <label className="input-label" style={{ fontSize: '0.85em', opacity: 0.85 }}>Custom Card Label / Message</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Collab Streamer or Check them out!"
+                      className="text-input"
+                      value={shoutoutMessage}
+                      onChange={(e) => setShoutoutMessage(e.target.value)}
+                      style={{ width: '100%', marginTop: '4px' }}
+                    />
+                  </div>
+
+                  {/* Display Duration Slider */}
+                  <div style={{ flex: '1 1 180px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.85 }}>Display Duration</label>
+                      <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#9146FF' }}>{settings.shoutoutDuration || 15}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="60"
+                      step="5"
+                      value={settings.shoutoutDuration || 15}
+                      onChange={(e) => {
+                        const dur = parseInt(e.target.value);
+                        setShoutoutDuration(dur);
+                        handleSettingsChange({ shoutoutDuration: dur });
+                      }}
+                      style={{ width: '100%', marginTop: '6px' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Twitch Chat Announcement Template Input */}
+                <div className="setting-group" style={{ marginBottom: '16px' }}>
+                  <label className="input-label" style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#d8b4fe' }}>
+                    💬 Twitch Chat Announcement Message Template
+                  </label>
+                  <div style={{ fontSize: '0.75em', opacity: 0.75, marginBottom: '6px', lineHeight: 1.4 }}>
+                    Variables available: <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{username}"}</code>, <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{game}"}</code>, <code style={{ color: '#53FC19', background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '4px' }}>{"{url}"}</code>
+                  </div>
+                  <input
+                    type="text"
+                    className="text-input"
+                    value={settings.shoutoutAnnouncementTemplate ?? '📣 Shoutout to @{username} {game}at {url} !'}
+                    onChange={(e) => handleSettingsChange({ shoutoutAnnouncementTemplate: e.target.value })}
+                    placeholder="📣 Shoutout to @{username} {game}at {url} !"
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.9em' }}
+                  />
+                </div>
+
+                {/* Scale & Position Controls */}
+                <div className="setting-group" style={{ marginTop: '14px', borderTop: '1px solid rgba(145, 70, 255, 0.2)', paddingTop: '14px' }}>
+                  <h4 style={{ fontSize: '0.95em', marginBottom: '10px', color: '#d8b4fe' }}>Alert Scale &amp; Position Nudge</h4>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'rgba(0,0,0,0.25)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    {/* Scale Control */}
+                    <div style={{ flex: '1 1 180px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Alert Scale</label>
+                        <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#9146FF' }}>
+                          {Math.round((settings.shoutoutScale || 1.0) * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.0"
+                        step="0.05"
+                        value={settings.shoutoutScale || 1.0}
+                        onChange={(e) => handleSettingsChange({ shoutoutScale: parseFloat(e.target.value) })}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+
+                    {/* Position Controls (Nudge Buttons) */}
+                    <div style={{ flex: '1 1 200px' }}>
+                      <label style={{ fontSize: '0.85em', opacity: 0.8, display: 'block', marginBottom: '4px' }}>Position Nudge (Pixels)</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        {/* Up Button */}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ shoutoutY: (settings.shoutoutY || 0) + 10 })}
+                        >
+                          ▲
+                        </button>
+
+                        {/* Left, Reset, Right */}
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                            onClick={() => handleSettingsChange({ shoutoutX: (settings.shoutoutX || 0) - 10 })}
+                          >
+                            ◀
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                            onClick={() => handleSettingsChange({ shoutoutX: 0, shoutoutY: 0 })}
+                          >
+                            Reset
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                            onClick={() => handleSettingsChange({ shoutoutX: (settings.shoutoutX || 0) + 10 })}
+                          >
+                            ▶
+                          </button>
+                        </div>
+
+                        {/* Down Button */}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ shoutoutY: (settings.shoutoutY || 0) - 10 })}
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Command Role Permissions */}
+                <div className="setting-group" style={{ marginTop: '14px', borderTop: '1px solid rgba(145, 70, 255, 0.2)', paddingTop: '14px' }}>
+                  <h4 style={{ fontSize: '0.95em', marginBottom: '6px', color: '#d8b4fe' }}>👥 Who Can Use !so / !shoutout in Chat?</h4>
+                  <p style={{ fontSize: '0.8em', opacity: 0.7, marginBottom: '12px' }}>
+                    Select which Twitch chat roles are allowed to trigger the collab shoutout command:
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    {/* Broadcaster */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.shoutoutPermBroadcaster ?? true}
+                        onChange={(e) => handleSettingsChange({ shoutoutPermBroadcaster: e.target.checked })}
+                        style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                      />
+                      <div>
+                        <strong style={{ fontSize: '0.9em', display: 'block' }}>👑 Broadcaster</strong>
+                        <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Channel Owner</span>
+                      </div>
+                    </label>
+
+                    {/* Moderators */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.shoutoutPermMods ?? true}
+                        onChange={(e) => handleSettingsChange({ shoutoutPermMods: e.target.checked })}
+                        style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                      />
+                      <div>
+                        <strong style={{ fontSize: '0.9em', display: 'block' }}>🛡️ Moderators</strong>
+                        <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Channel Mods / Editors</span>
+                      </div>
+                    </label>
+
+                    {/* VIPs */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.shoutoutPermVips ?? false}
+                        onChange={(e) => handleSettingsChange({ shoutoutPermVips: e.target.checked })}
+                        style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                      />
+                      <div>
+                        <strong style={{ fontSize: '0.9em', display: 'block' }}>💎 VIPs</strong>
+                        <span style={{ fontSize: '0.75em', opacity: 0.7 }}>VIP Badge Holders</span>
+                      </div>
+                    </label>
+
+                    {/* Everyone */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.shoutoutPermEveryone ?? false}
+                        onChange={(e) => handleSettingsChange({ shoutoutPermEveryone: e.target.checked })}
+                        style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
+                      />
+                      <div>
+                        <strong style={{ fontSize: '0.9em', display: 'block' }}>🌐 Everyone</strong>
+                        <span style={{ fontSize: '0.75em', opacity: 0.7 }}>All Viewers &amp; Chatters</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
               </div>
-            </div>
-
-            {/* Command Role Permissions */}
-            <div className="setting-group" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-              <h3 style={{ fontSize: '1.05em', marginBottom: '6px', opacity: 0.9 }}>👥 Who Can Use !so / !shoutout in Chat?</h3>
-              <p style={{ fontSize: '0.8em', opacity: 0.7, marginBottom: '12px' }}>
-                Select which Twitch chat roles are allowed to trigger the collab shoutout command:
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
-                {/* Broadcaster */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.shoutoutPermBroadcaster ?? true}
-                    onChange={(e) => handleSettingsChange({ shoutoutPermBroadcaster: e.target.checked })}
-                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
-                  />
-                  <div>
-                    <strong style={{ fontSize: '0.9em', display: 'block' }}>👑 Broadcaster</strong>
-                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Channel Owner</span>
-                  </div>
-                </label>
-
-                {/* Moderators */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.shoutoutPermMods ?? true}
-                    onChange={(e) => handleSettingsChange({ shoutoutPermMods: e.target.checked })}
-                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
-                  />
-                  <div>
-                    <strong style={{ fontSize: '0.9em', display: 'block' }}>🛡️ Moderators</strong>
-                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Channel Mods / Editors</span>
-                  </div>
-                </label>
-
-                {/* VIPs */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.shoutoutPermVips ?? false}
-                    onChange={(e) => handleSettingsChange({ shoutoutPermVips: e.target.checked })}
-                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
-                  />
-                  <div>
-                    <strong style={{ fontSize: '0.9em', display: 'block' }}>💎 VIPs</strong>
-                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>VIP Badge Holders</span>
-                  </div>
-                </label>
-
-                {/* Everyone */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--border-color)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.shoutoutPermEveryone ?? false}
-                    onChange={(e) => handleSettingsChange({ shoutoutPermEveryone: e.target.checked })}
-                    style={{ width: '16px', height: '16px', accentColor: '#9146FF' }}
-                  />
-                  <div>
-                    <strong style={{ fontSize: '0.9em', display: 'block' }}>🌐 Everyone</strong>
-                    <span style={{ fontSize: '0.75em', opacity: 0.7 }}>All Viewers & Chatters</span>
-                  </div>
-                </label>
-              </div>
-            </div>
+            )}
           </CollapsibleSection>
+
 
           {/* Bitrate Section */}
           <CollapsibleSection

@@ -2722,6 +2722,7 @@ function OverlayPage() {
   // Local OBS WebSocket instance for direct scene switching inside OBS Browser Source
   const localObsRef = useRef<OBSWebSocket | null>(null);
   const telemetryLogsRef = useRef<ObsTelemetryLogEntry[]>([]);
+  const cachedObsScenesRef = useRef<string[]>([]);
   const obsVersionInfoRef = useRef<{ obsVersion?: string; obsWebSocketVersion?: string; platform?: string; baseRes?: string; outRes?: string; fps?: string }>({});
   const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
 
@@ -2907,6 +2908,7 @@ function OverlayPage() {
               lastLoggedStateRef.current.currentScene = scenes.currentProgramSceneName;
               appendObsLog('info', `[scene-manager] Current scene: '${scenes.currentProgramSceneName}' (${scenes.scenes?.length || 0} scenes available)`);
               const sceneNames = scenes?.scenes ? (scenes.scenes as any[]).map(s => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+              cachedObsScenesRef.current = sceneNames;
               fetch('/api/obs-telemetry', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3168,6 +3170,7 @@ function OverlayPage() {
             obsVersion: obsVersionInfoRef.current.obsVersion,
             obsWebSocketVersion: obsVersionInfoRef.current.obsWebSocketVersion,
             platform: obsVersionInfoRef.current.platform,
+            scenes: cachedObsScenesRef.current.length > 0 ? cachedObsScenesRef.current : undefined,
             logs: telemetryLogsRef.current.slice(-25),
           };
 
