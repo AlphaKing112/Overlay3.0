@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
         for (const url of variations) {
             try {
                 const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 6000); // 6s timeout per attempt
+                const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout for fast response
 
                 const response = await fetch(url, {
                     headers: {
@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
                         return NextResponse.json(data, {
                             headers: {
                                 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-                    'Pragma': 'no-cache',
+                                'Pragma': 'no-cache',
                                 'X-Cache': 'MISS'
                             }
                         });
@@ -142,24 +142,32 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // Cache failure for 2s so failure bursts don't hammer upstream
+        // Clear any previous live cache immediately on stream failure / offline
+        bitrateCache.delete(cacheKey);
+
         const errorResponse = {
             error: lastError || 'Stats server unreachable',
             details: `Tried ${variations.length} variations`
         };
-        bitrateCache.set(cacheKey, {
-            data: errorResponse,
-            status: lastStatus === 200 ? 502 : lastStatus,
-            timestamp: Date.now()
-        });
 
-        return NextResponse.json(errorResponse, { status: lastStatus === 200 ? 502 : lastStatus });
+        return NextResponse.json(errorResponse, { 
+            status: lastStatus === 200 ? 502 : lastStatus,
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma': 'no-cache'
+            }
+        });
 
     } catch (error: any) {
         return NextResponse.json({
             error: 'Proxy encountered a critical error',
             details: error.message
-        }, { status: 500 });
+        }, { 
+            status: 500,
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma': 'no-cache'
+            }
+        });
     }
 }
-

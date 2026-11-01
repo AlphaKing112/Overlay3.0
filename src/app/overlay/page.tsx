@@ -2851,6 +2851,11 @@ function OverlayPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ obsTelemetryEnabled: true })
               }).catch(() => {});
+
+              if (seSettingsRef.current.obsStartingSceneOnGoLive && seSettingsRef.current.obsStartingSceneName) {
+                appendObsLog('info', `[scene-manager] Stream started, switching to starting scene: '${seSettingsRef.current.obsStartingSceneName}'`);
+                safeObsSwitchScene(obs, seSettingsRef.current.obsStartingSceneName);
+              }
             } else {
               appendObsLog('warn', `[rtmp stream: 'simple_stream'] User stopped the stream`);
               appendObsLog('warn', `==== Streaming Stop ====`);
@@ -2859,6 +2864,14 @@ function OverlayPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ obsTelemetryEnabled: false })
               }).catch(() => {});
+
+              // Stream stopped: Switch immediately with 0 delay to ending or offline scene
+              const stopScene = seSettingsRef.current.obsEndingSceneName || seSettingsRef.current.obsOfflineSceneName || 'ending';
+              if (stopScene) {
+                appendObsLog('info', `[scene-manager] Stream stopped, switching immediately to '${stopScene}'`);
+                safeObsSwitchScene(obs, stopScene);
+                lastBitrateStateRef.current = 'offline';
+              }
             }
           }
         });
@@ -3313,7 +3326,8 @@ function OverlayPage() {
   }, [settings.obsAutoSwitchSceneToggle]);
 
   useEffect(() => {
-    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
+    const staleThresholdMs = settings.obsAutoSwitchSceneToggle ? 3500 : 10000;
+    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > staleThresholdMs;
     const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 400;
     const lowThreshold = settings.obsLowBitrateThreshold ?? 1100;
     const rttLowThreshold = settings.obsRttThreshold ?? 2500;
@@ -4390,7 +4404,8 @@ function OverlayPage() {
   // Bitrate display logic
   const bitrateDisplay = useMemo(() => {
     // We always compute this so that the Low Bitrate Alert works independently of the widget visibility
-    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
+    const staleThresholdMs = settings.obsAutoSwitchSceneToggle ? 3500 : 10000;
+    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > staleThresholdMs;
     const bitrate = displayedBitrate !== null ? displayedBitrate : (currentBitrate || 0);
     const rtt = currentRtt;
 
@@ -4443,14 +4458,14 @@ function OverlayPage() {
         const isAutoSwitchOn = settings.obsAutoSwitchSceneToggle;
         const isLive = stats && stats.bitrateKbps > 0;
 
-        const liveInterval = settings.bitratePollIntervalLive ?? 3000;
-        const offlineInterval = settings.bitratePollIntervalOffline ?? 6000;
+        const liveInterval = isAutoSwitchOn ? Math.min(1000, settings.bitratePollIntervalLive ?? 1000) : (settings.bitratePollIntervalLive ?? 3000);
+        const offlineInterval = isAutoSwitchOn ? 1500 : (settings.bitratePollIntervalOffline ?? 6000);
 
         let pollInterval: number;
         if (typeof document !== 'undefined' && document.hidden) {
-          pollInterval = Math.max(15000, offlineInterval);
+          pollInterval = Math.max(5000, offlineInterval);
         } else if (isLive) {
-          pollInterval = isAutoSwitchOn ? liveInterval : Math.max(5000, liveInterval);
+          pollInterval = liveInterval;
         } else {
           pollInterval = offlineInterval;
         }
@@ -5098,7 +5113,8 @@ function OverlayPage() {
         }
         {/* OBS AUTO-SWITCHER DEBUG PANEL */}
         {settings.obsAutoSwitchDebugger && settings.obsAutoSwitchSceneToggle && (() => {
-          const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
+          const staleThresholdMs = settings.obsAutoSwitchSceneToggle ? 3500 : 10000;
+    const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > staleThresholdMs;
           const isOffline = currentBitrate === null || currentBitrate <= 0 || isStale;
           const hasFetched = bitrateUpdateTimestamp > 0 || consecutiveBitrateFailuresRef.current > 0;
           return (

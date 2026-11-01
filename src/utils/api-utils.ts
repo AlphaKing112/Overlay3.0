@@ -533,23 +533,23 @@ export async function fetchBitrateStats(
         if (!response.ok) throw new Error('Direct fetch failed');
       } catch (e) {
         // Fallback to proxy if direct fetch fails (likely CORS)
-        const proxyUrl = `/api/bitrate?url=${encodeURIComponent(url)}`;
+        const proxyUrl = `/api/bitrate?url=${encodeURIComponent(url)}&t=${Date.now()}`;
         response = await fetchWithRetry(proxyUrl, { 
-          timeout: 10000,
-          headers: { 'Accept': 'application/json' },
-          cache: 'default'
+          timeout: 5000,
+          headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          cache: 'no-store'
         });
         usedProxy = true;
       }
     } else {
       // Use proxy for HTTP to avoid Mixed Content errors, or if not in browser
       const fetchUrl = isBrowser
-        ? `/api/bitrate?url=${encodeURIComponent(url)}`
+        ? `/api/bitrate?url=${encodeURIComponent(url)}&t=${Date.now()}`
         : directUrl;
       response = await fetchWithRetry(fetchUrl, { 
-        timeout: 15000,
-        headers: isBrowser ? { 'Accept': 'application/json' } : { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-        cache: isBrowser ? 'default' : 'no-store'
+        timeout: 5000,
+        headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        cache: 'no-store'
       });
       usedProxy = true;
     }

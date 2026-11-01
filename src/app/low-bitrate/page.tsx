@@ -205,6 +205,18 @@ function LowBitrateContent() {
           } catch {}
         });
 
+        obs.on('StreamStateChanged' as any, (data: any) => {
+          const isLive = Boolean(data?.outputActive);
+          setTelemetry(prev => prev ? { ...prev, streaming: isLive } : { online: true, streaming: isLive } as any);
+          if (!isLive) {
+            // OBS Stream stopped! Switch immediately to Ending scene or Offline scene (0-second delay)
+            const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
+            switchScene(targetScene, 'OBS Stream Stopped');
+          } else if (isLive && settingsRef.current.obsStartingSceneOnGoLive && settingsRef.current.obsStartingSceneName) {
+            switchScene(settingsRef.current.obsStartingSceneName, 'Stream Started');
+          }
+        });
+
         obs.on('ConnectionClosed', () => {
           localObsRef.current = null;
           setObsConnected(false);
@@ -357,7 +369,7 @@ function LowBitrateContent() {
 
   useEffect(() => {
     fetchTelemetry();
-    const telInterval = setInterval(fetchTelemetry, 4000);
+    const telInterval = setInterval(fetchTelemetry, 1500);
     return () => clearInterval(telInterval);
   }, [fetchTelemetry]);
 
@@ -712,10 +724,16 @@ function LowBitrateContent() {
       const rttLowTriggerEnabled = currentSettings.obsRttLowTriggerEnabled !== false;
       const rttBrbTriggerEnabled = currentSettings.obsRttOfflineTriggerEnabled !== false;
 
-      // NOALBS Checks before switching: Bad checks in a row before leaving LIVE (default 5, one check per second)
-      const checksBeforeSwitch = currentSettings.obsChecksBeforeSwitching ?? currentSettings.obsSwitchDelaySeconds ?? 5;
+      // NOALBS Checks before switching: Bad checks in a row before leaving LIVE (default 3, one check per second)
+      const checksBeforeSwitch = Math.min(
+        currentSettings.obsChecksBeforeSwitching ?? 3,
+        currentSettings.obsSwitchDelaySeconds ?? 3
+      );
       const delaySec = checksBeforeSwitch;
-      const offDelaySec = checksBeforeSwitch;
+      // When stream feed is completely dead (bitrate === 0), switch to offline/BRB fast (1-2 checks max)
+      const offDelaySec = (bitrate === 0)
+        ? Math.min(2, Math.max(1, currentSettings.obsSwitchDelaySeconds ?? checksBeforeSwitch))
+        : checksBeforeSwitch;
 
       // NOALBS Instant Recovery: Go back to LIVE the moment the feed recovers (1 check) or wait delaySec
       const isInstantRecovery = currentSettings.obsInstantRecovery !== false;
@@ -2719,8 +2737,11 @@ function LowBitrateContent() {
                           Switch Delay:
                         </label>
                         <select
-                          value={settings.obsSwitchDelaySeconds ?? 3}
-                          onChange={(e) => saveSettingsUpdates({ obsSwitchDelaySeconds: Number(e.target.value) || 3 })}
+                          value={settings.obsSwitchDelaySeconds ?? settings.obsChecksBeforeSwitching ?? 3}
+                          onChange={(e) => {
+                            const val = Number(e.target.value) || 3;
+                            saveSettingsUpdates({ obsSwitchDelaySeconds: val, obsChecksBeforeSwitching: val });
+                          }}
                           style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
                         >
                           <option value={1} style={{ background: '#1e293b' }}>1 Second (Instant)</option>
@@ -2834,8 +2855,11 @@ function LowBitrateContent() {
                     type="number"
                     min={1}
                     max={60}
-                    value={settings.obsChecksBeforeSwitching ?? 5}
-                    onChange={(e) => saveSettingsUpdates({ obsChecksBeforeSwitching: Number(e.target.value) || 5 })}
+                    value={settings.obsChecksBeforeSwitching ?? settings.obsSwitchDelaySeconds ?? 3}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 3;
+                      saveSettingsUpdates({ obsChecksBeforeSwitching: val, obsSwitchDelaySeconds: val });
+                    }}
                     style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
                   />
                 </div>
