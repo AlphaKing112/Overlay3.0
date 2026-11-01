@@ -324,14 +324,25 @@ export async function safeObsFixFeed(
       };
     }
 
-    // Helper: Identify if an item is an overlay/standby/low-bitrate banner that should be hidden on !fix
-    const isOverlayItem = (name: string): boolean => {
-      const s = name.toLowerCase().trim();
-      if (options?.overlaySourceName && s === options.overlaySourceName.toLowerCase().trim()) return true;
-      // Do not match if it's explicitly identified as belabox/srt/stream
-      if (/bela|belabox/i.test(s)) return false;
-      return /(overlay|low.*bitrate|standby|offline.*screen|brb|be right back|connecting|loading|placeholder)/i.test(s);
-    };
+    // Ensure browser sources (like your Stream Overlay) are NEVER hidden!
+    // If the overlay was accidentally disabled previously, restore its visibility immediately:
+    for (const item of items) {
+      const sourceName: string = item.sourceName || item.name || '';
+      const itemId = item.sceneItemId ?? item.itemId;
+      if (!sourceName || itemId === undefined) continue;
+
+      const isBrowserOverlay = item.inputKind === 'browser_source' || /(stream.*overlay|^overlay$|browser)/i.test(sourceName);
+      if (isBrowserOverlay && item.sceneItemEnabled === false) {
+        try {
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: currentScene,
+            sceneItemId: itemId,
+            sceneItemEnabled: true
+          });
+          console.log(`👁️ [OBS !fix] Restored visibility for overlay source "${sourceName}"`);
+        } catch {}
+      }
+    }
 
     // Helper: Identify if an item is the Belabox / SRT / media stream input and whether it reads a network stream
     const isBelaboxStreamItem = async (item: any): Promise<{ isStream: boolean; inputKind: string }> => {
@@ -375,42 +386,24 @@ export async function safeObsFixFeed(
         return { isStream: true, inputKind: kind || 'ffmpeg_source' };
       }
 
-      if (/(srt|feed|stream|irl|camera|cam\b)/i.test(s) && !/(chat|alert|audio|mic|bot|sub|goal|music|spotify|webcam|scene)/i.test(s)) {
+      if (/(srt|feed|stream|irl|camera|cam\b)/i.test(s) && !/(chat|alert|audio|mic|bot|sub|goal|music|spotify|webcam|scene|overlay)/i.test(s)) {
         return { isStream: true, inputKind: kind || 'ffmpeg_source' };
       }
 
       return { isStream: isKnownMediaKind, inputKind: kind };
     };
 
-    // 2. First pass: Hide any overlay / standby / low-bitrate items on this scene
-    for (const item of items) {
-      const sourceName: string = item.sourceName || item.name || '';
-      const itemId = item.sceneItemId ?? item.itemId;
-      if (!sourceName || itemId === undefined) continue;
-
-      if (isOverlayItem(sourceName)) {
-        try {
-          await obs.call('SetSceneItemEnabled', {
-            sceneName: currentScene,
-            sceneItemId: itemId,
-            sceneItemEnabled: false
-          });
-          console.log(`🙈 [OBS !fix] Hid overlay/standby source "${sourceName}" (id: ${itemId})`);
-        } catch (err) {
-          console.warn(`[OBS !fix] Could not set overlay "${sourceName}" to hidden:`, err);
-        }
-      }
-    }
-
-    // 3. Second pass: Find candidate stream sources on the current active scene
+    // 2. Find candidate stream sources on the current active scene
     const candidateSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
     for (const item of items) {
       const sourceName: string = item.sourceName || item.name || '';
       const itemId = item.sceneItemId ?? item.itemId;
       if (!sourceName) continue;
 
-      // Skip overlays from being treated as stream sources
-      if (isOverlayItem(sourceName)) continue;
+      // Skip browser sources (overlay, chat, alerts) from being treated as media stream players
+      if (item.inputKind === 'browser_source' || /(overlay|chat|alert|widget|browser)/i.test(sourceName)) {
+        continue;
+      }
 
       const check = await isBelaboxStreamItem(item);
       if (check.isStream) {
@@ -423,7 +416,7 @@ export async function safeObsFixFeed(
       for (const item of items) {
         const sourceName: string = item.sourceName || item.name || '';
         const itemId = item.sceneItemId ?? item.itemId;
-        if (!sourceName || isOverlayItem(sourceName)) continue;
+        if (!sourceName || item.inputKind === 'browser_source' || /(overlay|chat|alert|widget|browser)/i.test(sourceName)) continue;
 
         if (/(bela|belabox|srt|feed)/i.test(sourceName) && !/(chat|alert|overlay|audio|mic)/i.test(sourceName)) {
           candidateSources.push({ item, sourceName, itemId, inputKind: item.inputKind || 'ffmpeg_source' });
