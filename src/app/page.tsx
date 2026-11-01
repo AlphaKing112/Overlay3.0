@@ -1573,32 +1573,8 @@ export default function AdminPage() {
                 Twitch Login
               </button>
             )}
-            <button
-              className="btn btn-secondary"
-              onClick={() => router.push('/low-bitrate')}
-              title="Open Low Bitrate & Automatic Scene Switcher Dashboard (/low-bitrate)"
-              style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.35)', color: '#fbbf24', fontWeight: 'bold' }}
-            >
-              ⚡ Low Bitrate
-            </button>
             <button className="btn btn-primary" onClick={openPreview} title="Preview full stream overlay (/overlay)">
               👁️ Preview
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={openFullMap}
-              title="Open full-screen map webpage in new tab (/map)"
-              style={{ background: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.35)', color: '#38bdf8' }}
-            >
-              🗺️ Full Map
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={copyFullMapLink}
-              title="Copy Full Map URL to clipboard for OBS"
-              style={{ background: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.35)', color: '#4ade80' }}
-            >
-              📋 Copy Map Link
             </button>
             <button
               className="btn btn-secondary"

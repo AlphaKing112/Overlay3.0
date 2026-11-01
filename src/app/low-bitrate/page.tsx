@@ -1443,14 +1443,6 @@ function LowBitrateContent() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <button
-            className="btn btn-primary"
-            onClick={() => setMode('overlay')}
-            title="Preview the OBS Low Bitrate Browser Source page"
-            style={{ background: '#f59e0b', borderColor: '#d97706', color: '#000', fontWeight: 'bold' }}
-          >
-            👁️ Preview Low Scene
-          </button>
-          <button
             className="btn btn-secondary"
             onClick={copyObsLink}
             title="Copy URL (https://overlay3.vercel.app/overlay) to paste as Browser Source in OBS"
