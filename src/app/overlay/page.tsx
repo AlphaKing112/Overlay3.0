@@ -3162,9 +3162,11 @@ function OverlayPage() {
     const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 100;
     const lowThreshold = settings.obsLowBitrateThreshold ?? 1300;
     const recoveryThreshold = settings.obsRecoveryBitrateThreshold ?? 2000;
+    const rttThreshold = settings.obsRttThreshold ?? 2500;
+    const isRttHigh = (settings.rttTriggerEnabled !== false) && currentRtt !== null && currentRtt > rttThreshold;
     const isOffline = currentBitrate !== null && (currentBitrate <= offlineThreshold || isStale);
-    const isLow = currentBitrate !== null && currentBitrate > offlineThreshold && currentBitrate < lowThreshold && !isStale;
-    const isLive = currentBitrate !== null && currentBitrate >= recoveryThreshold && !isStale;
+    const isLow = (currentBitrate !== null && currentBitrate > offlineThreshold && currentBitrate < lowThreshold && !isStale) || isRttHigh;
+    const isLive = currentBitrate !== null && currentBitrate >= recoveryThreshold && (!settings.rttTriggerEnabled || currentRtt === null || currentRtt <= (settings.obsRttRecoveryThreshold ?? 1500)) && !isStale;
     const hasFetchedStats = bitrateUpdateTimestamp > 0;
 
     // DIAGNOSTIC LOG
@@ -3280,7 +3282,7 @@ function OverlayPage() {
       }
     }
     
-  }, [currentBitrate, bitrateUpdateTimestamp, settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLowSceneName, settings.obsLiveSceneName, settings.obsLowBitrateThreshold, settings.obsRecoveryBitrateThreshold, settings.obsOfflineBitrateThreshold, obsConnected]);
+  }, [currentBitrate, currentRtt, bitrateUpdateTimestamp, settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLowSceneName, settings.obsLiveSceneName, settings.obsLowBitrateThreshold, settings.obsRecoveryBitrateThreshold, settings.obsOfflineBitrateThreshold, settings.obsRttThreshold, settings.obsRttRecoveryThreshold, settings.rttTriggerEnabled, obsConnected]);
 
   // RTIRL connection - use refs to avoid re-running on timezone/settings changes
   const timezoneRef = useRef(timezone);

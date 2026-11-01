@@ -47,6 +47,16 @@ export interface ShoutoutData {
   durationSeconds?: number;
 }
 
+export interface CommandConfigItem {
+  id: string;
+  name: string;
+  description: string;
+  defaultRole: 'Admins' | 'Moderators' | 'Everyone';
+  role: 'Admins' | 'Moderators' | 'Everyone';
+  enabled: boolean;
+  aliases: string[];
+}
+
 export interface OverlaySettings {
   shoutout?: ShoutoutData | null;
   shoutoutAnnouncementTemplate?: string;
@@ -229,6 +239,16 @@ export interface OverlaySettings {
   obsLowBitrateMessage?: string;
   obsLowBitrateShowStats?: boolean;
   noalbsServerType?: string;
+  rttTriggerEnabled?: boolean;
+  obsRttRecoveryThreshold?: number;
+  obsCommandPrefix?: string;
+  obsBotLanguage?: string;
+  obsReplyMode?: string;
+  obsChatAlertsEnabled?: boolean;
+  kickChannelName?: string;
+  kickAlertsEnabled?: boolean;
+  twitchAlertsEnabled?: boolean;
+  noalbsCommandsList?: CommandConfigItem[];
   obsAutoSwitchDebugger?: boolean;
   obsStreamCommandsEnabled?: boolean;
   obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh'; timestamp: number } | null;
@@ -287,6 +307,45 @@ export interface OverlaySettings {
 }
 
 // Default settings (single source of truth)
+export const DEFAULT_NOALBS_COMMANDS: CommandConfigItem[] = [
+  { id: 'alias', name: '!alias', description: 'Add or remove an alias for a command', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'autostop', name: '!autostop', description: 'Enable/disable stopping the stream on a raid', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'bbb', name: '!bbb', description: 'Set the BELABOX max bitrate', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'bbs', name: '!bbs', description: 'Report the BELABOX network interfaces and bitrate', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!bbm'] },
+  { id: 'bbsensor', name: '!bbsensor', description: 'Report the BELABOX sensors', defaultRole: 'Everyone', role: 'Everyone', enabled: false, aliases: [] },
+  { id: 'bbstart', name: '!bbstart', description: 'Start the BELABOX stream', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'bbstop', name: '!bbstop', description: 'Stop the BELABOX stream', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'bitrate', name: '!bitrate', description: 'Report current stream bitrate, latency RTT, and health status', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!b'] },
+  { id: 'status', name: '!status', description: 'Report comprehensive stream health, active scene, FPS and dropped frames', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'switch', name: '!switch', description: 'Switch OBS to a specific program scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!ss'] },
+  { id: 'live', name: '!live', description: 'Switch OBS to the primary Live scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
+  { id: 'low', name: '!low', description: 'Switch OBS to the Low Bitrate standby scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
+  { id: 'offline', name: '!offline', description: 'Switch OBS to the Offline / BRB scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!brb'] },
+  { id: 'refresh', name: '!refresh', description: 'Run a 6-second feed reset cycle (switch to refresh scene then back to live)', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!fix', '!f', '!ref'] },
+  { id: 'starting', name: '!starting', description: 'Switch OBS to the Starting Soon scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
+  { id: 'ending', name: '!ending', description: 'Switch OBS to the Stream Ending scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
+  { id: 'privacy', name: '!privacy', description: 'Quick safety cut to the Privacy / Pause scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!pause'] },
+  { id: 'trigger', name: '!trigger', description: 'Dynamically adjust the low bitrate threshold (in kbps)', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'rtrigger', name: '!rtrigger', description: 'Dynamically adjust the RTT latency trigger threshold (in ms)', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'otrigger', name: '!otrigger', description: 'Dynamically adjust the offline bitrate threshold (in kbps)', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'autoswitch', name: '!autoswitch', description: 'Enable or disable automatic bitrate scene switching', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'start', name: '!start', description: 'Start broadcasting stream in OBS', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: ['!startstream', '!golive'] },
+  { id: 'stop', name: '!stop', description: 'Stop broadcasting stream in OBS', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: ['!end', '!stopstream'] },
+  { id: 'rec', name: '!rec', description: 'Toggle video recording in OBS', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'clip', name: '!clip', description: 'Clip the last N seconds of stream via OBS Replay Buffer and upload to Discord', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!cliptheclip', '!replay', '!highlight'] },
+  { id: 'pic', name: '!pic', description: 'Capture high-res stream screenshot and upload to Discord or show on overlay', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!screenshot', '!sshot', '!snap'] },
+  { id: 'so', name: '!so', description: 'Shoutout a streamer with live profile card', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!shoutout'] },
+  { id: 'source', name: '!source', description: 'Report active video stream source details', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'server', name: '!server', description: 'Report active stream ingest server and port', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'map', name: '!map', description: 'Display or toggle full map overlay in stream', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'weather', name: '!weather', description: 'Report current local weather and temperature', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'time', name: '!time', description: 'Report stream local time and timezone', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'distance', name: '!distance', description: 'Report GPS distance traveled and active destination progress', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'calories', name: '!calories', description: 'Report burned calorie counter progress', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
+  { id: 'dono', name: '!dono', description: 'Report live donation goal progress', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!goal'] },
+  { id: 'help', name: '!help', description: 'Display list of available commands and documentation', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] }
+];
+
 export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsStreamCommandsEnabled: true,
   obsStreamCommandSignal: null,
@@ -459,7 +518,6 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsLowBitrateThreshold: 1300,
   obsRecoveryBitrateThreshold: 2000,
   obsOfflineBitrateThreshold: 100,
-  obsRttThreshold: 2500,
   obsSwitchDelaySeconds: 3,
   obsRecoveryDelaySeconds: 5,
   obsOfflineDelaySeconds: 5,
@@ -470,6 +528,17 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsLowBitrateMessage: 'WEAK SIGNAL • PLEASE STAND BY',
   obsLowBitrateShowStats: true,
   noalbsServerType: 'auto',
+  rttTriggerEnabled: true,
+  obsRttThreshold: 2500,
+  obsRttRecoveryThreshold: 1500,
+  obsCommandPrefix: '!',
+  obsBotLanguage: 'English',
+  obsReplyMode: 'Reply',
+  obsChatAlertsEnabled: true,
+  kickChannelName: '',
+  kickAlertsEnabled: true,
+  twitchAlertsEnabled: true,
+  noalbsCommandsList: DEFAULT_NOALBS_COMMANDS,
   obsAutoSwitchDebugger: false,
   obsTelemetryEnabled: false,
   obsTelemetryInterval: 45,
@@ -518,8 +587,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
 };
 
 // Valid settings schema for validation
-// Note: 'todos', 'urls', 'donationGoals', 'shoutout', and 'obsStreamCommandSignal' are handled separately in the validator as they are objects/arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
   shoutoutAnnouncementTemplate: 'string',
   shoutoutX: 'number',
   shoutoutY: 'number',
@@ -697,6 +766,15 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsLowBitrateMessage: 'string',
   obsLowBitrateShowStats: 'boolean',
   noalbsServerType: 'string',
+  rttTriggerEnabled: 'boolean',
+  obsRttRecoveryThreshold: 'number',
+  obsCommandPrefix: 'string',
+  obsBotLanguage: 'string',
+  obsReplyMode: 'string',
+  obsChatAlertsEnabled: 'boolean',
+  kickChannelName: 'string',
+  kickAlertsEnabled: 'boolean',
+  twitchAlertsEnabled: 'boolean',
   obsAutoSwitchDebugger: 'boolean',
   obsStreamCommandsEnabled: 'boolean',
   obsTelemetryEnabled: 'boolean',

@@ -1,6 +1,6 @@
 // Settings validation utility to prevent malicious entries
 
-import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, SETTINGS_CONFIG, TodoItem, UrlItem } from '@/types/settings';
+import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, SETTINGS_CONFIG, TodoItem, UrlItem, CommandConfigItem } from '@/types/settings';
 
 
 
@@ -163,6 +163,31 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
           };
         }
       }
+    }
+  }
+
+  // Validate noalbsCommandsList array
+  if (settings.noalbsCommandsList !== undefined) {
+    if (Array.isArray(settings.noalbsCommandsList)) {
+      const validCmds: CommandConfigItem[] = [];
+      for (const cmd of settings.noalbsCommandsList) {
+        if (cmd && typeof cmd === 'object' && typeof (cmd as any).id === 'string' && typeof (cmd as any).name === 'string') {
+          const c = cmd as Record<string, unknown>;
+          const role = (c.role === 'Everyone' || c.role === 'Moderators' || c.role === 'Admins') ? c.role : 'Everyone';
+          const defaultRole = (c.defaultRole === 'Everyone' || c.defaultRole === 'Moderators' || c.defaultRole === 'Admins') ? c.defaultRole : role;
+          const aliases = Array.isArray(c.aliases) ? c.aliases.filter(a => typeof a === 'string').map(a => String(a).slice(0, 30)) : [];
+          validCmds.push({
+            id: String(c.id).slice(0, 50),
+            name: String(c.name).slice(0, 50),
+            description: String(c.description || '').slice(0, 200),
+            defaultRole,
+            role,
+            enabled: Boolean(c.enabled !== false),
+            aliases
+          });
+        }
+      }
+      cleanSettings.noalbsCommandsList = validCmds;
     }
   }
 
@@ -491,6 +516,16 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     obsLowBitrateMessage: cleanSettings.obsLowBitrateMessage ?? DEFAULT_OVERLAY_SETTINGS.obsLowBitrateMessage,
     obsLowBitrateShowStats: cleanSettings.obsLowBitrateShowStats ?? DEFAULT_OVERLAY_SETTINGS.obsLowBitrateShowStats,
     noalbsServerType: cleanSettings.noalbsServerType ?? DEFAULT_OVERLAY_SETTINGS.noalbsServerType,
+    rttTriggerEnabled: cleanSettings.rttTriggerEnabled ?? DEFAULT_OVERLAY_SETTINGS.rttTriggerEnabled,
+    obsRttRecoveryThreshold: typeof cleanSettings.obsRttRecoveryThreshold === 'number' ? Math.max(0, cleanSettings.obsRttRecoveryThreshold) : DEFAULT_OVERLAY_SETTINGS.obsRttRecoveryThreshold,
+    obsCommandPrefix: cleanSettings.obsCommandPrefix ?? DEFAULT_OVERLAY_SETTINGS.obsCommandPrefix,
+    obsBotLanguage: cleanSettings.obsBotLanguage ?? DEFAULT_OVERLAY_SETTINGS.obsBotLanguage,
+    obsReplyMode: cleanSettings.obsReplyMode ?? DEFAULT_OVERLAY_SETTINGS.obsReplyMode,
+    obsChatAlertsEnabled: cleanSettings.obsChatAlertsEnabled ?? DEFAULT_OVERLAY_SETTINGS.obsChatAlertsEnabled,
+    kickChannelName: cleanSettings.kickChannelName ?? DEFAULT_OVERLAY_SETTINGS.kickChannelName,
+    kickAlertsEnabled: cleanSettings.kickAlertsEnabled ?? DEFAULT_OVERLAY_SETTINGS.kickAlertsEnabled,
+    twitchAlertsEnabled: cleanSettings.twitchAlertsEnabled ?? DEFAULT_OVERLAY_SETTINGS.twitchAlertsEnabled,
+    noalbsCommandsList: cleanSettings.noalbsCommandsList ?? DEFAULT_OVERLAY_SETTINGS.noalbsCommandsList,
     obsTelemetryEnabled: cleanSettings.obsTelemetryEnabled ?? DEFAULT_OVERLAY_SETTINGS.obsTelemetryEnabled,
     obsTelemetryInterval: typeof cleanSettings.obsTelemetryInterval === 'number' ? Math.max(15, Math.min(300, cleanSettings.obsTelemetryInterval)) : DEFAULT_OVERLAY_SETTINGS.obsTelemetryInterval,
     showDistanceTracker: cleanSettings.showDistanceTracker ?? DEFAULT_OVERLAY_SETTINGS.showDistanceTracker,
