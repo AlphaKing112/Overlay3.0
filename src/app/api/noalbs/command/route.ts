@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { broadcastSettings } from '@/lib/settings-broadcast';
-import { safeObsSwitchScene, safeObsRefreshCycle, getCurrentObsScene, safeObsStreamControlResult } from '@/lib/obs-helper';
+import { safeObsSwitchScene, safeObsRefreshCycle, getCurrentObsScene, safeObsStreamControlResult, safeObsFixFeed, safeObsRecordControl } from '@/lib/obs-helper';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import { CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 
@@ -223,21 +223,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. !fix / !refresh / !f
-    if (cmdName === '!fix' || cmdName === '!refresh' || cmdName === '!f') {
+    // 4. !fix / !refresh / !f / !ref
+    if (cmdName === '!fix' || cmdName === '!refresh' || cmdName === '!f' || cmdName === '!ref') {
       const refreshScene = settings.obsRefreshSceneName || 'refresh';
       const liveScene = settings.obsLiveSceneName || 'live';
       const now = Date.now();
 
-      // Dispatch stream refresh command to active OBS Browser Source
+      // Dispatch stream fix command to active OBS Browser Source
       await saveSettingsPatch({
-        obsStreamCommandSignal: { action: 'refresh', timestamp: now }
+        obsStreamCommandSignal: { action: 'fix', timestamp: now }
       });
 
       // Also attempt direct WS if local
       try {
         const obs = await connectObs();
-        safeObsRefreshCycle(obs, refreshScene, liveScene, 6000)
+        safeObsFixFeed(obs, liveScene, refreshScene)
           .finally(async () => {
             try { await obs.disconnect(); } catch {}
           });
@@ -245,7 +245,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `🔄 Stream refresh sequence initiated! Switching to "${refreshScene}" -> "${liveScene}" (6s reload)`
+        message: `🔧 Stream sources reconnected on active scene (${liveScene})!`
       });
     }
 
@@ -376,6 +376,14 @@ export async function POST(req: NextRequest) {
 
     // 15. !start / !stop / !rec
     if (cmdName === '!start' || cmdName === '!stop' || cmdName === '!rec') {
+      const now = Date.now();
+      const signalAction = cmdName === '!start' ? 'start' : cmdName === '!stop' ? 'stop' : 'rec';
+
+      // Always dispatch cloud signal so OBS browser source executes even if remote
+      await saveSettingsPatch({
+        obsStreamCommandSignal: { action: signalAction, timestamp: now }
+      });
+
       try {
         const obs = await connectObs();
         if (cmdName === '!start' || cmdName === '!stop') {
@@ -387,12 +395,18 @@ export async function POST(req: NextRequest) {
             message: res.success ? `🎬 OBS Stream ${action.toUpperCase()} command sent.` : `Failed: ${res.error}`
           });
         } else if (cmdName === '!rec') {
-          await obs.call('ToggleRecord');
+          const res = await safeObsRecordControl(obs, 'toggle');
           await obs.disconnect();
-          return NextResponse.json({ success: true, message: '⏺️ OBS Recording toggled.' });
+          return NextResponse.json({
+            success: res.success,
+            message: res.isRecording ? '⏺️ OBS Recording started.' : '⏹️ OBS Recording stopped.'
+          });
         }
       } catch (err: any) {
-        return NextResponse.json({ success: false, error: `OBS control failed: ${err.message}` }, { status: 503 });
+        return NextResponse.json({
+          success: true,
+          message: `📡 Dispatched ${signalAction.toUpperCase()} command signal to OBS overlay.`
+        });
       }
     }
 

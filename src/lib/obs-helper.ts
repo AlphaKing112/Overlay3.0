@@ -173,12 +173,106 @@ export async function safeObsRefreshCycle(
   return { success: true };
 }
 
-export async function safeObsStreamControlResult(
+/**
+ * Universal feed fix / stream source reconnect (!fix / !f)
+ * Reconnects the media and stream sources on the active scene on air
+ * by toggling scene item visibility and/or refreshing browser/SRT/media cache.
+ * If a refresh scene is configured, cycles through it to reset network buffers.
+ */
+export async function safeObsFixFeed(
   obs: any,
-  action: 'start' | 'stop' | 'refresh',
-  options?: { refreshScene?: string; liveScene?: string; delayMs?: number; isLiveBitrate?: boolean; currentBitrate?: number }
+  liveScene: string = 'live',
+  refreshScene?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
+
+  console.log(`🔧 [OBS] Executing !fix (reconnecting stream sources)...`);
+  try {
+    const currentScene = (await getCurrentObsScene(obs)) || liveScene;
+    try {
+      const sceneItemsRes = await obs.call('GetSceneItemList', { sceneName: currentScene });
+      const items = (sceneItemsRes?.sceneItems as any[]) || [];
+
+      for (const item of items) {
+        const id = item.sceneItemId ?? item.itemId;
+        const name = item.sourceName || item.name;
+        if (id !== undefined) {
+          try {
+            await obs.call('SetSceneItemEnabled', { sceneName: currentScene, sceneItemId: id, sceneItemEnabled: false });
+            await new Promise(r => setTimeout(r, 80));
+            await obs.call('SetSceneItemEnabled', { sceneName: currentScene, sceneItemId: id, sceneItemEnabled: true });
+          } catch {}
+        }
+        if (name) {
+          try {
+            await obs.call('PressInputPropertiesButton', { inputName: name, propertyName: 'refreshnocache' });
+          } catch {}
+        }
+      }
+    } catch (toggleErr) {
+      console.warn('⚠️ [OBS] Direct scene item reconnect notice:', toggleErr);
+    }
+
+    if (refreshScene && refreshScene.toLowerCase() !== liveScene.toLowerCase()) {
+      await safeObsRefreshCycle(obs, refreshScene, liveScene, 3000);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: formatObsError(err) };
+  }
+}
+
+/**
+ * Universal video recording control (!rec)
+ */
+export async function safeObsRecordControl(
+  obs: any,
+  action: 'toggle' | 'start' | 'stop' = 'toggle'
+): Promise<{ success: boolean; isRecording?: boolean; error?: string }> {
+  if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
+
+  try {
+    if (action === 'start') {
+      await obs.call('StartRecord');
+      return { success: true, isRecording: true };
+    } else if (action === 'stop') {
+      await obs.call('StopRecord');
+      return { success: true, isRecording: false };
+    } else {
+      const res = await obs.call('ToggleRecord');
+      return { success: true, isRecording: res?.outputActive };
+    }
+  } catch (err1: any) {
+    try {
+      if (action === 'start') {
+        await obs.call('StartRecording' as any);
+        return { success: true, isRecording: true };
+      } else if (action === 'stop') {
+        await obs.call('StopRecording' as any);
+        return { success: true, isRecording: false };
+      } else {
+        await obs.call('StartStopRecording' as any);
+        return { success: true };
+      }
+    } catch (err2) {
+      return { success: false, error: formatObsError(err1 || err2) };
+    }
+  }
+}
+
+export async function safeObsStreamControlResult(
+  obs: any,
+  action: 'start' | 'stop' | 'refresh' | 'fix' | 'rec' | 'start_record' | 'stop_record',
+  options?: { refreshScene?: string; liveScene?: string; delayMs?: number; isLiveBitrate?: boolean; currentBitrate?: number }
+): Promise<{ success: boolean; isRecording?: boolean; error?: string }> {
+  if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
+
+  if (action === 'fix') {
+    const refreshScene = options?.refreshScene;
+    const liveScene = options?.liveScene || 'live';
+    return await safeObsFixFeed(obs, liveScene, refreshScene);
+  }
 
   if (action === 'refresh') {
     const refreshScene = options?.refreshScene || 'refresh';
@@ -188,6 +282,11 @@ export async function safeObsStreamControlResult(
       currentBitrate: options?.currentBitrate
     });
     return cycleRes;
+  }
+
+  if (action === 'rec' || action === 'start_record' || action === 'stop_record') {
+    const recordAction = action === 'start_record' ? 'start' : action === 'stop_record' ? 'stop' : 'toggle';
+    return await safeObsRecordControl(obs, recordAction);
   }
 
   const isStart = action === 'start';
@@ -293,7 +392,7 @@ export async function safeObsStreamControlResult(
 
 export async function safeObsStreamControl(
   obs: any,
-  action: 'start' | 'stop' | 'refresh',
+  action: 'start' | 'stop' | 'refresh' | 'fix' | 'rec' | 'start_record' | 'stop_record',
   options?: { refreshScene?: string; liveScene?: string; delayMs?: number; isLiveBitrate?: boolean; currentBitrate?: number }
 ): Promise<boolean> {
   const result = await safeObsStreamControlResult(obs, action, options);

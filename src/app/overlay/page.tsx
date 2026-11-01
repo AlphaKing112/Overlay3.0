@@ -1803,8 +1803,8 @@ function OverlayPage() {
               return;
             }
 
-            // Command: !refresh / !ref / !fixaudio / !restartfeed / !resetsrt
-            if (lowerText === '!refresh' || lowerText.startsWith('!refresh ') || lowerText === '!ref' || lowerText === '!fixaudio' || lowerText === '!restartfeed' || lowerText === '!resetsrt') {
+            // Command: !fix / !f / !refresh / !ref / !fixaudio / !restartfeed / !resetsrt
+            if (lowerText === '!fix' || lowerText.startsWith('!fix ') || lowerText === '!f' || lowerText === '!refresh' || lowerText.startsWith('!refresh ') || lowerText === '!ref' || lowerText === '!fixaudio' || lowerText === '!restartfeed' || lowerText === '!resetsrt') {
               const isEnabled = seSettingsRef.current?.obsStreamCommandsEnabled === true;
               if (!isEnabled) {
                 OverlayLogger.overlay(`Twitch IRC !refresh command ignored (obsStreamCommandsEnabled is disabled in settings)`);

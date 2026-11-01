@@ -264,7 +264,7 @@ export interface OverlaySettings {
   noalbsCommandsList?: CommandConfigItem[];
   obsAutoSwitchDebugger?: boolean;
   obsStreamCommandsEnabled?: boolean;
-  obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh'; timestamp: number } | null;
+  obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh' | 'fix' | 'rec' | 'start_record' | 'stop_record'; timestamp: number } | null;
   obsTelemetryEnabled?: boolean;
   obsTelemetryInterval?: number;
   enableResourceOptimization?: boolean;
@@ -334,7 +334,8 @@ export const DEFAULT_NOALBS_COMMANDS: CommandConfigItem[] = [
   { id: 'live', name: '!live', description: 'Switch OBS to the primary Live scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
   { id: 'low', name: '!low', description: 'Switch OBS to the Low Bitrate standby scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
   { id: 'offline', name: '!offline', description: 'Switch OBS to the Offline / BRB scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!brb'] },
-  { id: 'refresh', name: '!refresh', description: 'Run a 6-second feed reset cycle (switch to refresh scene then back to live)', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!fix', '!f', '!ref'] },
+  { id: 'fix', name: '!fix', description: 'Reconnect the stream sources on the scene on air', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!f'] },
+  { id: 'refresh', name: '!refresh', description: 'Run a 6-second feed reset cycle (switch to refresh scene then back to live)', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!ref'] },
   { id: 'starting', name: '!starting', description: 'Switch OBS to the Starting Soon scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
   { id: 'ending', name: '!ending', description: 'Switch OBS to the Stream Ending scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: [] },
   { id: 'privacy', name: '!privacy', description: 'Quick safety cut to the Privacy / Pause scene', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!pause'] },

@@ -88,6 +88,13 @@ function LowBitrateContent() {
   const [isScanningScenes, setIsScanningScenes] = useState<boolean>(false);
   const [customSceneMode, setCustomSceneMode] = useState<boolean>(false);
 
+  // OBS Action Controls State (Fix Feed, Record, Start Stream)
+  const isStreaming = Boolean(telemetry?.streaming);
+  const isRecording = Boolean(telemetry?.recording);
+  const [isFixingFeed, setIsFixingFeed] = useState<boolean>(false);
+  const [isTogglingRecord, setIsTogglingRecord] = useState<boolean>(false);
+  const [isTogglingStream, setIsTogglingStream] = useState<boolean>(false);
+
   // Auto-switch State Machine (NOALBS: LIVE | LOW | OFFLINE | IDLE)
   const [autoSwitchState, setAutoSwitchState] = useState<'LIVE' | 'LOW' | 'OFFLINE' | 'IDLE'>('IDLE');
   const [lastSwitchLog, setLastSwitchLog] = useState<string>('Ready.');
@@ -512,15 +519,19 @@ function LowBitrateContent() {
     }
   };
 
-  // 6. Execute Refresh Cycle (!refresh)
-  const triggerRefreshCycle = async () => {
+  // 6. Execute Fix Feed (!fix)
+  const handleFixFeed = async () => {
+    setIsFixingFeed(true);
     setIsSwitchingScene(true);
-    const refreshScene = settings.obsRefreshSceneName || 'refresh';
     const liveScene = settings.obsLiveSceneName || 'live';
-    setLastSwitchLog(`🔄 Running !refresh cycle: "${refreshScene}" for 6s then returning to "${liveScene}"...`);
-    showToast(`🔄 Feed reset sequence initiated (switching to ${refreshScene})...`, 'info');
+    setLastSwitchLog(`🔧 Reconnecting stream sources on active scene "${liveScene}"...`);
+    showToast(`🔧 Reconnecting stream sources on active scene...`, 'info');
 
     try {
+      await saveSettingsUpdates({
+        obsStreamCommandSignal: { action: 'fix', timestamp: Date.now() }
+      });
+
       const res = await fetch('/api/noalbs/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -528,16 +539,84 @@ function LowBitrateContent() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(data.message || 'Stream refresh completed successfully!', 'success');
-        setLastSwitchLog(data.message || 'Refresh cycle completed.');
+        showToast(data.message || 'Stream feed fixed successfully!', 'success');
+        setLastSwitchLog(data.message || 'Feed sources reconnected.');
         refreshObsScenes();
       } else {
-        showToast(data.error || 'Refresh cycle failed.', 'error');
+        showToast(data.error || 'Fix feed failed.', 'error');
       }
     } catch (err: any) {
-      showToast(`Refresh error: ${err.message}`, 'error');
+      showToast(`Fix feed error: ${err.message}`, 'error');
     } finally {
+      setIsFixingFeed(false);
       setIsSwitchingScene(false);
+    }
+  };
+
+  const triggerRefreshCycle = handleFixFeed;
+
+  // 6b. Toggle Video Recording (!rec)
+  const handleToggleRecord = async () => {
+    setIsTogglingRecord(true);
+    const willRecord = !isRecording;
+    showToast(willRecord ? '⏺ Starting video recording in OBS...' : '⏹ Stopping video recording in OBS...', 'info');
+
+    try {
+      await saveSettingsUpdates({
+        obsStreamCommandSignal: { action: willRecord ? 'start_record' : 'stop_record', timestamp: Date.now() }
+      });
+
+      const res = await fetch('/api/noalbs/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: '!rec' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || (willRecord ? '⏺ OBS Recording started!' : '⏹ OBS Recording stopped.'), 'success');
+        setTelemetry(prev => prev ? { ...prev, recording: willRecord } : null);
+      } else {
+        showToast(data.error || 'Failed to toggle recording.', 'error');
+      }
+    } catch (err: any) {
+      showToast(`Record error: ${err.message}`, 'error');
+    } finally {
+      setIsTogglingRecord(false);
+    }
+  };
+
+  // 6c. Toggle Live Streaming Broadcast (!start / !stop)
+  const handleToggleStream = async () => {
+    const willStream = !isStreaming;
+    if (!willStream && typeof window !== 'undefined' && !window.confirm('Are you sure you want to STOP broadcasting to stream?')) {
+      return;
+    }
+
+    setIsTogglingStream(true);
+    showToast(willStream ? '▷ Starting stream broadcast in OBS...' : '⏹ Stopping stream broadcast...', 'info');
+
+    try {
+      const action = willStream ? 'start' : 'stop';
+      await saveSettingsUpdates({
+        obsStreamCommandSignal: { action, timestamp: Date.now() }
+      });
+
+      const res = await fetch('/api/noalbs/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: willStream ? '!start' : '!stop' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || (willStream ? '🎬 OBS Stream started live!' : '⏹ OBS Stream stopped.'), 'success');
+        setTelemetry(prev => prev ? { ...prev, streaming: willStream } : null);
+      } else {
+        showToast(data.error || 'Failed to control stream.', 'error');
+      }
+    } catch (err: any) {
+      showToast(`Stream error: ${err.message}`, 'error');
+    } finally {
+      setIsTogglingStream(false);
     }
   };
 
@@ -798,15 +877,37 @@ function LowBitrateContent() {
   const copyObsLink = () => {
     if (typeof window === 'undefined') return;
     const origin = window.location.origin;
-    const url = `${origin}/low-bitrate?mode=overlay`;
+    const url = `${origin}/overlay`;
     navigator.clipboard.writeText(url);
-    showToast('📋 OBS Browser Source URL copied! Width: 1920, Height: 1080', 'success');
+    showToast(`📋 OBS Browser Source URL copied: ${url} (Width: 1920, Height: 1080)`, 'success');
   };
 
   // Chat & Commands Helpers
-  const activeCommandsList: CommandConfigItem[] = settings.noalbsCommandsList && settings.noalbsCommandsList.length > 0
-    ? settings.noalbsCommandsList
-    : DEFAULT_NOALBS_COMMANDS;
+  const activeCommandsList: CommandConfigItem[] = useMemo(() => {
+    const list = settings.noalbsCommandsList && settings.noalbsCommandsList.length > 0
+      ? [...settings.noalbsCommandsList]
+      : [...DEFAULT_NOALBS_COMMANDS];
+
+    // Ensure !fix command is always present matching NOALBS design
+    if (!list.some(c => c.id === 'fix' || c.name === '!fix')) {
+      const fixCmd: CommandConfigItem = {
+        id: 'fix',
+        name: '!fix',
+        description: 'Reconnect the stream sources on the scene on air',
+        defaultRole: 'Moderators',
+        role: 'Moderators',
+        enabled: true,
+        aliases: ['!f']
+      };
+      const offlineIdx = list.findIndex(c => c.id === 'offline' || c.name === '!offline');
+      if (offlineIdx !== -1) {
+        list.splice(offlineIdx + 1, 0, fixCmd);
+      } else {
+        list.push(fixCmd);
+      }
+    }
+    return list;
+  }, [settings.noalbsCommandsList]);
 
   const toggleCommandEnabled = (cmdId: string) => {
     const updated = activeCommandsList.map(cmd => {
@@ -1029,7 +1130,7 @@ function LowBitrateContent() {
               onClick={copyObsLink}
               style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'rgba(255,255,255,0.1)' }}
             >
-              📋 Copy Overlay Browser Source Link
+              📋 Copy Overlay Browser Source Link (/overlay)
             </button>
             <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
               Add to OBS scenes as a Browser Source (1920x1080)
@@ -1323,10 +1424,10 @@ function LowBitrateContent() {
           <button
             className="btn btn-secondary"
             onClick={copyObsLink}
-            title="Copy URL to paste as Browser Source in your OBS Low Bitrate scene"
+            title="Copy URL (https://overlay3.vercel.app/overlay) to paste as Browser Source in OBS"
             style={{ background: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.35)', color: '#4ade80', fontWeight: 'bold' }}
           >
-            📋 Copy OBS Link
+            📋 Copy OBS Link (/overlay)
           </button>
           <button
             className="btn btn-secondary"
@@ -1345,67 +1446,168 @@ function LowBitrateContent() {
         </div>
       </header>
 
-      {/* Navigation Sub-Tabs: Switcher Studio vs Switching vs Chat & Commands */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setActiveTab('switcher')}
-          style={{
-            padding: '10px 20px',
-            borderRadius: '8px',
-            fontSize: '0.95rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            background: activeTab === 'switcher' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.04)',
-            color: activeTab === 'switcher' ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
-            border: activeTab === 'switcher' ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span>⚡</span> Switcher Studio & Health Monitor
-        </button>
+      {/* Navigation Sub-Tabs & NOALBS Action Buttons Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setActiveTab('switcher')}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              background: activeTab === 'switcher' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+              color: activeTab === 'switcher' ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
+              border: activeTab === 'switcher' ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>⚡</span> Switcher Studio & Health Monitor
+          </button>
 
-        <button
-          onClick={() => setActiveTab('switching')}
-          style={{
-            padding: '10px 20px',
-            borderRadius: '8px',
-            fontSize: '0.95rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            background: activeTab === 'switching' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.04)',
-            color: activeTab === 'switching' ? '#4ade80' : 'rgba(255, 255, 255, 0.7)',
-            border: activeTab === 'switching' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span>🔄</span> Switching
-        </button>
+          <button
+            onClick={() => setActiveTab('switching')}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              background: activeTab === 'switching' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+              color: activeTab === 'switching' ? '#4ade80' : 'rgba(255, 255, 255, 0.7)',
+              border: activeTab === 'switching' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>🔄</span> Switching
+          </button>
 
-        <button
-          onClick={() => setActiveTab('chat_commands')}
-          style={{
-            padding: '10px 20px',
-            borderRadius: '8px',
-            fontSize: '0.95rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            background: activeTab === 'chat_commands' ? 'rgba(145, 70, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
-            color: activeTab === 'chat_commands' ? '#c084fc' : 'rgba(255, 255, 255, 0.7)',
-            border: activeTab === 'chat_commands' ? '1px solid rgba(145, 70, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span>💬</span> Chat & Commands ({activeCommandsList.length})
-        </button>
+          <button
+            onClick={() => setActiveTab('chat_commands')}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              background: activeTab === 'chat_commands' ? 'rgba(145, 70, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+              color: activeTab === 'chat_commands' ? '#c084fc' : 'rgba(255, 255, 255, 0.7)',
+              border: activeTab === 'chat_commands' ? '1px solid rgba(145, 70, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>💬</span> Chat & Commands ({activeCommandsList.length})
+          </button>
+        </div>
+
+        {/* NOALBS OBS Quick Control Action Buttons (Fix feed, Record, Start stream) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Fix feed button */}
+          <button
+            type="button"
+            onClick={handleFixFeed}
+            disabled={isFixingFeed}
+            title="Reconnect the stream sources on the scene on air (!fix)"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '9px 16px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              borderRadius: '8px',
+              color: '#e2e8f0',
+              fontSize: '0.88rem',
+              fontWeight: 600,
+              cursor: isFixingFeed ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              opacity: isFixingFeed ? 0.6 : 1,
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'rotate(-45deg)' }}>
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+            </svg>
+            <span>{isFixingFeed ? 'Fixing feed...' : 'Fix feed'}</span>
+          </button>
+
+          {/* Record button */}
+          <button
+            type="button"
+            onClick={handleToggleRecord}
+            disabled={isTogglingRecord}
+            title={isRecording ? 'Stop video recording in OBS (!rec)' : 'Start video recording in OBS (!rec)'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '9px 16px',
+              background: isRecording ? 'rgba(239, 68, 68, 0.18)' : 'rgba(255, 255, 255, 0.05)',
+              border: `1px solid ${isRecording ? 'rgba(239, 68, 68, 0.5)' : 'rgba(255, 255, 255, 0.14)'}`,
+              borderRadius: '8px',
+              color: isRecording ? '#f87171' : '#e2e8f0',
+              fontSize: '0.88rem',
+              fontWeight: 600,
+              cursor: isTogglingRecord ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              opacity: isTogglingRecord ? 0.6 : 1,
+            }}
+          >
+            <span style={{
+              width: '9px',
+              height: '9px',
+              borderRadius: '50%',
+              backgroundColor: isRecording ? '#ef4444' : '#64748b',
+              boxShadow: isRecording ? '0 0 8px #ef4444' : 'none',
+              display: 'inline-block'
+            }} />
+            <span>{isTogglingRecord ? 'Updating...' : isRecording ? 'Stop record' : 'Record'}</span>
+          </button>
+
+          {/* Start stream / Stop stream button */}
+          <button
+            type="button"
+            onClick={handleToggleStream}
+            disabled={isTogglingStream}
+            title={isStreaming ? 'Stop broadcasting in OBS (!stop)' : 'Start broadcasting in OBS (!start)'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '9px 18px',
+              background: isStreaming ? 'rgba(239, 68, 68, 0.85)' : '#5c54a4',
+              border: `1px solid ${isStreaming ? '#ef4444' : 'rgba(145, 70, 255, 0.6)'}`,
+              borderRadius: '8px',
+              color: '#ffffff',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              cursor: isTogglingStream ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              boxShadow: isStreaming ? '0 0 14px rgba(239, 68, 68, 0.4)' : '0 2px 10px rgba(92, 84, 164, 0.35)',
+              opacity: isTogglingStream ? 0.6 : 1,
+            }}
+          >
+            {isStreaming ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="5" y="5" width="14" height="14" rx="2" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="6 4 20 12 6 20 6 4" />
+              </svg>
+            )}
+            <span>{isTogglingStream ? 'Updating...' : isStreaming ? 'Stop stream' : 'Start stream'}</span>
+          </button>
+        </div>
       </div>
 
       {/* =====================================================================
@@ -1585,13 +1787,13 @@ function LowBitrateContent() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
                   <button
                     className="btn btn-secondary"
-                    onClick={triggerRefreshCycle}
-                    disabled={isSwitchingScene}
-                    title="Executes feed reset cycle: cuts to refresh scene for 6s then returns to live"
+                    onClick={handleFixFeed}
+                    disabled={isSwitchingScene || isFixingFeed}
+                    title="Reconnect the stream sources on the scene on air (!fix)"
                     style={{ padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}
                   >
-                    <span>🔄</span>
-                    <strong>!REFRESH</strong>
+                    <span>🔧</span>
+                    <strong>!FIX FEED</strong>
                   </button>
 
                   <button
