@@ -1917,7 +1917,7 @@ export default function SettingsConfigPage() {
                   style={{ width: '100%', marginTop: '4px' }}
                 />
                 <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
-                  Available tags: <code>&#123;user&#125;</code>, <code>&#123;duration&#125;</code>, <code>&#123;points&#125;</code>.
+                  Available tags: <code>&#123;user&#125;</code>, <code>&#123;title&#125;</code>, <code>&#123;duration&#125;</code>, <code>&#123;url&#125;</code>, <code>&#123;points&#125;</code>. Supports <code>!clip [title]</code>, <code>!clip &lt;sec&gt; [title]</code>, and <code>!clip30/45/60 [title]</code>.
                 </span>
               </div>
 

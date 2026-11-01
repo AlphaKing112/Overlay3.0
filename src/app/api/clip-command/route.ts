@@ -191,8 +191,9 @@ async function postClipToDiscord(options: {
   duration: number;
   pointsSpent?: number;
   sceneName?: string;
+  title?: string;
 }): Promise<{ success: boolean; error?: string }> {
-  const { webhookUrl, videoBuffer, filename, username, displayName, duration, pointsSpent = 300, sceneName } = options;
+  const { webhookUrl, videoBuffer, filename, username, displayName, duration, pointsSpent = 300, sceneName, title } = options;
 
   if (!webhookUrl || !webhookUrl.startsWith('https://')) {
     return { success: false, error: 'Invalid or missing Discord Webhook URL' };
@@ -206,13 +207,14 @@ async function postClipToDiscord(options: {
     const name = displayName || username || 'Viewer';
     const nowIso = new Date().toISOString();
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const titleHeader = title && title.trim() ? ` "${title.trim()}"` : '';
 
     const discordPayload = {
-      content: `🎬 **!clip** (${duration}s) captured by **${name}**!`,
+      content: `🎬 **!clip**${titleHeader} (${duration}s) captured by **${name}**!`,
       embeds: [
         {
-          title: `🎬 Live Stream Clip (${duration}s)`,
-          description: `Clipped by **${name}** via \`!clip ${duration}\` (**${pointsSpent}** StreamElements points)${sceneName ? `\n📺 Scene: \`${sceneName}\`` : ''}`,
+          title: `🎬 Live Stream Clip${titleHeader} (${duration}s)`,
+          description: `Clipped by **${name}** via \`!clip\`${title ? `\n📝 Title: **${title.trim()}**` : ''}${pointsSpent > 0 ? ` (${pointsSpent} StreamElements points)` : ''}${sceneName ? `\n📺 Scene: \`${sceneName}\`` : ''}`,
           color: 0x00d2ff, // Vibrant neon cyan
           footer: {
             text: `Stream Overlay • ${timeStr}`
@@ -270,7 +272,7 @@ export async function POST(request: NextRequest) {
     // ACTION: create_twitch_clip (Cloud Native Twitch Clip)
     // ==========================================
     if (action === 'create_twitch_clip') {
-      const { broadcasterId, token, clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw', username, displayName, sceneName } = body;
+      const { broadcasterId, token, clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw', username, displayName, sceneName, title, duration } = body;
       const targetWebhook = body.webhookUrl || webhookUrl;
 
       if (!token || !broadcasterId) {
@@ -281,10 +283,18 @@ export async function POST(request: NextRequest) {
       }
 
       const name = displayName || username || 'Viewer';
-      OverlayLogger.overlay(`Triggering Twitch Helix Create Clip API for broadcaster ${broadcasterId}...`);
+      OverlayLogger.overlay(`Triggering Twitch Helix Create Clip API for broadcaster ${broadcasterId}${title ? ` (Title: "${title}")` : ''}${duration ? ` (Duration: ${duration}s)` : ''}...`);
 
       try {
-        const twitchRes = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${encodeURIComponent(broadcasterId)}`, {
+        let twitchUrl = `https://api.twitch.tv/helix/clips?broadcaster_id=${encodeURIComponent(broadcasterId)}`;
+        if (typeof duration === 'number' && duration >= 5 && duration <= 60) {
+          twitchUrl += `&duration=${duration}`;
+        }
+        if (typeof title === 'string' && title.trim()) {
+          twitchUrl += `&title=${encodeURIComponent(title.trim().slice(0, 255))}`;
+        }
+
+        const twitchRes = await fetch(twitchUrl, {
           method: 'POST',
           headers: {
             'Client-Id': clientId,
@@ -327,7 +337,8 @@ export async function POST(request: NextRequest) {
 
         // Post to Discord Webhook if configured
         if (targetWebhook && targetWebhook.startsWith('https://')) {
-          const contentText = `🎬 **!clip** captured by **${name}**!${pointsCost > 0 ? ` (${pointsCost} StreamElements points)` : ''}${sceneName ? ` • \`${sceneName}\`` : ''}\n${clipUrl}`;
+          const titleHeader = title && title.trim() ? ` "${title.trim()}"` : '';
+          const contentText = `🎬 **!clip**${titleHeader} (${duration || 30}s) captured by **${name}**!${pointsCost > 0 ? ` (${pointsCost} StreamElements points)` : ''}${sceneName ? ` • \`${sceneName}\`` : ''}\n${clipUrl}`;
 
           // Attempt to fetch direct MP4 from Twitch CDN to attach playable video directly in Discord
           let uploadedAttachedVideo = false;
@@ -398,6 +409,8 @@ export async function POST(request: NextRequest) {
           clipId: clipSlug,
           clipUrl,
           editUrl,
+          title: title?.trim() || undefined,
+          duration: duration || 30,
           message: 'Twitch clip created and sent to Discord successfully!'
         });
       } catch (clipErr: any) {
@@ -553,7 +566,7 @@ export async function POST(request: NextRequest) {
     // ACTION: process_and_upload
     // ==========================================
     if (action === 'process_and_upload') {
-      const { replayPath, duration = 60, username, displayName, sceneName } = body;
+      const { replayPath, duration = 60, username, displayName, sceneName, title } = body;
 
       if (!webhookUrl) {
         return NextResponse.json({
@@ -609,12 +622,14 @@ export async function POST(request: NextRequest) {
           displayName: displayName || username || 'Viewer',
           duration,
           pointsSpent: pointsCost,
-          sceneName
+          sceneName,
+          title
         });
 
         return NextResponse.json({
           success: uploadRes.success,
           duration,
+          title: title?.trim() || undefined,
           fileSize: videoBuffer.length,
           error: uploadRes.error
         });

@@ -285,13 +285,14 @@ function OverlayPage() {
     user: string;
     points: number;
     duration: number;
+    title?: string;
     phase: 'entering' | 'exiting';
   } | null>(null);
   const clipToastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const showClipToast = useCallback((username: string, points: number, duration: number) => {
+  const showClipToast = useCallback((username: string, points: number, duration: number, title?: string) => {
     if (clipToastTimerRef.current) clearTimeout(clipToastTimerRef.current);
-    setClipToast({ user: username, points, duration, phase: 'entering' });
+    setClipToast({ user: username, points, duration, title, phase: 'entering' });
 
     clipToastTimerRef.current = setTimeout(() => {
       setClipToast(prev => prev ? { ...prev, phase: 'exiting' } : null);
@@ -2182,22 +2183,47 @@ function OverlayPage() {
               return;
             }
 
-            // Command: !clip / !clip <seconds> / !cliptheclip / !replay / !highlight
-            if (
-              lowerText === '!clip' ||
-              lowerText.startsWith('!clip ') ||
-              lowerText === '!cliptheclip' ||
-              lowerText.startsWith('!cliptheclip ') ||
-              lowerText === '!replay' ||
-              lowerText.startsWith('!replay ') ||
-              lowerText === '!highlight' ||
-              lowerText.startsWith('!highlight ')
-            ) {
+            // Command: !clip / !clip <title> / !clip <seconds> <title> / !clip30/45/60 <title> / !cliptheclip / !replay / !highlight
+            const clipCmdMatch = chatText.trim().match(/^!(clip\d*|cliptheclip|replay|highlight)(?:\s+([\s\S]*))?$/i);
+            if (clipCmdMatch) {
               const isEnabled = seSettingsRef.current.clipCommandEnabled !== false;
               if (!isEnabled) {
                 OverlayLogger.overlay('Twitch IRC !clip command ignored (clipCommandEnabled is disabled)');
                 return;
               }
+
+              const matchedCmd = clipCmdMatch[1].toLowerCase();
+              const rawArgs = clipCmdMatch[2] ? clipCmdMatch[2].trim() : '';
+
+              const defaultDuration = seSettingsRef.current.clipDefaultDuration ?? 60;
+              const minDuration = seSettingsRef.current.clipMinDuration ?? 10;
+              const maxDuration = seSettingsRef.current.clipMaxDuration ?? 60;
+
+              let requestedDuration = defaultDuration;
+              let clipTitle = '';
+
+              // Check if command itself has duration suffix (e.g. !clip30, !clip45, !clip60)
+              const numSuffixMatch = matchedCmd.match(/^clip(\d+)$/);
+              if (numSuffixMatch) {
+                requestedDuration = parseInt(numSuffixMatch[1], 10);
+                clipTitle = rawArgs;
+              } else if (rawArgs) {
+                // Check if arguments start with a number (e.g. !clip 45 bird stolen OR !clip 45 OR !clip bird stolen)
+                const argNumMatch = rawArgs.match(/^(\d+)(?:\s+([\s\S]*))?$/);
+                if (argNumMatch) {
+                  const parsedNum = parseInt(argNumMatch[1], 10);
+                  if (parsedNum >= 5 && parsedNum <= 120) {
+                    requestedDuration = parsedNum;
+                    clipTitle = argNumMatch[2] ? argNumMatch[2].trim() : '';
+                  } else {
+                    clipTitle = rawArgs;
+                  }
+                } else {
+                  clipTitle = rawArgs;
+                }
+              }
+
+              const clipDuration = Math.max(minDuration, Math.min(maxDuration, requestedDuration));
 
               const cooldownSec = seSettingsRef.current.clipCooldownSeconds ?? 180;
               const userClipKey = `clip_cmd_${(senderUser || 'anon').toLowerCase()}`;
@@ -2209,17 +2235,6 @@ function OverlayPage() {
                 return;
               }
               markCommandExecuted(userClipKey);
-
-              // Extract custom duration if provided (e.g. !clip 45 -> 45)
-              const secMatch = lowerText.match(/^!(?:clip|cliptheclip|replay|highlight)\s+(\d+)/);
-              const defaultDuration = seSettingsRef.current.clipDefaultDuration ?? 60;
-              const minDuration = seSettingsRef.current.clipMinDuration ?? 10;
-              const maxDuration = seSettingsRef.current.clipMaxDuration ?? 60;
-              let requestedDuration = secMatch && secMatch[1] ? parseInt(secMatch[1], 10) : defaultDuration;
-              if (isNaN(requestedDuration) || requestedDuration <= 0) {
-                requestedDuration = defaultDuration;
-              }
-              const clipDuration = Math.max(minDuration, Math.min(maxDuration, requestedDuration));
 
               const seToken = seSettingsRef.current.streamElementsToken;
               const webhookUrl = seSettingsRef.current.discordClipWebhookUrl || seSettingsRef.current.discordPicWebhookUrl;
@@ -2240,7 +2255,7 @@ function OverlayPage() {
                 return;
               }
 
-              OverlayLogger.overlay(`Twitch IRC !clip command triggered by @${senderDisplayName || senderUser} (Duration: ${clipDuration}s, Cost: ${clipCost} pts, Cooldown: ${cooldownSec}s)`);
+              OverlayLogger.overlay(`Twitch IRC !clip command triggered by @${senderDisplayName || senderUser} (Duration: ${clipDuration}s, Cost: ${clipCost} pts, Title: "${clipTitle}", Cooldown: ${cooldownSec}s)`);
 
               (async () => {
                 // Step 1: Verify & deduct StreamElements points (if points enabled)
@@ -2288,7 +2303,8 @@ function OverlayPage() {
                 // CLOUD MODE: Twitch Native Clip (0 PC Storage / Direct Cloud)
                 // ============================================================
                 if (clipMode === 'twitch') {
-                  sendChatReply(`🎬 @${senderDisplayName || senderUser}, creating stream clip... Hang tight! ⏳`, { color: 'primary' });
+                  const titleHint = clipTitle ? ` "${clipTitle}"` : '';
+                  sendChatReply(`🎬 @${senderDisplayName || senderUser}, creating stream clip${titleHint}... Hang tight! ⏳`, { color: 'primary' });
 
                   try {
                     const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
@@ -2303,6 +2319,8 @@ function OverlayPage() {
                         broadcasterId,
                         token,
                         clientId,
+                        title: clipTitle,
+                        duration: clipDuration,
                         username: senderUser,
                         displayName: senderDisplayName || senderUser,
                         pointsCost: clipCost,
@@ -2314,20 +2332,22 @@ function OverlayPage() {
 
                     if (clipData.success && clipData.clipUrl) {
                       const customMsg = seSettingsRef.current.clipCustomMessage;
+                      const titleDisplay = clipTitle ? ` "${clipTitle}"` : '';
                       const successMsg = customMsg
                         ? customMsg
                             .replace(/\{user\}/gi, senderDisplayName || senderUser)
                             .replace(/\{username\}/gi, senderDisplayName || senderUser)
                             .replace(/\{url\}/gi, clipData.clipUrl)
                             .replace(/\{link\}/gi, clipData.clipUrl)
+                            .replace(/\{title\}/gi, clipTitle || 'Stream Clip')
                             .replace(/\{duration\}/gi, String(clipDuration))
                             .replace(/\{points\}/gi, String(clipCost))
-                        : `🎬 @${senderDisplayName || senderUser} clipped the stream! ${clipData.clipUrl} 🎥`;
+                        : `🎬 @${senderDisplayName || senderUser} clipped the stream${titleDisplay}! ${clipData.clipUrl} 🎥`;
 
                       sendChatReply(successMsg, { color: 'green' });
 
                       if (seSettingsRef.current.clipShowOnOverlay !== false) {
-                        showClipToast(senderDisplayName || senderUser, clipCost, clipDuration);
+                        showClipToast(senderDisplayName || senderUser, clipCost, clipDuration, clipTitle);
                       }
                     } else {
                       clearCommandCooldown(userClipKey);
@@ -2358,8 +2378,8 @@ function OverlayPage() {
                 // ============================================================
                 // LOCAL MODE: OBS Studio Replay Buffer MP4
                 // ============================================================
-                sendChatReply(`🎬 @${senderDisplayName || senderUser}, clipping the last ${clipDuration}s of the stream via OBS... Hang tight! ⏳`, { color: 'primary' });
-
+                const titleHint = clipTitle ? ` "${clipTitle}"` : '';
+                sendChatReply(`🎬 @${senderDisplayName || senderUser}, clipping the last ${clipDuration}s of the stream${titleHint} via OBS... Hang tight! ⏳`, { color: 'primary' });
                 // Step 3: Trigger OBS Replay Buffer
                 let replayRes: { success: boolean; replayPath?: string; sceneName?: string; error?: string } = { success: false };
 
@@ -2417,6 +2437,7 @@ function OverlayPage() {
                     action: 'process_and_upload',
                     replayPath: replayRes.replayPath,
                     duration: clipDuration,
+                    title: clipTitle,
                     username: senderUser,
                     displayName: senderDisplayName || senderUser,
                     pointsCost: clipCost,
@@ -2467,19 +2488,21 @@ function OverlayPage() {
 
                   if (postData && postData.success) {
                     const customMsg = seSettingsRef.current.clipCustomMessage;
+                    const titleDisplay = clipTitle ? ` "${clipTitle}"` : '';
                     const successMsg = customMsg
                       ? customMsg
                           .replace(/\{user\}/gi, senderDisplayName || senderUser)
                           .replace(/\{username\}/gi, senderDisplayName || senderUser)
+                          .replace(/\{title\}/gi, clipTitle || 'Stream Clip')
                           .replace(/\{duration\}/gi, String(clipDuration))
                           .replace(/\{points\}/gi, String(clipCost))
-                      : `🎬 @${senderDisplayName || senderUser} clipped the last ${clipDuration}s! Check it out in the Discord clips channel! 🎥`;
+                      : `🎬 @${senderDisplayName || senderUser} clipped the last ${clipDuration}s${titleDisplay}! Check it out in the Discord clips channel! 🎥`;
 
                     sendChatReply(successMsg, { color: 'green' });
 
                     // Show on-screen notification toast if enabled
                     if (seSettingsRef.current.clipShowOnOverlay !== false) {
-                      showClipToast(senderDisplayName || senderUser, clipCost, clipDuration);
+                      showClipToast(senderDisplayName || senderUser, clipCost, clipDuration, clipTitle);
                     }
                   } else {
                     // Discord post / FFmpeg failed: refund points and clear cooldown!
@@ -5174,7 +5197,9 @@ function OverlayPage() {
                 </svg>
               </div>
               <div className="clip-toast-body">
-                <div className="clip-toast-title">🎬 STREAM CLIP CREATED ({clipToast.duration}s)!</div>
+                <div className="clip-toast-title">
+                  🎬 {clipToast.title ? `"${clipToast.title}" (${clipToast.duration}s)` : `STREAM CLIP CREATED (${clipToast.duration}s)!`}
+                </div>
                 <div className="clip-toast-desc">
                   {clipToast.points > 0 ? (
                     <>

@@ -334,7 +334,7 @@ export const DEFAULT_NOALBS_COMMANDS: CommandConfigItem[] = [
   { id: 'start', name: '!start', description: 'Start broadcasting stream in OBS', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: ['!startstream', '!golive'] },
   { id: 'stop', name: '!stop', description: 'Stop broadcasting stream in OBS', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: ['!end', '!stopstream'] },
   { id: 'rec', name: '!rec', description: 'Toggle video recording in OBS', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
-  { id: 'clip', name: '!clip', description: 'Clip the last N seconds of stream via OBS Replay Buffer and upload to Discord', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!cliptheclip', '!replay', '!highlight'] },
+  { id: 'clip', name: '!clip', description: 'Create Twitch clip or OBS replay with custom title/duration (e.g. !clip title, !clip 45 title, !clip60 title)', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!cliptheclip', '!replay', '!highlight', '!clip30', '!clip45', '!clip60'] },
   { id: 'pic', name: '!pic', description: 'Capture high-res stream screenshot and upload to Discord or show on overlay', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!screenshot', '!sshot', '!snap'] },
   { id: 'so', name: '!so', description: 'Shoutout a streamer with live profile card', defaultRole: 'Moderators', role: 'Moderators', enabled: true, aliases: ['!shoutout'] },
   { id: 'source', name: '!source', description: 'Report active video stream source details', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: [] },
