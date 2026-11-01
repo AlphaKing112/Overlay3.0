@@ -252,6 +252,12 @@ export interface OverlaySettings {
   obsBotLanguage?: string;
   obsReplyMode?: string;
   obsChatAlertsEnabled?: boolean;
+  obsSwitchOnlyWhileStreaming?: boolean;
+  obsInstantRecovery?: boolean;
+  obsChecksBeforeSwitching?: number;
+  obsStartingSceneOnGoLive?: boolean;
+  obsEndingSceneOnStreamStop?: boolean;
+  obsAutoStopStreamOnRaid?: boolean;
   kickChannelName?: string;
   kickAlertsEnabled?: boolean;
   twitchAlertsEnabled?: boolean;
@@ -549,6 +555,12 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsBotLanguage: 'English',
   obsReplyMode: 'Reply',
   obsChatAlertsEnabled: true,
+  obsSwitchOnlyWhileStreaming: true,
+  obsInstantRecovery: true,
+  obsChecksBeforeSwitching: 5,
+  obsStartingSceneOnGoLive: false,
+  obsEndingSceneOnStreamStop: false,
+  obsAutoStopStreamOnRaid: false,
   kickChannelName: '',
   kickAlertsEnabled: true,
   twitchAlertsEnabled: true,
@@ -792,6 +804,12 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsBotLanguage: 'string',
   obsReplyMode: 'string',
   obsChatAlertsEnabled: 'boolean',
+  obsSwitchOnlyWhileStreaming: 'boolean',
+  obsInstantRecovery: 'boolean',
+  obsChecksBeforeSwitching: 'number',
+  obsStartingSceneOnGoLive: 'boolean',
+  obsEndingSceneOnStreamStop: 'boolean',
+  obsAutoStopStreamOnRaid: 'boolean',
   kickChannelName: 'string',
   kickAlertsEnabled: 'boolean',
   twitchAlertsEnabled: 'boolean',

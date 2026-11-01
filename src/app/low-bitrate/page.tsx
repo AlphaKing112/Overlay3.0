@@ -14,7 +14,7 @@ function LowBitrateContent() {
   const initialMode = searchParams.get('mode') === 'overlay' ? 'overlay' : 'dashboard';
 
   const [mode, setMode] = useState<'dashboard' | 'overlay'>(initialMode);
-  const [activeTab, setActiveTab] = useState<'switcher' | 'chat_commands'>('switcher');
+  const [activeTab, setActiveTab] = useState<'switcher' | 'switching' | 'chat_commands'>('switcher');
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -558,6 +558,12 @@ function LowBitrateContent() {
         return;
       }
 
+      // NOALBS "Only while streaming" setting: Leave OBS alone when you aren't live
+      if (currentSettings.obsSwitchOnlyWhileStreaming && telemetry && telemetry.online && !telemetry.streaming) {
+        setAutoSwitchState('IDLE');
+        return;
+      }
+
       // If manual scene switch is active, hold on the selected scene and skip auto-switch
       if (Date.now() < manualOverrideUntilRef.current) {
         return;
@@ -574,8 +580,14 @@ function LowBitrateContent() {
       const rttLowTriggerEnabled = currentSettings.obsRttLowTriggerEnabled !== false;
       const rttBrbTriggerEnabled = currentSettings.obsRttOfflineTriggerEnabled !== false;
 
-      const delaySec = currentSettings.obsSwitchDelaySeconds ?? 3;
-      const offDelaySec = currentSettings.obsOfflineDelaySeconds ?? 3;
+      // NOALBS Checks before switching: Bad checks in a row before leaving LIVE (default 5, one check per second)
+      const checksBeforeSwitch = currentSettings.obsChecksBeforeSwitching ?? currentSettings.obsSwitchDelaySeconds ?? 5;
+      const delaySec = checksBeforeSwitch;
+      const offDelaySec = checksBeforeSwitch;
+
+      // NOALBS Instant Recovery: Go back to LIVE the moment the feed recovers (1 check) or wait delaySec
+      const isInstantRecovery = currentSettings.obsInstantRecovery !== false;
+      const liveRecoveryDelay = isInstantRecovery ? 1 : delaySec;
 
       const liveScene = currentSettings.obsLiveSceneName || 'live';
       const lowScene = currentSettings.obsLowSceneName || 'low';
@@ -629,7 +641,7 @@ function LowBitrateContent() {
         lowCountRef.current = 0;
         liveCountRef.current += 1;
 
-        if (liveCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LIVE') {
+        if (liveCountRef.current >= liveRecoveryDelay && autoSwitchStateRef.current !== 'LIVE') {
           setAutoSwitchState('LIVE');
           switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
         }
@@ -1278,8 +1290,8 @@ function LowBitrateContent() {
         </div>
       </header>
 
-      {/* Navigation Sub-Tabs: Switcher Studio vs Chat & Commands */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px' }}>
+      {/* Navigation Sub-Tabs: Switcher Studio vs Switching vs Chat & Commands */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap' }}>
         <button
           onClick={() => setActiveTab('switcher')}
           style={{
@@ -1298,6 +1310,26 @@ function LowBitrateContent() {
           }}
         >
           <span>⚡</span> Switcher Studio & Health Monitor
+        </button>
+
+        <button
+          onClick={() => setActiveTab('switching')}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '8px',
+            fontSize: '0.95rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            background: activeTab === 'switching' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+            color: activeTab === 'switching' ? '#4ade80' : 'rgba(255, 255, 255, 0.7)',
+            border: activeTab === 'switching' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>🔄</span> Switching
         </button>
 
         <button
@@ -1567,6 +1599,10 @@ function LowBitrateContent() {
                 </div>
               </section>
 
+            </div>
+
+            {/* COLUMN 2: OBS Studio WebSocket & Telemetry Diagnostics */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               {/* OBS WebSocket Card matching NOALBS UI */}
               {renderObsWebSocketCard()}
 
@@ -1952,32 +1988,45 @@ function LowBitrateContent() {
 
             </div>
 
-            {/* COLUMN 2: NOALBS Switching Engine & Scene Targets */}
+          </div>
+        </>
+      )}
+
+      {/* =====================================================================
+          TAB 2: SWITCHING (NOALBS SCENE SWITCHING DASHBOARD)
+          ===================================================================== */}
+      {activeTab === 'switching' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          
+          {/* Switching Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
+                Switching
+              </h2>
+              <p style={{ margin: 0, opacity: 0.7, fontSize: '0.88rem' }}>
+                When and how NOALBS switches scenes for {settings.twitchUsername ? `@${settings.twitchUsername}` : 'your stream'}.
+              </p>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : 'rgba(255,255,255,0.5)' }}>
+                Auto-Switch: {settings.obsAutoSwitchSceneToggle ? 'ACTIVE' : 'OFF'}
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.obsAutoSwitchSceneToggle ?? false}
+                onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
+                style={{ width: '18px', height: '18px', accentColor: '#22c55e' }}
+              />
+            </label>
+          </div>
+
+          {/* 2-Column NOALBS Switching Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '22px', alignItems: 'start' }}>
+            
+            {/* COLUMN 1: Triggers & Target Scenes */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
-              {/* Switching Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                <div>
-                  <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
-                    Switching
-                  </h2>
-                  <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
-                    When and how NOALBS switches scenes for {settings.twitchUsername ? `@${settings.twitchUsername}` : 'your stream'}.
-                  </p>
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : 'rgba(255,255,255,0.5)' }}>
-                    Auto-Switch: {settings.obsAutoSwitchSceneToggle ? 'ON' : 'OFF'}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={settings.obsAutoSwitchSceneToggle ?? false}
-                    onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
-                    style={{ width: '16px', height: '16px', accentColor: '#22c55e' }}
-                  />
-                </label>
-              </div>
-
               {/* CARD 1: Bitrate triggers */}
               <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>
@@ -2008,7 +2057,7 @@ function LowBitrateContent() {
                 </div>
 
                 {/* Sliders & Inputs: Switch to LOW / Switch to BRB */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px', marginBottom: '18px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '18px' }}>
                   {/* LOW Bitrate Slider & Input */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(250, 204, 21, 0.2)', borderRadius: '10px', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -2168,7 +2217,7 @@ function LowBitrateContent() {
                 </div>
 
                 {/* Sliders & Inputs: Switch to LOW at or above / Switch to BRB at or above */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px', marginBottom: '18px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '18px' }}>
                   {/* LOW RTT Slider & Input */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(250, 204, 21, 0.2)', borderRadius: '10px', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -2580,12 +2629,221 @@ function LowBitrateContent() {
 
             </div>
 
+            {/* COLUMN 2: Switching Settings & Start/End/Raids (Matching NOALBS Screenshots) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* CARD 1: Switching (Exact match to media_1793565718597_16d6a16a.png) */}
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>
+                  Switching
+                </h3>
+
+                {/* 1. Auto switch */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Auto switch
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Switch scenes automatically using the triggers.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsAutoSwitchSceneToggle ?? false}
+                      onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+
+                {/* 2. Only while streaming */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Only while streaming
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Leave OBS alone when you aren&apos;t live.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsSwitchOnlyWhileStreaming ?? true}
+                      onChange={(e) => saveSettingsUpdates({ obsSwitchOnlyWhileStreaming: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+
+                {/* 3. Instant recovery */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Instant recovery
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Go back to LIVE the moment the feed recovers.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsInstantRecovery ?? true}
+                      onChange={(e) => saveSettingsUpdates({ obsInstantRecovery: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+
+                {/* 4. Chat notification */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                      <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff' }}>
+                        Chat notification
+                      </span>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.25)', padding: '2px 7px', borderRadius: '12px' }}>
+                        Needs chat bot
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Post in chat when a scene switches automatically. Pick the channels on the Chat page.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsChatAlertsEnabled ?? true}
+                      onChange={(e) => saveSettingsUpdates({ obsChatAlertsEnabled: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+
+                {/* 5. Checks before switching */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Checks before switching
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Bad checks in a row before leaving LIVE; one check per second.
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={settings.obsChecksBeforeSwitching ?? 5}
+                    onChange={(e) => saveSettingsUpdates({ obsChecksBeforeSwitching: Number(e.target.value) || 5 })}
+                    style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
+                  />
+                </div>
+              </div>
+
+              {/* CARD 2: Start, end & raids (Exact match to media_1793565680806_64deaffe.jpg) */}
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>
+                  Start, end & raids
+                </h3>
+
+                {/* 1. Starting scene on go-live */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Starting scene on go-live
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Show the Starting scene when the stream starts.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsStartingSceneOnGoLive ?? false}
+                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneOnGoLive: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+
+                {/* 2. Ending scene on stream stop */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Ending scene on stream stop
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Switch to the Ending scene when the stream stops.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsEndingSceneOnStreamStop ?? false}
+                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+
+                {/* 3. Auto stop stream on raid */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Auto stop stream on raid
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Enable/disable stopping the stream on a raid.
+                    </div>
+                  </div>
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.obsAutoStopStreamOnRaid ?? false}
+                      onChange={(e) => saveSettingsUpdates({ obsAutoStopStreamOnRaid: e.target.checked })}
+                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* CARD 3: Engine Live Status */}
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 14px', color: '#fff' }}>
+                  Engine Live Status
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontSize: '0.74rem', opacity: 0.6, textTransform: 'uppercase' }}>Current State</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255,255,255,0.6)' }}>
+                      {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW BITRATE' : autoSwitchState === 'OFFLINE' ? '🔴 BRB / OFFLINE' : '⏸️ IDLE'}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontSize: '0.74rem', opacity: 0.6, textTransform: 'uppercase' }}>Ingest Bitrate</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: currentBitrate && currentBitrate > 0 ? '#38bdf8' : '#ef4444' }}>
+                      {currentBitrate !== null ? `${currentBitrate.toLocaleString()} kbps` : 'OFFLINE'}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: '6px' }}>
+                  <strong>Trigger Log:</strong> {lastSwitchLog || 'Normal stream ingest'}
+                </div>
+              </div>
+
+            </div>
+
           </div>
-        </>
+
+        </div>
       )}
 
       {/* =====================================================================
-          TAB 2: CHAT & COMMANDS (DIRECT INSPIRATION FROM USER SCREENSHOTS)
+          TAB 3: CHAT & COMMANDS (DIRECT INSPIRATION FROM USER SCREENSHOTS)
           ===================================================================== */}
       {activeTab === 'chat_commands' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
