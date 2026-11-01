@@ -230,7 +230,12 @@ export interface OverlaySettings {
   obsLowBitrateThreshold?: number;
   obsRecoveryBitrateThreshold?: number;
   obsOfflineBitrateThreshold?: number;
+  obsLowBitrateTriggerEnabled?: boolean;
+  obsOfflineBitrateTriggerEnabled?: boolean;
   obsRttThreshold?: number;
+  obsRttLowTriggerEnabled?: boolean;
+  obsRttOfflineThreshold?: number;
+  obsRttOfflineTriggerEnabled?: boolean;
   obsSwitchDelaySeconds?: number;
   obsRecoveryDelaySeconds?: number;
   obsOfflineDelaySeconds?: number;
@@ -519,9 +524,11 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsStartingSceneName: 'starting',
   obsEndingSceneName: 'ending',
   obsPrivacySceneName: 'privacy',
-  obsLowBitrateThreshold: 1300,
+  obsLowBitrateThreshold: 1100,
   obsRecoveryBitrateThreshold: 2000,
-  obsOfflineBitrateThreshold: 100,
+  obsOfflineBitrateThreshold: 400,
+  obsLowBitrateTriggerEnabled: true,
+  obsOfflineBitrateTriggerEnabled: true,
   obsSwitchDelaySeconds: 3,
   obsRecoveryDelaySeconds: 5,
   obsOfflineDelaySeconds: 5,
@@ -534,6 +541,9 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   noalbsServerType: 'auto',
   rttTriggerEnabled: true,
   obsRttThreshold: 2500,
+  obsRttLowTriggerEnabled: true,
+  obsRttOfflineThreshold: 3500,
+  obsRttOfflineTriggerEnabled: true,
   obsRttRecoveryThreshold: 1500,
   obsCommandPrefix: '!',
   obsBotLanguage: 'English',
@@ -760,7 +770,12 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsLowBitrateThreshold: 'number',
   obsRecoveryBitrateThreshold: 'number',
   obsOfflineBitrateThreshold: 'number',
+  obsLowBitrateTriggerEnabled: 'boolean',
+  obsOfflineBitrateTriggerEnabled: 'boolean',
   obsRttThreshold: 'number',
+  obsRttLowTriggerEnabled: 'boolean',
+  obsRttOfflineThreshold: 'number',
+  obsRttOfflineTriggerEnabled: 'boolean',
   obsSwitchDelaySeconds: 'number',
   obsRecoveryDelaySeconds: 'number',
   obsOfflineDelaySeconds: 'number',

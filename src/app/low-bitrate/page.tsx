@@ -30,9 +30,8 @@ function LowBitrateContent() {
   const [telemetry, setTelemetry] = useState<ObsTelemetryStats | null>(null);
   const [isSwitchingScene, setIsSwitchingScene] = useState<boolean>(false);
 
-  // Auto-switch State Machine
-  const [autoSwitchState, setAutoSwitchState] = useState<'LIVE' | 'LOW' | 'OFFLINE' | 'RECOVERING' | 'IDLE'>('IDLE');
-  const [recoveryCountdown, setRecoveryCountdown] = useState<number>(0);
+  // Auto-switch State Machine (NOALBS: LIVE | LOW | OFFLINE | IDLE)
+  const [autoSwitchState, setAutoSwitchState] = useState<'LIVE' | 'LOW' | 'OFFLINE' | 'IDLE'>('IDLE');
   const [lastSwitchLog, setLastSwitchLog] = useState<string>('Ready.');
 
   // NOALBS Terminal / Command Console State
@@ -196,11 +195,10 @@ function LowBitrateContent() {
   // Refs for tracking transitions and preventing re-trigger loops
   const settingsRef = useRef<OverlaySettings>(settings);
   const autoSwitchStateRef = useRef(autoSwitchState);
+  const liveCountRef = useRef<number>(0);
   const lowCountRef = useRef<number>(0);
-  const recoveryCountRef = useRef<number>(0);
   const offlineCountRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const terminalEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -432,10 +430,6 @@ function LowBitrateContent() {
     }
   };
 
-  // Scroll terminal to bottom
-  useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [commandLogs]);
 
   // 8. Stream Bitrate & RTT Poller + NOALBS Automatic Switcher Engine
   useEffect(() => {
@@ -479,69 +473,75 @@ function LowBitrateContent() {
         return;
       }
 
-      const lowThreshold = currentSettings.obsLowBitrateThreshold ?? 1300;
-      const recThreshold = currentSettings.obsRecoveryBitrateThreshold ?? 2000;
-      const offThreshold = currentSettings.obsOfflineBitrateThreshold ?? 100;
-      const rttThreshold = currentSettings.obsRttThreshold ?? 2500;
-      const rttRecThreshold = currentSettings.obsRttRecoveryThreshold ?? 1500;
-      const isRttHigh = (currentSettings.rttTriggerEnabled !== false) && rtt !== null && rtt > rttThreshold;
+      const lowThreshold = currentSettings.obsLowBitrateThreshold ?? 1100;
+      const offThreshold = currentSettings.obsOfflineBitrateThreshold ?? 400;
+      const rttLowThreshold = currentSettings.obsRttThreshold ?? 2500;
+      const rttBrbThreshold = currentSettings.obsRttOfflineThreshold ?? 3500;
+
+      const lowTriggerEnabled = currentSettings.obsLowBitrateTriggerEnabled !== false;
+      const offTriggerEnabled = currentSettings.obsOfflineBitrateTriggerEnabled !== false;
+      const rttTriggerEnabled = currentSettings.rttTriggerEnabled !== false;
+      const rttLowTriggerEnabled = currentSettings.obsRttLowTriggerEnabled !== false;
+      const rttBrbTriggerEnabled = currentSettings.obsRttOfflineTriggerEnabled !== false;
 
       const delaySec = currentSettings.obsSwitchDelaySeconds ?? 3;
-      const recDelaySec = currentSettings.obsRecoveryDelaySeconds ?? 5;
-      const offDelaySec = currentSettings.obsOfflineDelaySeconds ?? 5;
+      const offDelaySec = currentSettings.obsOfflineDelaySeconds ?? 3;
 
       const liveScene = currentSettings.obsLiveSceneName || 'live';
       const lowScene = currentSettings.obsLowSceneName || 'low';
       const offlineScene = currentSettings.obsOfflineSceneName || 'offline';
 
-      const isBitrateOffline = bitrate <= offThreshold;
-      const isBitrateLow = (bitrate > offThreshold && bitrate < lowThreshold) || isRttHigh;
-      const isBitrateHealthy = bitrate >= recThreshold && (!currentSettings.rttTriggerEnabled || rtt === null || rtt <= rttRecThreshold);
+      // NOALBS Direct State Evaluation:
+      // 1. BRB / OFFLINE (Bitrate <= BRB threshold or feed gone, or RTT >= BRB RTT threshold)
+      const isBrbByBitrate = offTriggerEnabled && (bitrate <= offThreshold);
+      const isBrbByRtt = rttTriggerEnabled && rttBrbTriggerEnabled && rtt !== null && rtt >= rttBrbThreshold;
+      const shouldBeOffline = bitrate === 0 || isBrbByBitrate || isBrbByRtt;
 
-      // A. Evaluate OFFLINE
-      if (isBitrateOffline) {
-        recoveryCountRef.current = 0;
+      // 2. LOW (Not offline, and Bitrate <= LOW threshold or RTT >= LOW RTT threshold)
+      const isLowByBitrate = lowTriggerEnabled && (bitrate <= lowThreshold);
+      const isLowByRtt = rttTriggerEnabled && rttLowTriggerEnabled && rtt !== null && rtt >= rttLowThreshold;
+      const shouldBeLow = !shouldBeOffline && (isLowByBitrate || isLowByRtt);
+
+      // 3. LIVE (Bitrate above LOW threshold, RTT below limit)
+      const shouldBeLive = !shouldBeOffline && !shouldBeLow;
+
+      // A. Evaluate OFFLINE / BRB
+      if (shouldBeOffline) {
         lowCountRef.current = 0;
+        liveCountRef.current = 0;
         offlineCountRef.current += 1;
 
         if (offlineCountRef.current >= offDelaySec && autoSwitchStateRef.current !== 'OFFLINE') {
           setAutoSwitchState('OFFLINE');
-          switchScene(offlineScene, `Bitrate dropped to ${bitrate} kbps`);
+          const reason = isBrbByRtt
+            ? `Critical latency spike (RTT: ${rtt}ms >= ${rttBrbThreshold}ms)`
+            : `Bitrate dropped to ${bitrate} kbps (<= ${offThreshold} kbps)`;
+          switchScene(offlineScene, reason);
         }
       }
-      // B. Evaluate LOW BITRATE (Bitrate drop OR High RTT latency)
-      else if (isBitrateLow) {
+      // B. Evaluate LOW BITRATE
+      else if (shouldBeLow) {
         offlineCountRef.current = 0;
-        recoveryCountRef.current = 0;
+        liveCountRef.current = 0;
         lowCountRef.current += 1;
 
-        if (lowCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LOW' && autoSwitchStateRef.current !== 'OFFLINE') {
+        if (lowCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LOW') {
           setAutoSwitchState('LOW');
-          const reason = isRttHigh
-            ? `High latency detected (RTT: ${rtt}ms > ${rttThreshold}ms)`
-            : `Bitrate dropped to ${bitrate} kbps (< ${lowThreshold}k)`;
+          const reason = isLowByRtt
+            ? `High latency detected (RTT: ${rtt}ms >= ${rttLowThreshold}ms)`
+            : `Bitrate dropped to ${bitrate} kbps (<= ${lowThreshold} kbps)`;
           switchScene(lowScene, reason);
         }
       }
-      // C. Evaluate RECOVERY
-      else if (isBitrateHealthy) {
+      // C. Evaluate LIVE (Stream Healthy)
+      else if (shouldBeLive) {
         offlineCountRef.current = 0;
         lowCountRef.current = 0;
+        liveCountRef.current += 1;
 
-        if (autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || autoSwitchStateRef.current === 'RECOVERING') {
-          recoveryCountRef.current += 1;
-          const remaining = Math.max(0, recDelaySec - recoveryCountRef.current);
-          setRecoveryCountdown(remaining);
-          setAutoSwitchState('RECOVERING');
-
-          if (recoveryCountRef.current >= recDelaySec) {
-            setAutoSwitchState('LIVE');
-            recoveryCountRef.current = 0;
-            setRecoveryCountdown(0);
-            switchScene(liveScene, `Bitrate & RTT recovered (Rate: ${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
-          }
-        } else {
+        if (liveCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LIVE') {
           setAutoSwitchState('LIVE');
+          switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
         }
       }
     };
@@ -568,27 +568,27 @@ function LowBitrateContent() {
 
     if (bitrateHistory.length < 2) return;
 
-    const maxBitrate = Math.max(6000, ...bitrateHistory, settings.obsRecoveryBitrateThreshold || 2500);
-    const lowThresh = settings.obsLowBitrateThreshold || 1300;
-    const recThresh = settings.obsRecoveryBitrateThreshold || 2000;
+    const maxBitrate = Math.max(6000, ...bitrateHistory, settings.obsLowBitrateThreshold || 2500);
+    const lowThresh = settings.obsLowBitrateThreshold || 1100;
+    const brbThresh = settings.obsOfflineBitrateThreshold || 400;
 
     const getY = (val: number) => height - (val / maxBitrate) * (height - 24) - 12;
 
-    // Threshold lines
+    // Threshold lines: Low Bitrate (Yellow) and BRB (Red)
     const lowY = getY(lowThresh);
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(249, 115, 22, 0.4)';
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.5)';
     ctx.setLineDash([4, 4]);
     ctx.moveTo(0, lowY);
     ctx.lineTo(width, lowY);
     ctx.stroke();
 
-    const recY = getY(recThresh);
+    const brbY = getY(brbThresh);
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(34, 197, 94, 0.4)';
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
     ctx.setLineDash([4, 4]);
-    ctx.moveTo(0, recY);
-    ctx.lineTo(width, recY);
+    ctx.moveTo(0, brbY);
+    ctx.lineTo(width, brbY);
     ctx.stroke();
     ctx.setLineDash([]);
 
@@ -635,7 +635,7 @@ function LowBitrateContent() {
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#38bdf8';
     ctx.stroke();
-  }, [bitrateHistory, settings.obsLowBitrateThreshold, settings.obsRecoveryBitrateThreshold]);
+  }, [bitrateHistory, settings.obsLowBitrateThreshold, settings.obsOfflineBitrateThreshold]);
 
   // Copy OBS Browser Source link helper
   const copyObsLink = () => {
@@ -1048,10 +1048,10 @@ function LowBitrateContent() {
                 }}
               >
                 <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Auto-Recovery
+                  Auto-Switch Status
                 </div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: autoSwitchState === 'RECOVERING' ? '#4ade80' : '#38bdf8' }}>
-                  {autoSwitchState === 'RECOVERING' ? `Returning (${recoveryCountdown}s)...` : 'Monitoring...'}
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : '#ef4444' }}>
+                  {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW BITRATE' : autoSwitchState === 'OFFLINE' ? '🔴 BRB / OFFLINE' : 'MONITORING'}
                 </div>
               </div>
             </div>
@@ -1061,9 +1061,9 @@ function LowBitrateContent() {
             <div
               style={{
                 height: '100%',
-                width: autoSwitchState === 'RECOVERING' ? `${(((settings.obsRecoveryDelaySeconds || 5) - recoveryCountdown) / (settings.obsRecoveryDelaySeconds || 5)) * 100}%` : '40%',
-                background: 'linear-gradient(90deg, #38bdf8, #f59e0b)',
-                transition: 'width 0.4s ease',
+                width: autoSwitchState === 'LIVE' ? '100%' : autoSwitchState === 'LOW' ? '50%' : '15%',
+                background: autoSwitchState === 'LIVE' ? '#22c55e' : autoSwitchState === 'LOW' ? '#eab308' : '#ef4444',
+                transition: 'all 0.4s ease',
               }}
             />
           </div>
@@ -1240,7 +1240,7 @@ function LowBitrateContent() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
               gap: '12px',
               marginBottom: '24px',
             }}
@@ -1257,6 +1257,20 @@ function LowBitrateContent() {
               <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px' }}>{settings.obsWebsocketUrl || 'ws://127.0.0.1:4455'}</div>
             </div>
 
+            {/* Twitch Account Connection */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
+              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>Twitch Account</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: (settings.twitchToken || settings.twitchUsername) ? '#22c55e' : 'rgba(255,255,255,0.3)' }} />
+                <strong style={{ fontSize: '1.05rem', color: (settings.twitchToken || settings.twitchUsername) ? '#c084fc' : '#94a3b8' }}>
+                  {(settings.twitchToken || settings.twitchUsername) ? `@${settings.twitchUsername || 'Connected'}` : 'DISCONNECTED'}
+                </strong>
+              </div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px' }}>
+                {(settings.twitchToken || settings.twitchUsername) ? 'Twitch Connected • Chat Ready' : 'Connect account in Settings'}
+              </div>
+            </div>
+
             {/* Current Active Scene */}
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
               <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>Program Scene</div>
@@ -1269,10 +1283,10 @@ function LowBitrateContent() {
             {/* Ingest Bitrate & RTT */}
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
               <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>Ingest Bitrate & RTT</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: currentBitrate && currentBitrate >= (settings.obsRecoveryBitrateThreshold || 2000) ? '#4ade80' : currentBitrate && currentBitrate >= (settings.obsLowBitrateThreshold || 1300) ? '#f59e0b' : '#ef4444', marginTop: '4px' }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: currentBitrate && currentBitrate > (settings.obsLowBitrateThreshold || 1100) ? '#4ade80' : currentBitrate && currentBitrate > (settings.obsOfflineBitrateThreshold || 400) ? '#f59e0b' : '#ef4444', marginTop: '4px' }}>
                 {currentBitrate !== null ? `${currentBitrate.toLocaleString()} kbps` : 'OFFLINE'}
               </div>
-              <div style={{ fontSize: '0.75rem', color: currentRtt !== null && currentRtt > (settings.obsRttThreshold ?? 2500) ? '#f87171' : '#38bdf8', marginTop: '2px', fontWeight: 600 }}>
+              <div style={{ fontSize: '0.75rem', color: currentRtt !== null && currentRtt >= (settings.obsRttThreshold ?? 2500) ? '#f87171' : '#38bdf8', marginTop: '2px', fontWeight: 600 }}>
                 {currentRtt !== null ? `RTT: ${currentRtt} ms (Trigger: ${settings.obsRttThreshold ?? 2500}ms)` : 'Belabox / SRT Ingest'}
               </div>
             </div>
@@ -1287,11 +1301,11 @@ function LowBitrateContent() {
                     borderRadius: '6px',
                     fontSize: '0.85rem',
                     fontWeight: 700,
-                    background: autoSwitchState === 'LIVE' ? 'rgba(34, 197, 94, 0.2)' : autoSwitchState === 'LOW' ? 'rgba(245, 158, 11, 0.2)' : autoSwitchState === 'RECOVERING' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                    color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'RECOVERING' ? '#38bdf8' : '#f87171',
+                    background: autoSwitchState === 'LIVE' ? 'rgba(34, 197, 94, 0.2)' : autoSwitchState === 'LOW' ? 'rgba(245, 158, 11, 0.2)' : autoSwitchState === 'OFFLINE' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                    color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255, 255, 255, 0.6)',
                   }}
                 >
-                  {autoSwitchState === 'RECOVERING' ? `RECOVERING (${recoveryCountdown}s)` : autoSwitchState}
+                  {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW' : autoSwitchState === 'OFFLINE' ? '🔴 BRB' : 'IDLE'}
                 </span>
               </div>
               <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px' }}>
@@ -1478,8 +1492,9 @@ function LowBitrateContent() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem' }}>
-                    <span style={{ color: '#4ade80' }}>-- Recovery ({settings.obsRecoveryBitrateThreshold ?? 2000}k)</span>
-                    <span style={{ color: '#f59e0b' }}>-- Low ({settings.obsLowBitrateThreshold ?? 1300}k)</span>
+                    <span style={{ color: '#4ade80' }}>-- Live (&gt;{settings.obsLowBitrateThreshold ?? 1100}k)</span>
+                    <span style={{ color: '#facc15' }}>-- Low (&le;{settings.obsLowBitrateThreshold ?? 1100}k)</span>
+                    <span style={{ color: '#ef4444' }}>-- BRB (&le;{settings.obsOfflineBitrateThreshold ?? 400}k)</span>
                   </div>
                 </div>
 
@@ -1519,300 +1534,476 @@ function LowBitrateContent() {
 
             </div>
 
-            {/* COLUMN 2: Auto-Switch Configuration with RTT Trigger */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* COLUMN 2: NOALBS Switching Engine & Scene Targets */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
-              <section className="settings-section" style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <div>
-                    <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#fff' }}>
-                      🤖 Auto-Switch & RTT Triggers
-                    </h2>
-                    <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                      Bitrate thresholds, RTT latency limits, and scene mappings
-                    </span>
-                  </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsAutoSwitchSceneToggle ?? false}
-                      onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
-                      style={{ width: '18px', height: '18px', accentColor: '#22c55e' }}
-                    />
-                    <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : '#f87171' }}>
-                      {settings.obsAutoSwitchSceneToggle ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </label>
+              {/* Switching Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
+                    Switching
+                  </h2>
+                  <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
+                    When and how NOALBS switches scenes for {settings.twitchUsername ? `@${settings.twitchUsername}` : 'your stream'}.
+                  </p>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : 'rgba(255,255,255,0.5)' }}>
+                    Auto-Switch: {settings.obsAutoSwitchSceneToggle ? 'ON' : 'OFF'}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.obsAutoSwitchSceneToggle ?? false}
+                    onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: '#22c55e' }}
+                  />
+                </label>
+              </div>
+
+              {/* CARD 1: Bitrate triggers */}
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>
+                  Bitrate triggers
+                </h3>
+                <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.82rem', lineHeight: 1.45 }}>
+                  Measured on the highest-priority server that is receiving video. Set LOW where your picture starts to fall apart (the default 800 kbps suits most streams); with BRB off, NOALBS goes to BRB only when the feed is gone.
+                </p>
+
+                {/* Progress / Range Visual Bar */}
+                {(() => {
+                  const offThresh = settings.obsOfflineBitrateThreshold ?? 400;
+                  const lowThresh = settings.obsLowBitrateThreshold ?? 1100;
+                  const redPct = Math.min(100, (offThresh / 8000) * 100);
+                  const yelPct = Math.min(100, (lowThresh / 8000) * 100);
+                  return (
+                    <div style={{ position: 'relative', height: '14px', borderRadius: '7px', background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${redPct}%, #eab308 ${redPct}%, #eab308 ${yelPct}%, #22c55e ${yelPct}%, #22c55e 100%)`, marginBottom: '6px' }} />
+                  );
+                })()}
+
+                {/* Bar Ticks */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginBottom: '18px', padding: '0 2px' }}>
+                  <span>0</span>
+                  <span>2,000</span>
+                  <span>4,000</span>
+                  <span>6,000</span>
+                  <span>8,000+ kbps</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {/* Low Bitrate Threshold */}
+                {/* Inputs: Switch to LOW / Switch to BRB */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '18px' }}>
+                  {/* LOW Bitrate Input */}
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
-                      <span>Low Bitrate Trigger:</span>
-                      <strong style={{ color: '#fbbf24' }}>{settings.obsLowBitrateThreshold ?? 1300} kbps</strong>
-                    </div>
-                    <input
-                      type="range"
-                      min={300}
-                      max={4000}
-                      step={50}
-                      value={settings.obsLowBitrateThreshold ?? 1300}
-                      onChange={(e) => saveSettingsUpdates({ obsLowBitrateThreshold: parseInt(e.target.value, 10) })}
-                      style={{ width: '100%', accentColor: '#f59e0b' }}
-                    />
-                    <span style={{ fontSize: '0.72rem', opacity: 0.6 }}>Bitrate below which OBS cuts to Low Bitrate scene.</span>
-                  </div>
-
-                  {/* Recovery Threshold */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
-                      <span>Recovery Bitrate Trigger:</span>
-                      <strong style={{ color: '#4ade80' }}>{settings.obsRecoveryBitrateThreshold ?? 2000} kbps</strong>
-                    </div>
-                    <input
-                      type="range"
-                      min={600}
-                      max={6000}
-                      step={50}
-                      value={settings.obsRecoveryBitrateThreshold ?? 2000}
-                      onChange={(e) => saveSettingsUpdates({ obsRecoveryBitrateThreshold: parseInt(e.target.value, 10) })}
-                      style={{ width: '100%', accentColor: '#22c55e' }}
-                    />
-                    <span style={{ fontSize: '0.72rem', opacity: 0.6 }}>Bitrate required to recover and return to Live scene.</span>
-                  </div>
-
-                  {/* RTT LATENCY TRIGGER SECTION */}
-                  <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '12px 14px', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontSize: '1rem' }}>⏱️</span>
-                        <strong style={{ fontSize: '0.88rem', color: '#38bdf8' }}>RTT Latency Trigger (NOALBS)</strong>
-                      </div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#facc15', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', display: 'inline-block' }} />
+                        Switch to LOW at or below
+                      </span>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
                         <input
                           type="checkbox"
-                          checked={settings.rttTriggerEnabled ?? true}
-                          onChange={(e) => saveSettingsUpdates({ rttTriggerEnabled: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#38bdf8' }}
+                          checked={settings.obsLowBitrateTriggerEnabled ?? true}
+                          onChange={(e) => saveSettingsUpdates({ obsLowBitrateTriggerEnabled: e.target.checked })}
+                          style={{ width: '16px', height: '16px', accentColor: '#eab308' }}
                         />
-                        <span style={{ color: (settings.rttTriggerEnabled ?? true) ? '#38bdf8' : 'rgba(255,255,255,0.4)' }}>
-                          {(settings.rttTriggerEnabled ?? true) ? 'Active' : 'Off'}
-                        </span>
                       </label>
                     </div>
-
-                    <div style={{ marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '4px' }}>
-                        <span>Low Scene RTT Trigger:</span>
-                        <strong style={{ color: '#f59e0b' }}>{settings.obsRttThreshold ?? 2500} ms</strong>
-                      </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
-                        type="range"
-                        min={500}
-                        max={5000}
-                        step={100}
+                        type="number"
+                        value={settings.obsLowBitrateThreshold ?? 1100}
+                        onChange={(e) => saveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
+                        style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
+                      />
+                      <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>kbps</span>
+                    </div>
+                  </div>
+
+                  {/* BRB Bitrate Input */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                        Switch to BRB at or below
+                      </span>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.obsOfflineBitrateTriggerEnabled ?? true}
+                          onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateTriggerEnabled: e.target.checked })}
+                          style={{ width: '16px', height: '16px', accentColor: '#ef4444' }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="number"
+                        value={settings.obsOfflineBitrateThreshold ?? 400}
+                        onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
+                        style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
+                      />
+                      <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>kbps</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3 Status Summary Boxes */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {/* LIVE */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#4ade80', marginBottom: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                      LIVE
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+                      above {(settings.obsLowBitrateThreshold ?? 1100).toLocaleString()} kbps
+                    </div>
+                  </div>
+
+                  {/* LOW */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(234, 179, 8, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#facc15', marginBottom: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+                      LOW
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+                      {((settings.obsOfflineBitrateThreshold ?? 400) + 1).toLocaleString()} kbps to {(settings.obsLowBitrateThreshold ?? 1100).toLocaleString()} kbps
+                    </div>
+                  </div>
+
+                  {/* BRB */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#f87171', marginBottom: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                      BRB
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+                      {(settings.obsOfflineBitrateThreshold ?? 400).toLocaleString()} kbps or less, or no feed
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD 2: Latency (RTT) triggers */}
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>
+                    Latency (RTT) triggers
+                  </h3>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.8rem', color: (settings.rttTriggerEnabled ?? true) ? '#38bdf8' : 'rgba(255,255,255,0.4)' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.rttTriggerEnabled ?? true}
+                      onChange={(e) => saveSettingsUpdates({ rttTriggerEnabled: e.target.checked })}
+                      style={{ width: '16px', height: '16px', accentColor: '#38bdf8' }}
+                    />
+                    <span>{(settings.rttTriggerEnabled ?? true) ? 'Active' : 'Off'}</span>
+                  </label>
+                </div>
+                <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.82rem' }}>
+                  Catch a struggling uplink before the bitrate drops. Only SRT servers report RTT.
+                </p>
+
+                {/* Progress / Range Visual Bar */}
+                {(() => {
+                  const rttLow = settings.obsRttThreshold ?? 2500;
+                  const rttBrb = settings.obsRttOfflineThreshold ?? 3500;
+                  const grnPct = Math.min(100, (rttLow / 5000) * 100);
+                  const yelPct = Math.min(100, (rttBrb / 5000) * 100);
+                  return (
+                    <div style={{ position: 'relative', height: '14px', borderRadius: '7px', background: `linear-gradient(to right, #22c55e 0%, #22c55e ${grnPct}%, #eab308 ${grnPct}%, #eab308 ${yelPct}%, #ef4444 ${yelPct}%, #ef4444 100%)`, marginBottom: '6px' }} />
+                  );
+                })()}
+
+                {/* Bar Ticks */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginBottom: '18px', padding: '0 2px' }}>
+                  <span>0</span>
+                  <span>1,250</span>
+                  <span>2,500</span>
+                  <span>3,750</span>
+                  <span>5,000+ ms</span>
+                </div>
+
+                {/* Inputs: Switch to LOW at or above / Switch to BRB at or above */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  {/* LOW RTT */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#facc15', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', display: 'inline-block' }} />
+                        Switch to LOW at or above
+                      </span>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.obsRttLowTriggerEnabled ?? true}
+                          onChange={(e) => saveSettingsUpdates({ obsRttLowTriggerEnabled: e.target.checked })}
+                          style={{ width: '16px', height: '16px', accentColor: '#eab308' }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="number"
                         value={settings.obsRttThreshold ?? 2500}
-                        onChange={(e) => saveSettingsUpdates({ obsRttThreshold: parseInt(e.target.value, 10) })}
-                        style={{ width: '100%', accentColor: '#38bdf8' }}
+                        onChange={(e) => saveSettingsUpdates({ obsRttThreshold: Number(e.target.value) || 0 })}
+                        style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
                       />
-                      <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>Switches to Low Bitrate scene if latency spikes above this limit.</span>
+                      <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>ms</span>
                     </div>
+                  </div>
 
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '4px' }}>
-                        <span>Recovery RTT Threshold:</span>
-                        <strong style={{ color: '#4ade80' }}>{settings.obsRttRecoveryThreshold ?? 1500} ms</strong>
-                      </div>
+                  {/* BRB RTT */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                        Switch to BRB at or above
+                      </span>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.obsRttOfflineTriggerEnabled ?? true}
+                          onChange={(e) => saveSettingsUpdates({ obsRttOfflineTriggerEnabled: e.target.checked })}
+                          style={{ width: '16px', height: '16px', accentColor: '#ef4444' }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
-                        type="range"
-                        min={300}
-                        max={3000}
-                        step={100}
-                        value={settings.obsRttRecoveryThreshold ?? 1500}
-                        onChange={(e) => saveSettingsUpdates({ obsRttRecoveryThreshold: parseInt(e.target.value, 10) })}
-                        style={{ width: '100%', accentColor: '#22c55e' }}
+                        type="number"
+                        value={settings.obsRttOfflineThreshold ?? 3500}
+                        onChange={(e) => saveSettingsUpdates({ obsRttOfflineThreshold: Number(e.target.value) || 0 })}
+                        style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
                       />
-                      <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>Latency must drop below this threshold before returning Live.</span>
+                      <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>ms</span>
                     </div>
                   </div>
+                </div>
+              </div>
 
-                  {/* Delays Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div>
-                      <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '4px' }}>
-                        Low Switch Delay:
-                      </label>
-                      <select
-                        className="form-control"
-                        value={settings.obsSwitchDelaySeconds ?? 3}
-                        onChange={(e) => saveSettingsUpdates({ obsSwitchDelaySeconds: parseInt(e.target.value, 10) })}
-                        style={{ width: '100%', padding: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }}
-                      >
-                        <option value={1} style={{ background: '#1e293b' }}>1 Second (Instant)</option>
-                        <option value={2} style={{ background: '#1e293b' }}>2 Seconds</option>
-                        <option value={3} style={{ background: '#1e293b' }}>3 Seconds (Recommended)</option>
-                        <option value={5} style={{ background: '#1e293b' }}>5 Seconds</option>
-                      </select>
-                    </div>
+              {/* CARD 3: Target Scene Names Dropdowns (All scenes detected) */}
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>
+                      Target Scene Names
+                    </h3>
+                    <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                      Choose from all scenes detected in OBS for each automatic trigger
+                    </span>
+                  </div>
+                  {availableScenes.length > 0 && (
+                    <span style={{ fontSize: '0.75rem', color: '#4ade80', background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.3)', padding: '3px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                      ✓ {availableScenes.length} OBS scenes detected
+                    </span>
+                  )}
+                </div>
 
-                    <div>
-                      <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '4px' }}>
-                        Recovery Delay:
-                      </label>
-                      <select
-                        className="form-control"
-                        value={settings.obsRecoveryDelaySeconds ?? 5}
-                        onChange={(e) => saveSettingsUpdates({ obsRecoveryDelaySeconds: parseInt(e.target.value, 10) })}
-                        style={{ width: '100%', padding: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }}
-                      >
-                        <option value={3} style={{ background: '#1e293b' }}>3 Seconds</option>
-                        <option value={5} style={{ background: '#1e293b' }}>5 Seconds (Standard)</option>
-                        <option value={8} style={{ background: '#1e293b' }}>8 Seconds</option>
-                        <option value={10} style={{ background: '#1e293b' }}>10 Seconds (Safe)</option>
-                      </select>
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+                  {/* LIVE SCENE */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#4ade80', marginBottom: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                      Live Scene:
+                    </label>
+                    <select
+                      value={settings.obsLiveSceneName || 'live'}
+                      onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
+                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsLiveSceneName || 'live').toLowerCase()) && (
+                            <option value={settings.obsLiveSceneName || 'live'}>{settings.obsLiveSceneName || 'live'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                              {sc}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsLiveSceneName || 'live'}>{settings.obsLiveSceneName || 'live'} (Connect OBS to detect scenes)</option>
+                      )}
+                    </select>
                   </div>
 
-                  {/* Scene Names Configuration */}
-                  <div style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px' }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 'bold', marginBottom: '8px', color: '#38bdf8' }}>
-                      Target Scene Names in OBS:
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <div>
-                        <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Live Scene:</label>
-                        <input
-                          type="text"
-                          list="obs-available-scenes"
-                          className="form-control"
-                          value={settings.obsLiveSceneName ?? 'live'}
-                          onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
-                          placeholder="live"
-                          style={{ width: '100%', padding: '6px 8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }}
-                        />
-                      </div>
-
-                      <div>
-                        <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Low Scene:</label>
-                        <input
-                          type="text"
-                          list="obs-available-scenes"
-                          className="form-control"
-                          value={settings.obsLowSceneName ?? 'low'}
-                          onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
-                          placeholder="low"
-                          style={{ width: '100%', padding: '6px 8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }}
-                        />
-                      </div>
-
-                      <div>
-                        <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Offline Scene:</label>
-                        <input
-                          type="text"
-                          list="obs-available-scenes"
-                          className="form-control"
-                          value={settings.obsOfflineSceneName ?? 'offline'}
-                          onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
-                          placeholder="offline"
-                          style={{ width: '100%', padding: '6px 8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }}
-                        />
-                      </div>
-
-                      <div>
-                        <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Refresh Scene:</label>
-                        <input
-                          type="text"
-                          list="obs-available-scenes"
-                          className="form-control"
-                          value={settings.obsRefreshSceneName ?? 'refresh'}
-                          onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
-                          placeholder="refresh"
-                          style={{ width: '100%', padding: '6px 8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Datalist for autocomplete with actual OBS scenes */}
-                    <datalist id="obs-available-scenes">
-                      {availableScenes.map(sc => (
-                        <option key={sc} value={sc} />
-                      ))}
-                    </datalist>
+                  {/* LOW SCENE */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#facc15', marginBottom: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+                      Low Scene:
+                    </label>
+                    <select
+                      value={settings.obsLowSceneName || 'low'}
+                      onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
+                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsLowSceneName || 'low').toLowerCase()) && (
+                            <option value={settings.obsLowSceneName || 'low'}>{settings.obsLowSceneName || 'low'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                              {sc}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsLowSceneName || 'low'}>{settings.obsLowSceneName || 'low'} (Connect OBS to detect scenes)</option>
+                      )}
+                    </select>
                   </div>
 
-                </div>
-              </section>
+                  {/* BRB / OFFLINE SCENE */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#f87171', marginBottom: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                      BRB / Offline Scene:
+                    </label>
+                    <select
+                      value={settings.obsOfflineSceneName || 'offline'}
+                      onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
+                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsOfflineSceneName || 'offline').toLowerCase()) && (
+                            <option value={settings.obsOfflineSceneName || 'offline'}>{settings.obsOfflineSceneName || 'offline'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                              {sc}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsOfflineSceneName || 'offline'}>{settings.obsOfflineSceneName || 'offline'} (Connect OBS to detect scenes)</option>
+                      )}
+                    </select>
+                  </div>
 
-              {/* Quick CLI Box */}
-              <section className="settings-section" style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#fff' }}>
-                    💻 Quick Command Terminal
-                  </h2>
-                  <span style={{ fontSize: '0.75rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                    CLI Ready
-                  </span>
+                  {/* REFRESH SCENE */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8', marginBottom: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }} />
+                      Refresh Scene:
+                    </label>
+                    <select
+                      value={settings.obsRefreshSceneName || 'refresh'}
+                      onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
+                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsRefreshSceneName || 'refresh').toLowerCase()) && (
+                            <option value={settings.obsRefreshSceneName || 'refresh'}>{settings.obsRefreshSceneName || 'refresh'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                              {sc}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsRefreshSceneName || 'refresh'}>{settings.obsRefreshSceneName || 'refresh'} (Connect OBS to detect scenes)</option>
+                      )}
+                    </select>
+                  </div>
                 </div>
 
-                <div
-                  style={{
-                    height: '140px',
-                    background: '#090d16',
-                    border: '1px solid rgba(56, 189, 248, 0.25)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    overflowY: 'auto',
-                    fontFamily: 'monospace',
-                    fontSize: '0.8rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                  }}
-                >
-                  {commandLogs.map(log => (
-                    <div key={log.id} style={{ display: 'flex', gap: '8px', color: log.type === 'cmd' ? '#38bdf8' : log.type === 'err' ? '#f87171' : '#4ade80' }}>
-                      <span style={{ opacity: 0.5 }}>[{log.time}]</span>
-                      <span style={{ wordBreak: 'break-all' }}>{log.text}</span>
-                    </div>
-                  ))}
-                  <div ref={terminalEndRef} />
-                </div>
+                {/* Switch Delay & Secondary scenes */}
+                <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                      Switch Delay:
+                    </label>
+                    <select
+                      value={settings.obsSwitchDelaySeconds ?? 3}
+                      onChange={(e) => saveSettingsUpdates({ obsSwitchDelaySeconds: Number(e.target.value) || 3 })}
+                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                    >
+                      <option value={1} style={{ background: '#1e293b' }}>1 Second (Instant)</option>
+                      <option value={2} style={{ background: '#1e293b' }}>2 Seconds</option>
+                      <option value={3} style={{ background: '#1e293b' }}>3 Seconds (Recommended)</option>
+                      <option value={5} style={{ background: '#1e293b' }}>5 Seconds</option>
+                    </select>
+                  </div>
 
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    runCommand(commandInput);
-                  }}
-                  style={{ display: 'flex', gap: '8px', marginTop: '10px' }}
-                >
-                  <input
-                    type="text"
-                    value={commandInput}
-                    onChange={(e) => setCommandInput(e.target.value)}
-                    placeholder="Run command (e.g. !bitrate, !rtrigger 2000, !switch live)..."
-                    disabled={isExecutingCommand}
-                    style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      borderRadius: '6px',
-                      color: '#fff',
-                      fontFamily: 'monospace',
-                      fontSize: '0.85rem',
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isExecutingCommand || !commandInput.trim()}
-                    className="btn btn-primary"
-                    style={{ padding: '8px 16px', fontWeight: 'bold' }}
-                  >
-                    Run
-                  </button>
-                </form>
-              </section>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                      Starting Scene:
+                    </label>
+                    <select
+                      value={settings.obsStartingSceneName || 'starting'}
+                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsStartingSceneName || 'starting').toLowerCase()) && (
+                            <option value={settings.obsStartingSceneName || 'starting'}>{settings.obsStartingSceneName || 'starting'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsStartingSceneName || 'starting'}>{settings.obsStartingSceneName || 'starting'}</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                      Ending Scene:
+                    </label>
+                    <select
+                      value={settings.obsEndingSceneName || 'ending'}
+                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsEndingSceneName || 'ending').toLowerCase()) && (
+                            <option value={settings.obsEndingSceneName || 'ending'}>{settings.obsEndingSceneName || 'ending'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsEndingSceneName || 'ending'}>{settings.obsEndingSceneName || 'ending'}</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                      Privacy Scene:
+                    </label>
+                    <select
+                      value={settings.obsPrivacySceneName || 'privacy'}
+                      onChange={(e) => saveSettingsUpdates({ obsPrivacySceneName: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        <>
+                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsPrivacySceneName || 'privacy').toLowerCase()) && (
+                            <option value={settings.obsPrivacySceneName || 'privacy'}>{settings.obsPrivacySceneName || 'privacy'} (Saved)</option>
+                          )}
+                          {availableScenes.map(sc => (
+                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value={settings.obsPrivacySceneName || 'privacy'}>{settings.obsPrivacySceneName || 'privacy'}</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+              </div>
 
             </div>
 
@@ -1901,90 +2092,122 @@ function LowBitrateContent() {
             {/* Connected Channels List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {/* Twitch Channel Item */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
-                    T
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
-                      {settings.twitchUsername || 'LauraEclipsetv'}
+              {(settings.twitchToken || settings.twitchUsername) ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(145,70,255,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                      T
                     </div>
-                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Twitch</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <button
-                    onClick={() => saveSettingsUpdates({ twitchAlertsEnabled: !(settings.twitchAlertsEnabled ?? true) })}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      background: (settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.15)' : 'rgba(255,255,255,0.04)',
-                      border: `1px solid ${(settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      color: (settings.twitchAlertsEnabled ?? true) ? '#c084fc' : 'rgba(255,255,255,0.5)',
-                      padding: '6px 14px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                    }}
-                  >
-                    <span>{(settings.twitchAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
-                  </button>
-                  <button
-                    onClick={() => saveSettingsUpdates({ twitchUsername: '' })}
-                    style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
-                    title="Remove channel"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-
-              {/* Kick Channel Item */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
-                    K
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
-                      {settings.kickChannelName || settings.twitchUsername || 'LauraEclipsetv'}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
+                          @{settings.twitchUsername || 'Twitch Streamer'}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● CONNECTED
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Twitch Channel • Commands Active</div>
                     </div>
-                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Kick</div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      onClick={() => saveSettingsUpdates({ twitchAlertsEnabled: !(settings.twitchAlertsEnabled ?? true) })}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: (settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.15)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${(settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        color: (settings.twitchAlertsEnabled ?? true) ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span>{(settings.twitchAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Disconnect Twitch account?')) {
+                          saveSettingsUpdates({ twitchUsername: '', twitchToken: '', twitchBroadcasterId: '' });
+                        }
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
+                      title="Disconnect Twitch"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              ) : (
+                <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', fontWeight: 'bold' }}>T</div>
+                    <span style={{ fontSize: '0.88rem', color: 'rgba(255,255,255,0.6)' }}>No Twitch channel connected</span>
+                  </div>
                   <button
-                    onClick={() => saveSettingsUpdates({ kickAlertsEnabled: !(settings.kickAlertsEnabled ?? true) })}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      background: (settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.15)' : 'rgba(255,255,255,0.04)',
-                      border: `1px solid ${(settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      color: (settings.kickAlertsEnabled ?? true) ? '#53FC19' : 'rgba(255,255,255,0.5)',
-                      padding: '6px 14px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                    }}
+                    className="btn btn-primary"
+                    onClick={() => router.push('/twitch-auth')}
+                    style={{ fontSize: '0.82rem', padding: '6px 14px', background: '#9146FF', borderColor: '#7c25f8' }}
                   >
-                    <span>{(settings.kickAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
-                  </button>
-                  <button
-                    onClick={() => saveSettingsUpdates({ kickChannelName: '' })}
-                    style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
-                    title="Remove channel"
-                  >
-                    ✕
+                    🔗 Connect Twitch
                   </button>
                 </div>
-              </div>
+              )}
+
+              {/* Kick Channel Item (Only rendered if kickChannelName is configured) */}
+              {settings.kickChannelName ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(83,252,25,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                      K
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
+                          @{settings.kickChannelName}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● CONNECTED
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Kick Channel</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      onClick={() => saveSettingsUpdates({ kickAlertsEnabled: !(settings.kickAlertsEnabled ?? true) })}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: (settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.15)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${(settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        color: (settings.kickAlertsEnabled ?? true) ? '#53FC19' : 'rgba(255,255,255,0.5)',
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span>{(settings.kickAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
+                    </button>
+                    <button
+                      onClick={() => saveSettingsUpdates({ kickChannelName: '' })}
+                      style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
+                      title="Remove Kick channel"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -2003,13 +2226,20 @@ function LowBitrateContent() {
                     T
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>NOALBSbot</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>NOALBSbot</span>
+                      {(settings.twitchToken || settings.twitchUsername) && (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● ACTIVE ON @{settings.twitchUsername || 'TWITCH'}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared NOALBS bot</div>
                   </div>
                 </div>
                 <button
                   className="btn btn-secondary"
-                  onClick={() => showToast('Twitch OAuth connection modal ready', 'info')}
+                  onClick={() => showToast('Twitch bot ready and listening to chat commands', 'success')}
                   style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
                 >
                   Use your own bot
@@ -2023,13 +2253,20 @@ function LowBitrateContent() {
                     K
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>NOALBS</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>NOALBS</span>
+                      {settings.kickChannelName && (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● ACTIVE ON @{settings.kickChannelName}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared NOALBS bot</div>
                   </div>
                 </div>
                 <button
                   className="btn btn-secondary"
-                  onClick={() => showToast('Kick bot connection modal ready', 'info')}
+                  onClick={() => showToast('Kick bot connection ready', 'info')}
                   style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
                 >
                   Use your own bot

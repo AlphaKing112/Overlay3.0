@@ -3259,14 +3259,26 @@ function OverlayPage() {
 
   useEffect(() => {
     const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
-    const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 100;
-    const lowThreshold = settings.obsLowBitrateThreshold ?? 1300;
-    const recoveryThreshold = settings.obsRecoveryBitrateThreshold ?? 2000;
-    const rttThreshold = settings.obsRttThreshold ?? 2500;
-    const isRttHigh = (settings.rttTriggerEnabled !== false) && currentRtt !== null && currentRtt > rttThreshold;
-    const isOffline = currentBitrate !== null && (currentBitrate <= offlineThreshold || isStale);
-    const isLow = (currentBitrate !== null && currentBitrate > offlineThreshold && currentBitrate < lowThreshold && !isStale) || isRttHigh;
-    const isLive = currentBitrate !== null && currentBitrate >= recoveryThreshold && (!settings.rttTriggerEnabled || currentRtt === null || currentRtt <= (settings.obsRttRecoveryThreshold ?? 1500)) && !isStale;
+    const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 400;
+    const lowThreshold = settings.obsLowBitrateThreshold ?? 1100;
+    const rttLowThreshold = settings.obsRttThreshold ?? 2500;
+    const rttBrbThreshold = settings.obsRttOfflineThreshold ?? 3500;
+
+    const lowTriggerEnabled = settings.obsLowBitrateTriggerEnabled !== false;
+    const offTriggerEnabled = settings.obsOfflineBitrateTriggerEnabled !== false;
+    const rttTriggerEnabled = settings.rttTriggerEnabled !== false;
+    const rttLowTriggerEnabled = settings.obsRttLowTriggerEnabled !== false;
+    const rttBrbTriggerEnabled = settings.obsRttOfflineTriggerEnabled !== false;
+
+    const isBrbByBitrate = offTriggerEnabled && currentBitrate !== null && currentBitrate <= offlineThreshold;
+    const isBrbByRtt = rttTriggerEnabled && rttBrbTriggerEnabled && currentRtt !== null && currentRtt >= rttBrbThreshold;
+    const isOffline = (currentBitrate !== null && currentBitrate === 0) || isBrbByBitrate || isBrbByRtt || isStale;
+
+    const isLowByBitrate = lowTriggerEnabled && currentBitrate !== null && currentBitrate <= lowThreshold;
+    const isLowByRtt = rttTriggerEnabled && rttLowTriggerEnabled && currentRtt !== null && currentRtt >= rttLowThreshold;
+    const isLow = !isOffline && (isLowByBitrate || isLowByRtt);
+
+    const isLive = !isOffline && !isLow && currentBitrate !== null && currentBitrate > lowThreshold && !isStale;
     const hasFetchedStats = bitrateUpdateTimestamp > 0;
 
     // DIAGNOSTIC LOG
