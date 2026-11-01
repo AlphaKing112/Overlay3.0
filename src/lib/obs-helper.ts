@@ -324,31 +324,63 @@ export async function safeObsFixFeed(
       };
     }
 
-    // Ensure browser sources (like your Stream Overlay) are NEVER hidden!
-    // If the overlay was accidentally disabled previously, restore its visibility immediately:
+    // 1. First pass: Ensure all browser sources (like your Stream Overlay) are NEVER hidden!
+    // If the overlay source was disabled, restore its visibility to true immediately:
     for (const item of items) {
       const sourceName: string = item.sourceName || item.name || '';
       const itemId = item.sceneItemId ?? item.itemId;
       if (!sourceName || itemId === undefined) continue;
 
-      const isBrowserOverlay = item.inputKind === 'browser_source' || /(stream.*overlay|^overlay$|browser)/i.test(sourceName);
-      if (isBrowserOverlay && item.sceneItemEnabled === false) {
+      let itemKind = item.inputKind || '';
+      if (!itemKind) {
+        try {
+          const sRes = await obs.call('GetInputSettings', { inputName: sourceName });
+          itemKind = sRes?.inputKind || '';
+        } catch {}
+      }
+
+      const isOverlayOrBrowser =
+        itemKind === 'browser_source' ||
+        /(overlay|browser|alert|chat|widget|hud|screen)/i.test(sourceName);
+
+      if (isOverlayOrBrowser) {
         try {
           await obs.call('SetSceneItemEnabled', {
             sceneName: currentScene,
             sceneItemId: itemId,
             sceneItemEnabled: true
           });
-          console.log(`👁️ [OBS !fix] Restored visibility for overlay source "${sourceName}"`);
+          console.log(`👁️ [OBS !fix] Ensured overlay/browser source "${sourceName}" is visible`);
         } catch {}
       }
     }
 
-    // Helper: Identify if an item is the Belabox / SRT / media stream input and whether it reads a network stream
+    // Helper: Identify if an item is strictly a network media stream input (NOALBS ffmpeg/vlc/irl/smooth_media)
     const isBelaboxStreamItem = async (item: any): Promise<{ isStream: boolean; inputKind: string }> => {
       const sourceName: string = item.sourceName || item.name || '';
       const s = sourceName.toLowerCase().trim();
       let kind: string = item.inputKind || '';
+
+      // Query input settings to inspect exact inputKind and settings
+      let inputSettings: any = {};
+      try {
+        const settingsRes = await obs.call('GetInputSettings', { inputName: sourceName });
+        kind = settingsRes?.inputKind || kind;
+        inputSettings = settingsRes?.inputSettings || {};
+      } catch {}
+
+      // Browser sources, image sources, audio captures, text sources are NEVER media stream players!
+      if (
+        kind === 'browser_source' ||
+        kind === 'image_source' ||
+        kind === 'text_ft2_source_v2' ||
+        kind === 'text_gdiplus_v2' ||
+        kind === 'wasapi_input_capture' ||
+        kind === 'wasapi_output_capture' ||
+        /(overlay|chat|alert|widget|browser|hud)/i.test(sourceName)
+      ) {
+        return { isStream: false, inputKind: kind };
+      }
 
       // User custom stream source name override
       if (options?.streamSourceName && s === options.streamSourceName.toLowerCase().trim()) {
@@ -357,40 +389,30 @@ export async function safeObsFixFeed(
 
       // Check inputKind against NOALBS supported media kinds
       const isKnownMediaKind = NOALBS_MEDIA_KINDS.includes(kind);
+      const url = String(inputSettings.input || inputSettings.url || inputSettings.path || '').toLowerCase();
+      const isNetworkStreamUrl =
+        url.startsWith('srt://') ||
+        url.startsWith('rtmp://') ||
+        url.startsWith('udp://') ||
+        url.startsWith('rist://') ||
+        url.startsWith('rtsp://') ||
+        url.startsWith('tcp://') ||
+        url.includes('belabox');
 
-      // Query input settings to inspect URL / input settings
-      let isNetworkStream = false;
-      try {
-        const settingsRes = await obs.call('GetInputSettings', { inputName: sourceName });
-        kind = settingsRes?.inputKind || kind;
-        const inputSettings = settingsRes?.inputSettings || {};
-        const url = String(inputSettings.input || inputSettings.url || inputSettings.path || '').toLowerCase();
+      if (isKnownMediaKind && isNetworkStreamUrl) {
+        return { isStream: true, inputKind: kind };
+      }
 
-        isNetworkStream =
-          url.startsWith('srt://') ||
-          url.startsWith('rtmp://') ||
-          url.startsWith('udp://') ||
-          url.startsWith('rist://') ||
-          url.startsWith('rtsp://') ||
-          url.startsWith('tcp://') ||
-          url.includes('belabox') ||
-          inputSettings.is_local_file === false;
-
-        if (isNetworkStream || NOALBS_MEDIA_KINDS.includes(kind)) {
-          return { isStream: true, inputKind: kind || 'ffmpeg_source' };
-        }
-      } catch {}
-
-      // Name heuristics: Belabox, Bela, SRT, Stream feed
-      if (/bela|belabox/i.test(s)) {
+      // Name heuristics: Belabox, Bela, SRT, Stream feed (strictly non-browser)
+      if (/bela|belabox/i.test(s) && kind !== 'browser_source') {
         return { isStream: true, inputKind: kind || 'ffmpeg_source' };
       }
 
-      if (/(srt|feed|stream|irl|camera|cam\b)/i.test(s) && !/(chat|alert|audio|mic|bot|sub|goal|music|spotify|webcam|scene|overlay)/i.test(s)) {
+      if (/(srt|feed|stream|irl|camera|cam\b)/i.test(s) && !/(chat|alert|audio|mic|bot|sub|goal|music|spotify|webcam|scene|overlay|browser)/i.test(s) && kind !== 'browser_source') {
         return { isStream: true, inputKind: kind || 'ffmpeg_source' };
       }
 
-      return { isStream: isKnownMediaKind, inputKind: kind };
+      return { isStream: isKnownMediaKind && isNetworkStreamUrl, inputKind: kind };
     };
 
     // 2. Find candidate stream sources on the current active scene
@@ -418,7 +440,7 @@ export async function safeObsFixFeed(
         const itemId = item.sceneItemId ?? item.itemId;
         if (!sourceName || item.inputKind === 'browser_source' || /(overlay|chat|alert|widget|browser)/i.test(sourceName)) continue;
 
-        if (/(bela|belabox|srt|feed)/i.test(sourceName) && !/(chat|alert|overlay|audio|mic)/i.test(sourceName)) {
+        if (/(bela|belabox|srt|feed)/i.test(sourceName) && !/(chat|alert|overlay|audio|mic|browser)/i.test(sourceName)) {
           candidateSources.push({ item, sourceName, itemId, inputKind: item.inputKind || 'ffmpeg_source' });
         }
       }
@@ -491,22 +513,15 @@ export async function safeObsFixFeed(
         console.log(`✅ [OBS !fix] obs-smooth-media RestartSource sent to "${sourceName}"`);
       } catch {}
 
-      // Method D: Ensure ONLY this Belabox source is enabled on the scene
+      // Method D: Ensure ONLY this Belabox source is enabled on the scene (NEVER disable!)
       if (itemId !== undefined) {
         try {
-          // Toggle ONLY this Belabox source (false -> 80ms -> true) to re-bind the ingest socket
-          await obs.call('SetSceneItemEnabled', {
-            sceneName: currentScene,
-            sceneItemId: itemId,
-            sceneItemEnabled: false
-          });
-          await new Promise(r => setTimeout(r, 80));
           await obs.call('SetSceneItemEnabled', {
             sceneName: currentScene,
             sceneItemId: itemId,
             sceneItemEnabled: true
           });
-          console.log(`✅ [OBS !fix] Re-enabled Belabox scene item "${sourceName}"`);
+          console.log(`✅ [OBS !fix] Ensured Belabox scene item "${sourceName}" is enabled`);
         } catch {}
       }
 
