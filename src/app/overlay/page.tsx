@@ -167,7 +167,7 @@ function OverlayPage() {
   const [obsConnected, setObsConnected] = useState(false);
   const [lastSwitchLog, setLastSwitchLog] = useState<string>('No action yet');
   const previousBitrateRef = useRef<number | null>(null);
-  const lastBitrateStateRef = useRef<'live' | 'offline' | null>(null);
+  const lastBitrateStateRef = useRef<'live' | 'low' | 'offline' | null>(null);
 
   const [totalDistanceTracked, setTotalDistanceTracked] = useState(0); // In meters
   const [currentGpsCoords, setCurrentGpsCoords] = useState<[number, number] | null>(null);
@@ -1888,6 +1888,39 @@ function OverlayPage() {
               return;
             }
 
+            // NOALBS Stream & Scene Commands (!bitrate, !status, !switch, !ss, !live, !low, !offline, !brb, !starting, !ending, !privacy, !pause, !fix, !f, !trigger, !otrigger, !rtrigger, !autoswitch)
+            const noalbsCmds = ['!bitrate', '!b', '!status', '!switch', '!ss', '!live', '!low', '!offline', '!brb', '!starting', '!ending', '!privacy', '!pause', '!fix', '!f', '!trigger', '!otrigger', '!rtrigger', '!autoswitch'];
+            const firstCmdWord = lowerText.split(/\s+/)[0];
+            if (noalbsCmds.includes(firstCmdWord)) {
+              if (seSettingsRef.current?.obsStreamCommandsEnabled !== false) {
+                if (firstCmdWord === '!bitrate' || firstCmdWord === '!b' || firstCmdWord === '!status') {
+                  if (isCommandRateLimited(firstCmdWord, 4000)) return;
+                }
+                fetch('/api/noalbs/command', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    command: chatText,
+                    user: senderUser,
+                    isMod,
+                    isBroadcaster
+                  })
+                })
+                .then(res => res.json())
+                .then(data => {
+                  if (data.success && data.message) {
+                    sendChatReply(data.message, { color: 'green' });
+                  } else if (!data.success && data.error) {
+                    sendChatReply(`⚠️ ${data.error}`, { color: 'orange' });
+                  }
+                })
+                .catch(err => {
+                  OverlayLogger.warn(`NOALBS command fetch error: ${err.message}`);
+                });
+                return;
+              }
+            }
+
             if (chatText.toLowerCase().startsWith('!so ') || chatText.toLowerCase().startsWith('!shoutout ')) {
               if (!isAllowed) {
                 OverlayLogger.overlay(`Twitch IRC !so command ignored (user lacks required role permission)`);
@@ -3126,8 +3159,12 @@ function OverlayPage() {
 
   useEffect(() => {
     const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > 10000;
-    const isOffline = currentBitrate !== null && (currentBitrate <= 0 || isStale);
-    const isLive = currentBitrate !== null && currentBitrate > 0 && !isStale;
+    const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 100;
+    const lowThreshold = settings.obsLowBitrateThreshold ?? 1300;
+    const recoveryThreshold = settings.obsRecoveryBitrateThreshold ?? 2000;
+    const isOffline = currentBitrate !== null && (currentBitrate <= offlineThreshold || isStale);
+    const isLow = currentBitrate !== null && currentBitrate > offlineThreshold && currentBitrate < lowThreshold && !isStale;
+    const isLive = currentBitrate !== null && currentBitrate >= recoveryThreshold && !isStale;
     const hasFetchedStats = bitrateUpdateTimestamp > 0;
 
     // DIAGNOSTIC LOG
@@ -3214,10 +3251,21 @@ function OverlayPage() {
 
     // Auto-switch to offline scene (only after stream was previously confirmed live)
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
-      if (isOffline && lastBitrateStateRef.current === 'live') {
+      if (isOffline && lastBitrateStateRef.current !== 'offline') {
         console.log(`📡 Stream went offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
         switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'offline';
+        });
+      }
+    }
+
+    // Auto-switch to low bitrate scene (NOALBS)
+    if (settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
+      const lowScene = settings.obsLowSceneName || 'low';
+      if (isLow && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {
+        console.log(`📡 Low bitrate detected (bitrate=${currentBitrate} < ${lowThreshold}), switching to: ${lowScene}`);
+        switchSceneViaApi(lowScene).then(success => {
+          if (success) lastBitrateStateRef.current = 'low';
         });
       }
     }
@@ -3232,7 +3280,7 @@ function OverlayPage() {
       }
     }
     
-  }, [currentBitrate, bitrateUpdateTimestamp, settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLiveSceneName, obsConnected]);
+  }, [currentBitrate, bitrateUpdateTimestamp, settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLowSceneName, settings.obsLiveSceneName, settings.obsLowBitrateThreshold, settings.obsRecoveryBitrateThreshold, settings.obsOfflineBitrateThreshold, obsConnected]);
 
   // RTIRL connection - use refs to avoid re-running on timezone/settings changes
   const timezoneRef = useRef(timezone);

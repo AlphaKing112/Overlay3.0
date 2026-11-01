@@ -18,7 +18,7 @@ if (!g.autoSwitchData) {
     obsRef: null,
     statusLog: 'Idle',
     obsStatus: 'disconnected',
-    lastState: null as 'live' | 'offline' | null,
+    lastState: null as 'live' | 'low' | 'offline' | null,
     failures: 0,
     settings: null as any,
     isActive: false
@@ -186,20 +186,30 @@ function startBackgroundService() {
     try {
       const stats = await fetchBitrateStats(url, '');
       const bitrateKbps = stats ? stats.bitrateKbps : 0;
-      const isLive = bitrateKbps > 0;
+      const offlineThresh = state.settings.obsOfflineBitrateThreshold ?? 100;
+      const lowThresh = state.settings.obsLowBitrateThreshold ?? 1300;
+      const recThresh = state.settings.obsRecoveryBitrateThreshold ?? 2000;
+
+      const isOffline = bitrateKbps <= offlineThresh;
+      const isLow = bitrateKbps > offlineThresh && bitrateKbps < lowThresh;
+      const isLive = bitrateKbps >= recThresh;
       
-      state.failures = isLive ? 0 : state.failures + 1;
+      state.failures = !isOffline ? 0 : state.failures + 1;
       state.statusLog = `Polling: ${bitrateKbps} kbps, state=${state.lastState || 'null'}`;
 
-      if (isLive && state.lastState !== 'live') {
-        if (state.settings.obsLiveSceneName) {
-          const success = await switchScene(state.settings.obsLiveSceneName);
-          if (success) state.lastState = 'live';
-        }
-      } else if (!isLive && state.lastState !== 'offline') {
+      if (isOffline && state.lastState !== 'offline') {
         if (state.settings.obsOfflineSceneName) {
           const success = await switchScene(state.settings.obsOfflineSceneName);
           if (success) state.lastState = 'offline';
+        }
+      } else if (isLow && state.lastState !== 'low' && state.lastState !== 'offline') {
+        const lowScene = state.settings.obsLowSceneName || 'low';
+        const success = await switchScene(lowScene);
+        if (success) state.lastState = 'low';
+      } else if (isLive && state.lastState !== 'live') {
+        if (state.settings.obsLiveSceneName) {
+          const success = await switchScene(state.settings.obsLiveSceneName);
+          if (success) state.lastState = 'live';
         }
       }
     } catch (err: any) {

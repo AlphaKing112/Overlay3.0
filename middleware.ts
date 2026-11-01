@@ -5,7 +5,7 @@ export function middleware(request: NextRequest) {
   
   // Add version parameter to overlay & map URLs server-side to prevent OBS caching
   // This ensures the version parameter is present BEFORE OBS caches the page
-  if (pathname === '/overlay' || pathname === '/map') {
+  if (pathname === '/overlay' || pathname === '/map' || pathname === '/low-bitrate') {
     const hasVersion = searchParams.has('v');
     
     if (!hasVersion) {
@@ -25,6 +25,7 @@ export function middleware(request: NextRequest) {
     '/api/login',
     '/overlay',
     '/map',
+    '/low-bitrate',
     '/twitch-auth',
     '/api/get-settings',
     '/api/save-settings',
@@ -34,6 +35,7 @@ export function middleware(request: NextRequest) {
     '/api/bitrate',
     '/api/obs-switch-scene',
     '/api/auto-switch-service',
+    '/api/noalbs/command',
     '/api/twitch-subs',
     '/api/twitch-user',
     '/api/twitch-announcement',
@@ -71,5 +73,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/settings', '/api/:path*', '/login', '/overlay', '/map', '/twitch-auth']
+  matcher: ['/', '/settings', '/low-bitrate', '/api/:path*', '/login', '/overlay', '/map', '/twitch-auth']
 };

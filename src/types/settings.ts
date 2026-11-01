@@ -211,6 +211,24 @@ export interface OverlaySettings {
   obsOfflineSceneName?: string;
   obsLiveSceneName?: string;
   obsRefreshSceneName?: string;
+  obsLowSceneName?: string;
+  obsStartingSceneName?: string;
+  obsEndingSceneName?: string;
+  obsPrivacySceneName?: string;
+  obsLowBitrateThreshold?: number;
+  obsRecoveryBitrateThreshold?: number;
+  obsOfflineBitrateThreshold?: number;
+  obsRttThreshold?: number;
+  obsSwitchDelaySeconds?: number;
+  obsRecoveryDelaySeconds?: number;
+  obsOfflineDelaySeconds?: number;
+  obsRetryAttempts?: number;
+  obsMuteOnLowBitrate?: boolean;
+  obsCommandsPublicEnabled?: boolean;
+  obsCommandsModEnabled?: boolean;
+  obsLowBitrateMessage?: string;
+  obsLowBitrateShowStats?: boolean;
+  noalbsServerType?: string;
   obsAutoSwitchDebugger?: boolean;
   obsStreamCommandsEnabled?: boolean;
   obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh'; timestamp: number } | null;
@@ -434,6 +452,24 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsOfflineSceneName: 'offline',
   obsLiveSceneName: 'live',
   obsRefreshSceneName: 'refresh',
+  obsLowSceneName: 'low',
+  obsStartingSceneName: 'starting',
+  obsEndingSceneName: 'ending',
+  obsPrivacySceneName: 'privacy',
+  obsLowBitrateThreshold: 1300,
+  obsRecoveryBitrateThreshold: 2000,
+  obsOfflineBitrateThreshold: 100,
+  obsRttThreshold: 2500,
+  obsSwitchDelaySeconds: 3,
+  obsRecoveryDelaySeconds: 5,
+  obsOfflineDelaySeconds: 5,
+  obsRetryAttempts: 3,
+  obsMuteOnLowBitrate: false,
+  obsCommandsPublicEnabled: true,
+  obsCommandsModEnabled: true,
+  obsLowBitrateMessage: 'WEAK SIGNAL • PLEASE STAND BY',
+  obsLowBitrateShowStats: true,
+  noalbsServerType: 'auto',
   obsAutoSwitchDebugger: false,
   obsTelemetryEnabled: false,
   obsTelemetryInterval: 45,
@@ -643,6 +679,24 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsOfflineSceneName: 'string',
   obsLiveSceneName: 'string',
   obsRefreshSceneName: 'string',
+  obsLowSceneName: 'string',
+  obsStartingSceneName: 'string',
+  obsEndingSceneName: 'string',
+  obsPrivacySceneName: 'string',
+  obsLowBitrateThreshold: 'number',
+  obsRecoveryBitrateThreshold: 'number',
+  obsOfflineBitrateThreshold: 'number',
+  obsRttThreshold: 'number',
+  obsSwitchDelaySeconds: 'number',
+  obsRecoveryDelaySeconds: 'number',
+  obsOfflineDelaySeconds: 'number',
+  obsRetryAttempts: 'number',
+  obsMuteOnLowBitrate: 'boolean',
+  obsCommandsPublicEnabled: 'boolean',
+  obsCommandsModEnabled: 'boolean',
+  obsLowBitrateMessage: 'string',
+  obsLowBitrateShowStats: 'boolean',
+  noalbsServerType: 'string',
   obsAutoSwitchDebugger: 'boolean',
   obsStreamCommandsEnabled: 'boolean',
   obsTelemetryEnabled: 'boolean',

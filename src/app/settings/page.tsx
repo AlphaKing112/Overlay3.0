@@ -416,6 +416,14 @@ export default function SettingsConfigPage() {
                 Twitch Login
               </button>
             )}
+            <button
+              className="btn btn-secondary"
+              onClick={() => router.push('/low-bitrate')}
+              title="Open Low Bitrate & Automatic Scene Switcher Dashboard (/low-bitrate)"
+              style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.35)', color: '#fbbf24', fontWeight: 'bold' }}
+            >
+              ⚡ Low Bitrate
+            </button>
             <button className="btn btn-primary" onClick={() => window.open('/overlay', '_blank')} title="Preview full stream overlay (/overlay)">
               👁️ Preview
             </button>

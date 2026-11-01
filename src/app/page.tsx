@@ -1508,6 +1508,14 @@ export default function AdminPage() {
                 Twitch Login
               </button>
             )}
+            <button
+              className="btn btn-secondary"
+              onClick={() => router.push('/low-bitrate')}
+              title="Open Low Bitrate & Automatic Scene Switcher Dashboard (/low-bitrate)"
+              style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.35)', color: '#fbbf24', fontWeight: 'bold' }}
+            >
+              ⚡ Low Bitrate
+            </button>
             <button className="btn btn-primary" onClick={openPreview} title="Preview full stream overlay (/overlay)">
               👁️ Preview
             </button>
@@ -2116,6 +2124,36 @@ export default function AdminPage() {
                             </option>
                           ))}
                         </select>
+                      </div>
+
+                      <div>
+                        <label className="group-label" style={{ fontSize: '0.9em' }}>Select Low Bitrate Scene (NOALBS)</label>
+                        <select
+                          className="text-input"
+                          value={settings.obsLowSceneName || ''}
+                          onChange={(e) => handleSettingsChange({ obsLowSceneName: e.target.value })}
+                          style={{ marginTop: '8px' }}
+                        >
+                          <option value="">-- Select a Scene (Default: &quot;low&quot;) --</option>
+                          {obsScenes.map(scene => (
+                            <option key={scene.sceneName} value={scene.sceneName}>
+                              {scene.sceneName}
+                            </option>
+                          ))}
+                        </select>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                          <span style={{ fontSize: '0.78em', opacity: 0.7 }}>
+                            Add <code>/low-bitrate?mode=overlay</code> as Browser Source in OBS.
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-small"
+                            onClick={() => router.push('/low-bitrate')}
+                            style={{ fontSize: '0.72rem', padding: '2px 8px', background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}
+                          >
+                            ⚡ Open Switcher Studio
+                          </button>
+                        </div>
                       </div>
 
                       <div>
