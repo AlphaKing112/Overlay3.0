@@ -72,22 +72,29 @@ export async function POST(req: NextRequest) {
       return false;
     });
 
-    // Check if command is globally disabled or specifically disabled
-    if (foundConfig && !foundConfig.enabled) {
+    // Check if command is globally disabled or specifically disabled (allow dashboard bypass)
+    if (foundConfig && !foundConfig.enabled && !body.fromDashboard) {
       return NextResponse.json({ success: false, error: `Command "${rawCmd}" is currently disabled in NOALBS settings.` }, { status: 403 });
     }
 
     // Check role permissions: Admins -> Moderators -> Everyone
     const targetRole = foundConfig?.role || 'Everyone';
-    if (targetRole === 'Admins' && !isBroadcaster) {
-      return NextResponse.json({ success: false, error: `Permission denied: ${rawCmd} requires Admin / Broadcaster.` }, { status: 403 });
-    }
-    if (targetRole === 'Moderators' && !isBroadcaster && !isMod) {
-      return NextResponse.json({ success: false, error: `Permission denied: ${rawCmd} requires Moderator or Broadcaster.` }, { status: 403 });
-    }
-    if (targetRole === 'Everyone') {
-      if (settings.obsCommandsPublicEnabled === false && !isBroadcaster && !isMod) {
-        return NextResponse.json({ success: false, error: 'Public chat commands are currently disabled in settings.' }, { status: 403 });
+    if (!body.fromDashboard) {
+      if (targetRole === 'Admins' && !isBroadcaster) {
+        return NextResponse.json({ success: false, error: `Permission denied: ${rawCmd} requires Admin / Broadcaster.` }, { status: 403 });
+      }
+      if (targetRole === 'Moderators') {
+        if (settings.obsCommandsModEnabled === false && !isBroadcaster) {
+          return NextResponse.json({ success: false, error: `Moderator commands are currently disabled in settings.` }, { status: 403 });
+        }
+        if (!isBroadcaster && !isMod) {
+          return NextResponse.json({ success: false, error: `Permission denied: ${rawCmd} requires Moderator or Broadcaster.` }, { status: 403 });
+        }
+      }
+      if (targetRole === 'Everyone') {
+        if (settings.obsCommandsPublicEnabled === false && !isBroadcaster && !isMod) {
+          return NextResponse.json({ success: false, error: 'Public chat commands are currently disabled in settings.' }, { status: 403 });
+        }
       }
     }
 

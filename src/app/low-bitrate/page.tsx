@@ -546,7 +546,7 @@ function LowBitrateContent() {
       const res = await fetch('/api/noalbs/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: '!fix' })
+        body: JSON.stringify({ command: '!fix', fromDashboard: true })
       });
       const data = await res.json();
       if (data.success) {
@@ -585,7 +585,7 @@ function LowBitrateContent() {
       const res = await fetch('/api/noalbs/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: '!rec' })
+        body: JSON.stringify({ command: '!rec', fromDashboard: true })
       });
       const data = await res.json();
       if (data.success) {
@@ -620,7 +620,7 @@ function LowBitrateContent() {
       const res = await fetch('/api/noalbs/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: willStream ? '!start' : '!stop' })
+        body: JSON.stringify({ command: willStream ? '!start' : '!stop', fromDashboard: true })
       });
       const data = await res.json();
       if (data.success) {
@@ -650,7 +650,7 @@ function LowBitrateContent() {
       const res = await fetch('/api/noalbs/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cleanCmd })
+        body: JSON.stringify({ command: cleanCmd, fromDashboard: true })
       });
 
       const data = await res.json();

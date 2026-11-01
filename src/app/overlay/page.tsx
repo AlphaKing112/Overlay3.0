@@ -1764,38 +1764,68 @@ function OverlayPage() {
               sendChatReply(replyMsg, { color: success ? 'primary' : 'orange' });
             };
 
-            // Helper to check command permission from NOALBS command settings
-            const checkCommandRole = (cmdId: string, defaultRole: 'Admins' | 'Moderators' | 'Everyone'): { allowed: boolean; role: 'Admins' | 'Moderators' | 'Everyone' } => {
+            // Helper to get command configuration (enabled status, role permission, and matched name)
+            const getCommandConfig = (
+              cmdOrAlias: string,
+              defaultRole: 'Admins' | 'Moderators' | 'Everyone' = 'Everyone'
+            ): { enabled: boolean; allowed: boolean; role: 'Admins' | 'Moderators' | 'Everyone'; name: string } => {
               const list: any[] = seSettingsRef.current?.noalbsCommandsList || [];
-              const cfg = list.find((c: any) => c.id === cmdId || c.name === `!${cmdId}`);
+              const rawCmd = cmdOrAlias.startsWith('!') ? cmdOrAlias.toLowerCase() : `!${cmdOrAlias.toLowerCase()}`;
+              const cmdId = cmdOrAlias.replace(/^!/, '').toLowerCase();
+
+              const cfg = list.find((c: any) => {
+                if (c.id?.toLowerCase() === cmdId) return true;
+                if (c.name?.toLowerCase() === rawCmd) return true;
+                if (Array.isArray(c.aliases) && c.aliases.some((a: string) => a.toLowerCase() === rawCmd)) return true;
+                return false;
+              });
+
+              const enabled = cfg ? cfg.enabled !== false : true;
               const role: 'Admins' | 'Moderators' | 'Everyone' = cfg?.role || cfg?.defaultRole || defaultRole;
+              const name = cfg?.name || rawCmd;
+
+              if (!enabled) {
+                return { enabled: false, allowed: false, role, name };
+              }
 
               if (role === 'Admins') {
-                return { allowed: Boolean(isBroadcaster), role };
+                return { enabled: true, allowed: Boolean(isBroadcaster), role, name };
               }
               if (role === 'Moderators') {
-                return { allowed: Boolean(isBroadcaster || isMod), role };
+                if (seSettingsRef.current?.obsCommandsModEnabled === false && !isBroadcaster) {
+                  return { enabled: true, allowed: false, role, name };
+                }
+                return { enabled: true, allowed: Boolean(isBroadcaster || isMod), role, name };
               }
-              return { allowed: true, role };
+              // Everyone
+              if (seSettingsRef.current?.obsCommandsPublicEnabled === false && !isBroadcaster && !isMod) {
+                return { enabled: true, allowed: false, role, name };
+              }
+              return { enabled: true, allowed: true, role, name };
             };
 
             // Helper to send permission error reply
             const sendPermError = (cmdName: string, role: 'Admins' | 'Moderators' | 'Everyone' = 'Admins') => {
               const roleLabel = role === 'Admins' ? 'Broadcaster (Admin)' : 'Moderator or Broadcaster';
-              sendChatReply(`⚠️ Command !${cmdName} ignored: Requires ${roleLabel} permission.`, { color: 'orange' });
+              sendChatReply(`⚠️ Command ${cmdName.startsWith('!') ? cmdName : `!${cmdName}`} ignored: Requires ${roleLabel} permission.`, { color: 'orange' });
+            };
+
+            // Helper to send command disabled notification
+            const sendDisabledNotice = (cmdName: string) => {
+              sendChatReply(`⚠️ Command ${cmdName.startsWith('!') ? cmdName : `!${cmdName}`} is currently disabled in NOALBS settings.`, { color: 'orange' });
             };
 
             // Command: !start / !startstream / !golive
             if (lowerText === '!start' || lowerText.startsWith('!start ') || lowerText === '!startstream' || lowerText === '!golive') {
-              const isEnabled = seSettingsRef.current.obsStreamCommandsEnabled === true;
-              if (!isEnabled) {
-                OverlayLogger.overlay(`Twitch IRC !start command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+              const cmdCfg = getCommandConfig('start', 'Admins');
+              if (seSettingsRef.current.obsStreamCommandsEnabled !== true || !cmdCfg.enabled) {
+                OverlayLogger.overlay(`Twitch IRC !start command ignored (disabled in settings)`);
+                sendDisabledNotice('start');
                 return;
               }
-              const perm = checkCommandRole('start', 'Admins');
-              if (!perm.allowed) {
-                OverlayLogger.overlay(`Twitch IRC !start command ignored (user lacks ${perm.role} permission)`);
-                sendPermError('start', perm.role);
+              if (!cmdCfg.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !start command ignored (user lacks ${cmdCfg.role} permission)`);
+                sendPermError('start', cmdCfg.role);
                 return;
               }
               executeObsStreamAction('start');
@@ -1804,15 +1834,15 @@ function OverlayPage() {
 
             // Command: !end / !endstream / !stopstream / !stop
             if (lowerText === '!end' || lowerText.startsWith('!end ') || lowerText === '!endstream' || lowerText === '!stopstream' || lowerText === '!stop') {
-              const isEnabled = seSettingsRef.current.obsStreamCommandsEnabled === true;
-              if (!isEnabled) {
-                OverlayLogger.overlay(`Twitch IRC !end command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+              const cmdCfg = getCommandConfig('stop', 'Admins');
+              if (seSettingsRef.current.obsStreamCommandsEnabled !== true || !cmdCfg.enabled) {
+                OverlayLogger.overlay(`Twitch IRC !end command ignored (disabled in settings)`);
+                sendDisabledNotice('end');
                 return;
               }
-              const perm = checkCommandRole('stop', 'Admins');
-              if (!perm.allowed) {
-                OverlayLogger.overlay(`Twitch IRC !end command ignored (user lacks ${perm.role} permission)`);
-                sendPermError('end', perm.role);
+              if (!cmdCfg.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !end command ignored (user lacks ${cmdCfg.role} permission)`);
+                sendPermError('end', cmdCfg.role);
                 return;
               }
               executeObsStreamAction('stop');
@@ -1821,19 +1851,19 @@ function OverlayPage() {
 
             // Command: !fix / !f (NOALBS In-Place Source & Belabox Reconnect, ZERO scene switch!)
             if (lowerText === '!fix' || lowerText.startsWith('!fix ') || lowerText === '!f') {
-              const isEnabled = seSettingsRef.current?.obsStreamCommandsEnabled === true;
-              if (!isEnabled) {
-                OverlayLogger.overlay(`Twitch IRC !fix command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+              const cmdCfg = getCommandConfig('fix', 'Moderators');
+              if (seSettingsRef.current?.obsStreamCommandsEnabled === false || !cmdCfg.enabled) {
+                OverlayLogger.overlay(`Twitch IRC !fix command ignored (disabled in settings)`);
+                sendDisabledNotice('fix');
+                return;
+              }
+              if (!cmdCfg.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !fix command ignored (user lacks ${cmdCfg.role} permission)`);
+                sendPermError('fix', cmdCfg.role);
                 return;
               }
               if (isCommandRateLimited('fix', 4000)) {
                 OverlayLogger.overlay('Twitch IRC !fix ignored due to cooldown');
-                return;
-              }
-              const perm = checkCommandRole('fix', 'Moderators');
-              if (!perm.allowed) {
-                OverlayLogger.overlay(`Twitch IRC !fix command ignored (user lacks ${perm.role} permission)`);
-                sendPermError('fix', perm.role);
                 return;
               }
 
@@ -1877,19 +1907,19 @@ function OverlayPage() {
 
             // Command: !refresh / !ref / !fixaudio / !restartfeed / !resetsrt (Scene Cycle)
             if (lowerText === '!refresh' || lowerText.startsWith('!refresh ') || lowerText === '!ref' || lowerText === '!fixaudio' || lowerText === '!restartfeed' || lowerText === '!resetsrt') {
-              const isEnabled = seSettingsRef.current?.obsStreamCommandsEnabled === true;
-              if (!isEnabled) {
-                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+              const cmdCfg = getCommandConfig('refresh', 'Moderators');
+              if (seSettingsRef.current?.obsStreamCommandsEnabled === false || !cmdCfg.enabled) {
+                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (disabled in settings)`);
+                sendDisabledNotice('refresh');
+                return;
+              }
+              if (!cmdCfg.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (user lacks ${cmdCfg.role} permission)`);
+                sendPermError('refresh', cmdCfg.role);
                 return;
               }
               if (isCommandRateLimited('refresh', 6000)) {
                 OverlayLogger.overlay('Twitch IRC !refresh ignored due to cooldown');
-                return;
-              }
-              const perm = checkCommandRole('refresh', 'Moderators');
-              if (!perm.allowed) {
-                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (user lacks ${perm.role} permission)`);
-                sendPermError('refresh', perm.role);
                 return;
               }
               
@@ -1961,11 +1991,27 @@ function OverlayPage() {
               return;
             }
 
-            // NOALBS Stream & Scene Commands (!bitrate, !status, !switch, !ss, !live, !low, !offline, !brb, !starting, !ending, !privacy, !pause, !fix, !f, !trigger, !otrigger, !rtrigger, !autoswitch)
-            const noalbsCmds = ['!bitrate', '!b', '!status', '!switch', '!ss', '!live', '!low', '!offline', '!brb', '!starting', '!ending', '!privacy', '!pause', '!fix', '!f', '!trigger', '!otrigger', '!rtrigger', '!autoswitch'];
+            // NOALBS Stream & Scene Commands (!bitrate, !status, !switch, !ss, !live, !low, !offline, !brb, !starting, !ending, !privacy, !pause, !fix, !f, !trigger, !otrigger, !rtrigger, !autoswitch, etc.)
+            const noalbsCmds = ['!bitrate', '!b', '!status', '!switch', '!ss', '!live', '!low', '!offline', '!brb', '!starting', '!ending', '!privacy', '!pause', '!trigger', '!otrigger', '!rtrigger', '!autoswitch', '!rec', '!bbb', '!bbs', '!bbm', '!bbsensor', '!bbstart', '!bbstop', '!autostop', '!alias', '!help', '!noalbs', '!source', '!server', '!map', '!weather', '!time', '!distance', '!calories', '!dono'];
             const firstCmdWord = lowerText.split(/\s+/)[0];
-            if (noalbsCmds.includes(firstCmdWord)) {
+            const isKnownNoalbsCmd = noalbsCmds.includes(firstCmdWord) || (seSettingsRef.current?.noalbsCommandsList || []).some((c: any) => {
+              if (c.name?.toLowerCase() === firstCmdWord) return true;
+              if (Array.isArray(c.aliases) && c.aliases.some((a: string) => a.toLowerCase() === firstCmdWord)) return true;
+              return false;
+            });
+            if (isKnownNoalbsCmd) {
               if (seSettingsRef.current?.obsStreamCommandsEnabled !== false) {
+                const cmdCfg = getCommandConfig(firstCmdWord, 'Everyone');
+                if (!cmdCfg.enabled) {
+                  OverlayLogger.overlay(`Twitch IRC ${firstCmdWord} command ignored (disabled in settings)`);
+                  sendDisabledNotice(firstCmdWord);
+                  return;
+                }
+                if (!cmdCfg.allowed) {
+                  OverlayLogger.overlay(`Twitch IRC ${firstCmdWord} command ignored (user lacks ${cmdCfg.role} permission)`);
+                  sendPermError(firstCmdWord, cmdCfg.role);
+                  return;
+                }
                 if (firstCmdWord === '!bitrate' || firstCmdWord === '!b' || firstCmdWord === '!status') {
                   if (isCommandRateLimited(firstCmdWord, 4000)) return;
                 }
@@ -1995,8 +2041,15 @@ function OverlayPage() {
             }
 
             if (chatText.toLowerCase().startsWith('!so ') || chatText.toLowerCase().startsWith('!shoutout ')) {
-              if (!isAllowed) {
+              const cmdCfg = getCommandConfig('so', 'Moderators');
+              if (!cmdCfg.enabled) {
+                OverlayLogger.overlay(`Twitch IRC !so command ignored (disabled in settings)`);
+                sendDisabledNotice('so');
+                return;
+              }
+              if (!cmdCfg.allowed || !isAllowed) {
                 OverlayLogger.overlay(`Twitch IRC !so command ignored (user lacks required role permission)`);
+                sendPermError('so', cmdCfg.role);
                 return;
               }
 
@@ -2045,9 +2098,16 @@ function OverlayPage() {
               lowerText === '!snap' ||
               lowerText.startsWith('!snap ')
             ) {
-              const isEnabled = seSettingsRef.current.picCommandEnabled !== false;
+              const cmdCfg = getCommandConfig('pic', 'Everyone');
+              const isEnabled = seSettingsRef.current.picCommandEnabled !== false && cmdCfg.enabled;
               if (!isEnabled) {
                 OverlayLogger.overlay('Twitch IRC !pic command ignored (picCommandEnabled is disabled)');
+                sendDisabledNotice('pic');
+                return;
+              }
+              if (!cmdCfg.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !pic command ignored (user lacks ${cmdCfg.role} permission)`);
+                sendPermError('pic', cmdCfg.role);
                 return;
               }
 
@@ -2258,9 +2318,16 @@ function OverlayPage() {
             // Command: !clip / !clip <title> / !clip <seconds> <title> / !clip30/45/60 <title> / !cliptheclip / !replay / !highlight
             const clipCmdMatch = chatText.trim().match(/^!(clip\d*|cliptheclip|replay|highlight)(?:\s+([\s\S]*))?$/i);
             if (clipCmdMatch) {
-              const isEnabled = seSettingsRef.current.clipCommandEnabled !== false;
+              const cmdCfg = getCommandConfig('clip', 'Everyone');
+              const isEnabled = seSettingsRef.current.clipCommandEnabled !== false && cmdCfg.enabled;
               if (!isEnabled) {
-                OverlayLogger.overlay('Twitch IRC !clip command ignored (clipCommandEnabled is disabled)');
+                OverlayLogger.overlay('Twitch IRC !clip command ignored (clip command is disabled)');
+                sendDisabledNotice('clip');
+                return;
+              }
+              if (!cmdCfg.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !clip command ignored (user lacks ${cmdCfg.role} permission)`);
+                sendPermError('clip', cmdCfg.role);
                 return;
               }
 
