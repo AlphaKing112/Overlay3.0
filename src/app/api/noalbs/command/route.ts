@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `🔧 Reconnected Belabox & stream sources on active scene (${liveScene})!`
+        message: `🔧 Reconnected Belabox stream source on active scene (${liveScene}) & hid overlay!`
       });
     }
 

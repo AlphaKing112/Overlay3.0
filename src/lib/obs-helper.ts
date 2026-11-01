@@ -173,29 +173,34 @@ export async function safeObsRefreshCycle(
   return { success: true };
 }
 
+export interface ObsFixFeedOptions {
+  streamSourceName?: string;
+  overlaySourceName?: string;
+}
+
 /**
  * NOALBS-accurate feed fix / stream source reconnect (!fix / !f)
- * Reconnects the Belabox, SRT, RTMP, and media sources on the scene on air
- * WITHOUT SWITCHING SCENES, exactly matching NOALBS obs_v5.rs fix():
- * 1. Checks all media / stream inputs on the current active scene on air.
- * 2. Re-applies settings to ffmpeg_source to trigger reconnect callback.
- * 3. Triggers TriggerMediaInputAction ('OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART') on irl_source / media inputs.
- * 4. Dispatches vendor request to 'obs-smooth-media' (RestartSource).
- * 5. Toggles source visibility enabled off/on to force hardware socket re-bind.
- * 6. Refreshes browser source cache via PressInputPropertiesButton.
+ * Reconnects ONLY the Belabox / SRT / media stream source on the active scene on air
+ * WITHOUT switching scenes, exactly matching NOALBS obs_v5.rs fix():
+ *
+ * 1. Identifies and targets ONLY the Belabox / SRT / media stream input (ffmpeg_source, irl_source, smooth_media_source, vlc_source).
+ * 2. Leaves all other sources completely untouched so existing hidden sources (cameras, alerts, chat, images) STAY hidden.
+ * 3. Finds any overlay / standby / low bitrate alert element on the scene and explicitly HIDES it (sceneItemEnabled: false).
+ * 4. Reconnects the Belabox source via SetInputSettings ({}), TriggerMediaInputAction (Restart), and obs-smooth-media vendor restart.
  */
 export async function safeObsFixFeed(
   obs: any,
-  liveScene: string = 'live'
+  liveScene: string = 'live',
+  options?: ObsFixFeedOptions
 ): Promise<{ success: boolean; reconnectedCount?: number; error?: string }> {
   if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
 
-  console.log(`🔧 [OBS] Executing NOALBS !fix: Reconnecting stream sources on air (ZERO scene changes)...`);
+  console.log(`🔧 [OBS] Executing NOALBS !fix: Targeting ONLY Belabox stream source and hiding overlay...`);
   try {
-    const currentScene = (await getCurrentObsScene(obs)) || liveScene;
+    const currentScene = (await getCurrentObsScene(obs)) || liveScene || 'live';
     let reconnectedCount = 0;
 
-    // 1. Get scene items on the active scene
+    // 1. Get scene items on the active program scene
     let items: any[] = [];
     try {
       const sceneItemsRes = await obs.call('GetSceneItemList', { sceneName: currentScene });
@@ -207,83 +212,176 @@ export async function safeObsFixFeed(
       } catch {}
     }
 
-    // 2. Also query full input list to catch inputs by kind
-    let allInputs: any[] = [];
-    try {
-      const inputsRes = await obs.call('GetInputList');
-      allInputs = (inputsRes?.inputs as any[]) || [];
-    } catch {}
+    if (!items || items.length === 0) {
+      console.warn(`[OBS !fix] No scene items found in active scene "${currentScene}"`);
+      return { success: true, reconnectedCount: 0 };
+    }
 
-    // 3. For each source on the current active scene, execute in-place source reconnect
+    // Helper: Identify if an item is an overlay/standby/low-bitrate banner that should be hidden on !fix
+    const isOverlayItem = (name: string): boolean => {
+      const s = name.toLowerCase().trim();
+      if (options?.overlaySourceName && s === options.overlaySourceName.toLowerCase().trim()) return true;
+      // Do not match if it's explicitly identified as belabox/srt/stream
+      if (/bela|belabox/i.test(s)) return false;
+      return /(overlay|low.*bitrate|standby|offline.*screen|brb|be right back|connecting|loading|placeholder)/i.test(s);
+    };
+
+    // Helper: Identify if an item is the Belabox / SRT / media stream input
+    const isBelaboxStreamItem = async (item: any): Promise<{ isStream: boolean; inputKind: string }> => {
+      const sourceName: string = item.sourceName || item.name || '';
+      const s = sourceName.toLowerCase().trim();
+      let kind: string = item.inputKind || '';
+
+      // User custom stream source name override
+      if (options?.streamSourceName && s === options.streamSourceName.toLowerCase().trim()) {
+        return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+      }
+
+      // Check inputKind against NOALBS supported media kinds
+      const isKnownMediaKind = ['ffmpeg_source', 'vlc_source', 'irl_source', 'smooth_media_source'].includes(kind);
+
+      // Query input settings to inspect URL / input settings
+      let isNetworkStream = false;
+      try {
+        const settingsRes = await obs.call('GetInputSettings', { inputName: sourceName });
+        kind = settingsRes?.inputKind || kind;
+        const inputSettings = settingsRes?.inputSettings || {};
+        const url = String(inputSettings.input || inputSettings.url || inputSettings.path || '').toLowerCase();
+
+        isNetworkStream =
+          url.startsWith('srt://') ||
+          url.startsWith('rtmp://') ||
+          url.startsWith('udp://') ||
+          url.startsWith('rist://') ||
+          url.startsWith('rtsp://') ||
+          url.startsWith('tcp://') ||
+          url.includes('belabox') ||
+          inputSettings.is_local_file === false;
+
+        if (isNetworkStream || ['ffmpeg_source', 'vlc_source', 'irl_source', 'smooth_media_source'].includes(kind)) {
+          return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+        }
+      } catch {}
+
+      // Name heuristics: Belabox, Bela, SRT, Stream feed
+      if (/bela|belabox/i.test(s)) {
+        return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+      }
+
+      if (/(srt|feed|stream|irl|camera|cam\b)/i.test(s) && !/(chat|alert|audio|mic|bot|sub|goal|music|spotify|webcam|scene)/i.test(s)) {
+        return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+      }
+
+      return { isStream: isKnownMediaKind, inputKind: kind };
+    };
+
+    // 2. First pass: Hide any overlay / standby / low-bitrate items on this scene
     for (const item of items) {
       const sourceName: string = item.sourceName || item.name || '';
       const itemId = item.sceneItemId ?? item.itemId;
+      if (!sourceName || itemId === undefined) continue;
 
-      if (!sourceName) continue;
-
-      // Method A: Native OBS WebSocket v5 Media Action Restart (for irl_source / media_source / vlc)
-      try {
-        await obs.call('TriggerMediaInputAction', {
-          inputName: sourceName,
-          mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
-        });
-        reconnectedCount++;
-        console.log(`✅ [OBS !fix] Triggered MediaAction Restart for "${sourceName}"`);
-      } catch {}
-
-      // Method B: NOALBS ffmpeg_source / vlc_source Settings Rewrite
-      // Writing empty settings back triggers the source's update callback to reopen the network stream
-      try {
-        await obs.call('SetInputSettings', {
-          inputName: sourceName,
-          inputSettings: {},
-          overlay: true
-        });
-        reconnectedCount++;
-        console.log(`✅ [OBS !fix] Re-applied settings callback for "${sourceName}"`);
-      } catch {}
-
-      // Method C: Smooth Media Source Vendor Request
-      try {
-        await obs.call('CallVendorRequest', {
-          vendorName: 'obs-smooth-media',
-          requestType: 'RestartSource',
-          requestData: { sourceName }
-        });
-        reconnectedCount++;
-        console.log(`✅ [OBS !fix] Called obs-smooth-media RestartSource for "${sourceName}"`);
-      } catch {}
-
-      // Method D: Browser Source refresh without cache
-      try {
-        await obs.call('PressInputPropertiesButton', {
-          inputName: sourceName,
-          propertyName: 'refreshnocache'
-        });
-        console.log(`✅ [OBS !fix] Refreshed browser source cache for "${sourceName}"`);
-      } catch {}
-
-      // Method E: Universal Socket Reconnect via Scene Item Enable toggle (Off -> 120ms -> On)
-      // This forces OBS to destroy the old network socket and establish a brand new Belabox/SRT ingest
-      if (itemId !== undefined) {
+      if (isOverlayItem(sourceName)) {
         try {
           await obs.call('SetSceneItemEnabled', {
             sceneName: currentScene,
             sceneItemId: itemId,
             sceneItemEnabled: false
           });
-          await new Promise(r => setTimeout(r, 120));
+          console.log(`🙈 [OBS !fix] Hid overlay/standby source "${sourceName}" (id: ${itemId})`);
+        } catch (err) {
+          console.warn(`[OBS !fix] Could not set overlay "${sourceName}" to hidden:`, err);
+        }
+      }
+    }
+
+    // 3. Second pass: Find and reconnect ONLY the Belabox / SRT stream source
+    const streamSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
+    for (const item of items) {
+      const sourceName: string = item.sourceName || item.name || '';
+      const itemId = item.sceneItemId ?? item.itemId;
+      if (!sourceName) continue;
+
+      // Skip overlays from being treated as stream sources
+      if (isOverlayItem(sourceName)) continue;
+
+      const check = await isBelaboxStreamItem(item);
+      if (check.isStream) {
+        streamSources.push({ item, sourceName, itemId, inputKind: check.inputKind });
+      }
+    }
+
+    // If no stream source matched by kind/settings, try finding any item named with bela/belabox/srt/feed
+    if (streamSources.length === 0) {
+      for (const item of items) {
+        const sourceName: string = item.sourceName || item.name || '';
+        const itemId = item.sceneItemId ?? item.itemId;
+        if (!sourceName || isOverlayItem(sourceName)) continue;
+
+        if (/(bela|belabox|srt|feed)/i.test(sourceName) && !/(chat|alert|overlay|audio|mic)/i.test(sourceName)) {
+          streamSources.push({ item, sourceName, itemId, inputKind: item.inputKind || 'ffmpeg_source' });
+        }
+      }
+    }
+
+    // 4. Execute NOALBS In-Place Reconnect on the Belabox stream sources ONLY
+    for (const stream of streamSources) {
+      const { sourceName, itemId, inputKind } = stream;
+      console.log(`🎯 [OBS !fix] Reconnecting Belabox stream source "${sourceName}" (kind: ${inputKind || 'unknown'})...`);
+
+      // NOALBS Method A: TriggerMediaInputAction Restart (for irl_source or media inputs)
+      try {
+        await obs.call('TriggerMediaInputAction', {
+          inputName: sourceName,
+          mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
+        });
+        console.log(`✅ [OBS !fix] MediaAction Restart sent to "${sourceName}"`);
+      } catch {}
+
+      // NOALBS Method B: Settings rewrite callback (for ffmpeg_source / vlc_source)
+      // Empty inputSettings rewrite triggers the underlying FFmpeg network reconnect callback
+      try {
+        await obs.call('SetInputSettings', {
+          inputName: sourceName,
+          inputSettings: {},
+          overlay: true
+        });
+        console.log(`✅ [OBS !fix] SetInputSettings callback sent to "${sourceName}"`);
+      } catch {}
+
+      // NOALBS Method C: obs-smooth-media vendor request
+      try {
+        await obs.call('CallVendorRequest', {
+          vendorName: 'obs-smooth-media',
+          requestType: 'RestartSource',
+          requestData: { sourceName }
+        });
+        console.log(`✅ [OBS !fix] obs-smooth-media RestartSource sent to "${sourceName}"`);
+      } catch {}
+
+      // Method D: Ensure ONLY this Belabox source is enabled on the scene
+      if (itemId !== undefined) {
+        try {
+          // Toggle ONLY this Belabox source (false -> 80ms -> true) to re-bind the ingest socket
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: currentScene,
+            sceneItemId: itemId,
+            sceneItemEnabled: false
+          });
+          await new Promise(r => setTimeout(r, 80));
           await obs.call('SetSceneItemEnabled', {
             sceneName: currentScene,
             sceneItemId: itemId,
             sceneItemEnabled: true
           });
-          reconnectedCount++;
-          console.log(`✅ [OBS !fix] Toggled scene item enable state for "${sourceName}"`);
+          console.log(`✅ [OBS !fix] Re-enabled Belabox scene item "${sourceName}"`);
         } catch {}
       }
+
+      reconnectedCount++;
     }
 
+    console.log(`🎉 [OBS !fix] Completed: Reconnected ${reconnectedCount} Belabox source(s), all other source visibilities preserved.`);
     return { success: true, reconnectedCount };
   } catch (err: any) {
     console.error('❌ [OBS !fix] Error fixing feed:', err);
@@ -332,13 +430,24 @@ export async function safeObsRecordControl(
 export async function safeObsStreamControlResult(
   obs: any,
   action: 'start' | 'stop' | 'refresh' | 'fix' | 'rec' | 'start_record' | 'stop_record',
-  options?: { refreshScene?: string; liveScene?: string; delayMs?: number; isLiveBitrate?: boolean; currentBitrate?: number }
+  options?: {
+    refreshScene?: string;
+    liveScene?: string;
+    delayMs?: number;
+    isLiveBitrate?: boolean;
+    currentBitrate?: number;
+    streamSourceName?: string;
+    overlaySourceName?: string;
+  }
 ): Promise<{ success: boolean; isRecording?: boolean; error?: string }> {
   if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
 
   if (action === 'fix') {
     const liveScene = options?.liveScene || 'live';
-    return await safeObsFixFeed(obs, liveScene);
+    return await safeObsFixFeed(obs, liveScene, {
+      streamSourceName: options?.streamSourceName,
+      overlaySourceName: options?.overlaySourceName
+    });
   }
 
   if (action === 'refresh') {

@@ -1847,7 +1847,7 @@ function OverlayPage() {
                 }
 
                 if (fixRes.success) {
-                  sendChatReply(`🔧 @${senderDisplayName || senderUser}, stream sources on active scene reconnected!`);
+                  sendChatReply(`🔧 @${senderDisplayName || senderUser}, Belabox stream feed reconnected & overlay hidden!`);
                 } else {
                   sendChatReply(`⚠️ @${senderDisplayName || senderUser}, failed to fix feed: ${fixRes.error || 'Check OBS WebSocket'}`);
                 }
