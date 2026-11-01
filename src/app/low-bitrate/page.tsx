@@ -8,6 +8,61 @@ import { safeObsSwitchScene } from '@/lib/obs-helper';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
+// Reusable NOALBS-styled purple toggle switch
+function PurpleToggle({
+  checked,
+  onChange,
+  disabled
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!disabled) onChange(!checked);
+      }}
+      style={{
+        position: 'relative',
+        width: '44px',
+        height: '24px',
+        borderRadius: '9999px',
+        background: checked ? '#9146FF' : 'rgba(255, 255, 255, 0.18)',
+        border: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        transition: 'background-color 0.2s ease, opacity 0.2s ease',
+        padding: 0,
+        outline: 'none',
+        flexShrink: 0,
+        opacity: disabled ? 0.5 : 1,
+        display: 'inline-block',
+        verticalAlign: 'middle',
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: '3px',
+          left: checked ? '23px' : '3px',
+          width: '18px',
+          height: '18px',
+          borderRadius: '50%',
+          background: '#ffffff',
+          transition: 'left 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+        }}
+      />
+    </button>
+  );
+}
+
 function LowBitrateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -903,14 +958,14 @@ function LowBitrateContent() {
           onClick={handleSaveObsWs}
           style={{
             padding: '9px 24px',
-            backgroundColor: '#6366f1',
+            backgroundColor: '#9146FF',
             border: 'none',
             borderRadius: '8px',
             color: '#fff',
             fontWeight: 600,
             fontSize: '0.9rem',
             cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
+            boxShadow: '0 2px 8px rgba(145, 70, 255, 0.35)',
           }}
         >
           Save
@@ -1972,17 +2027,15 @@ function LowBitrateContent() {
                       (Allow chat/remote commands to control stream)
                     </span>
                   </div>
-                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsStreamCommandsEnabled ?? true}
-                      onChange={(e) => saveSettingsUpdates({ obsStreamCommandsEnabled: e.target.checked })}
-                      style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#53FC19' }}
-                    />
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '0.85em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
                       {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
                     </span>
-                  </label>
+                    <PurpleToggle
+                      checked={settings.obsStreamCommandsEnabled ?? true}
+                      onChange={(v) => saveSettingsUpdates({ obsStreamCommandsEnabled: v })}
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -2008,17 +2061,15 @@ function LowBitrateContent() {
                 When and how NOALBS switches scenes for {settings.twitchUsername ? `@${settings.twitchUsername}` : 'your stream'}.
               </p>
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
               <span style={{ fontSize: '0.88rem', fontWeight: 700, color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : 'rgba(255,255,255,0.5)' }}>
                 Auto-Switch: {settings.obsAutoSwitchSceneToggle ? 'ACTIVE' : 'OFF'}
               </span>
-              <input
-                type="checkbox"
+              <PurpleToggle
                 checked={settings.obsAutoSwitchSceneToggle ?? false}
-                onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
-                style={{ width: '18px', height: '18px', accentColor: '#22c55e' }}
+                onChange={(v) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: v })}
               />
-            </label>
+            </div>
           </div>
 
           {/* 2-Column NOALBS Switching Grid */}
@@ -2065,14 +2116,10 @@ function LowBitrateContent() {
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', display: 'inline-block' }} />
                         Switch to LOW at or below
                       </span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={settings.obsLowBitrateTriggerEnabled ?? true}
-                          onChange={(e) => saveSettingsUpdates({ obsLowBitrateTriggerEnabled: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#eab308' }}
-                        />
-                      </label>
+                      <PurpleToggle
+                        checked={settings.obsLowBitrateTriggerEnabled ?? true}
+                        onChange={(v) => saveSettingsUpdates({ obsLowBitrateTriggerEnabled: v })}
+                      />
                     </div>
                     {/* Range Slider */}
                     <input
@@ -2105,14 +2152,10 @@ function LowBitrateContent() {
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
                         Switch to BRB at or below
                       </span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={settings.obsOfflineBitrateTriggerEnabled ?? true}
-                          onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateTriggerEnabled: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#ef4444' }}
-                        />
-                      </label>
+                      <PurpleToggle
+                        checked={settings.obsOfflineBitrateTriggerEnabled ?? true}
+                        onChange={(v) => saveSettingsUpdates({ obsOfflineBitrateTriggerEnabled: v })}
+                      />
                     </div>
                     {/* Range Slider */}
                     <input
@@ -2182,15 +2225,15 @@ function LowBitrateContent() {
                   <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>
                     Latency (RTT) triggers
                   </h3>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.8rem', color: (settings.rttTriggerEnabled ?? true) ? '#38bdf8' : 'rgba(255,255,255,0.4)' }}>
-                    <input
-                      type="checkbox"
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.8rem', color: (settings.rttTriggerEnabled ?? true) ? '#38bdf8' : 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
+                      {(settings.rttTriggerEnabled ?? true) ? 'Active' : 'Off'}
+                    </span>
+                    <PurpleToggle
                       checked={settings.rttTriggerEnabled ?? true}
-                      onChange={(e) => saveSettingsUpdates({ rttTriggerEnabled: e.target.checked })}
-                      style={{ width: '16px', height: '16px', accentColor: '#38bdf8' }}
+                      onChange={(v) => saveSettingsUpdates({ rttTriggerEnabled: v })}
                     />
-                    <span>{(settings.rttTriggerEnabled ?? true) ? 'Active' : 'Off'}</span>
-                  </label>
+                  </div>
                 </div>
                 <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.82rem' }}>
                   Catch a struggling uplink before the bitrate drops. Only SRT servers report RTT.
@@ -2225,14 +2268,10 @@ function LowBitrateContent() {
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', display: 'inline-block' }} />
                         Switch to LOW at or above
                       </span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={settings.obsRttLowTriggerEnabled ?? true}
-                          onChange={(e) => saveSettingsUpdates({ obsRttLowTriggerEnabled: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#eab308' }}
-                        />
-                      </label>
+                      <PurpleToggle
+                        checked={settings.obsRttLowTriggerEnabled ?? true}
+                        onChange={(v) => saveSettingsUpdates({ obsRttLowTriggerEnabled: v })}
+                      />
                     </div>
                     {/* Range Slider */}
                     <input
@@ -2265,14 +2304,10 @@ function LowBitrateContent() {
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
                         Switch to BRB at or above
                       </span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={settings.obsRttOfflineTriggerEnabled ?? true}
-                          onChange={(e) => saveSettingsUpdates({ obsRttOfflineTriggerEnabled: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#ef4444' }}
-                        />
-                      </label>
+                      <PurpleToggle
+                        checked={settings.obsRttOfflineTriggerEnabled ?? true}
+                        onChange={(v) => saveSettingsUpdates({ obsRttOfflineTriggerEnabled: v })}
+                      />
                     </div>
                     {/* Range Slider */}
                     <input
@@ -2340,13 +2375,64 @@ function LowBitrateContent() {
               {(() => {
                 const defaultPresets = [
                   'live', 'low', 'offline', 'refresh', 'starting', 'ending', 'privacy',
-                  'Live', 'Low Bitrate', 'BRB', 'Starting Soon', 'Stream Ending', 'Just Chatting', 'Gameplay', 'Screen Share'
+                  'Live', 'Low Bitrate', 'BRB', 'Offline', 'Starting Soon', 'Stream Ending', 'Stream Offline',
+                  'Just Chatting', 'Gameplay', 'Screen Share', 'Be Right Back', 'Reconnecting', 'Pause'
                 ];
-                const getOptionsForScene = (currentValue: string) => {
-                  if (availableScenes.length > 0) {
-                    return Array.from(new Set([currentValue, ...availableScenes])).filter(Boolean);
-                  }
-                  return Array.from(new Set([currentValue, ...defaultPresets])).filter(Boolean);
+
+                const renderSceneSelect = (
+                  label: string,
+                  dotColor: string | null,
+                  currentVal: string,
+                  onChangeVal: (v: string) => void
+                ) => {
+                  const val = currentVal || '';
+                  return (
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: dotColor || '#e2e8f0', marginBottom: '6px' }}>
+                        {dotColor && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotColor, display: 'inline-block' }} />}
+                        {label}
+                      </label>
+                      {customSceneMode ? (
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) => onChangeVal(e.target.value)}
+                          placeholder={`e.g. ${val || 'scene name'}`}
+                          style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                        />
+                      ) : (
+                        <select
+                          value={val}
+                          onChange={(e) => onChangeVal(e.target.value)}
+                          style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                        >
+                          {availableScenes.length > 0 && (
+                            <optgroup label="Detected in OBS Studio" style={{ background: '#0f172a', color: '#38bdf8' }}>
+                              {availableScenes.map(sc => (
+                                <option key={`obs-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                                  {sc}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          <optgroup label="Common Preset Scenes" style={{ background: '#0f172a', color: '#94a3b8' }}>
+                            {defaultPresets.map(sc => (
+                              <option key={`preset-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                                {sc}
+                              </option>
+                            ))}
+                          </optgroup>
+                          {Boolean(val && !availableScenes.includes(val) && !defaultPresets.includes(val)) && (
+                            <optgroup label="Custom Scene" style={{ background: '#0f172a', color: '#c084fc' }}>
+                              <option value={val} style={{ background: '#1e293b', color: '#fff' }}>
+                                {val}
+                              </option>
+                            </optgroup>
+                          )}
+                        </select>
+                      )}
+                    </div>
+                  );
                 };
 
                 return (
@@ -2414,120 +2500,16 @@ function LowBitrateContent() {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
                       {/* LIVE SCENE */}
-                      <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#4ade80', marginBottom: '6px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-                          Live Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsLiveSceneName || 'live'}
-                            onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
-                            placeholder="e.g. Live"
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsLiveSceneName || 'live'}
-                            onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          >
-                            {getOptionsForScene(settings.obsLiveSceneName || 'live').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                                {sc}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('Live Scene:', '#22c55e', settings.obsLiveSceneName || 'live', (val) => saveSettingsUpdates({ obsLiveSceneName: val }))}
 
                       {/* LOW SCENE */}
-                      <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#facc15', marginBottom: '6px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
-                          Low Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsLowSceneName || 'low'}
-                            onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
-                            placeholder="e.g. low"
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsLowSceneName || 'low'}
-                            onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          >
-                            {getOptionsForScene(settings.obsLowSceneName || 'low').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                                {sc}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('Low Scene:', '#eab308', settings.obsLowSceneName || 'low', (val) => saveSettingsUpdates({ obsLowSceneName: val }))}
 
                       {/* BRB / OFFLINE SCENE */}
-                      <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#f87171', marginBottom: '6px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
-                          BRB / Offline Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsOfflineSceneName || 'offline'}
-                            onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
-                            placeholder="e.g. offline"
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsOfflineSceneName || 'offline'}
-                            onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          >
-                            {getOptionsForScene(settings.obsOfflineSceneName || 'offline').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                                {sc}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('BRB / Offline Scene:', '#ef4444', settings.obsOfflineSceneName || 'offline', (val) => saveSettingsUpdates({ obsOfflineSceneName: val }))}
 
                       {/* REFRESH SCENE */}
-                      <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8', marginBottom: '6px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }} />
-                          Refresh Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsRefreshSceneName || 'refresh'}
-                            onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
-                            placeholder="e.g. refresh"
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsRefreshSceneName || 'refresh'}
-                            onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
-                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                          >
-                            {getOptionsForScene(settings.obsRefreshSceneName || 'refresh').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                                {sc}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('Refresh Scene:', '#38bdf8', settings.obsRefreshSceneName || 'refresh', (val) => saveSettingsUpdates({ obsRefreshSceneName: val }))}
                     </div>
 
                     {/* Switch Delay & Secondary scenes */}
@@ -2548,80 +2530,11 @@ function LowBitrateContent() {
                         </select>
                       </div>
 
-                      <div>
-                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                          Starting Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsStartingSceneName || 'starting'}
-                            onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
-                            placeholder="e.g. starting"
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsStartingSceneName || 'starting'}
-                            onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                          >
-                            {getOptionsForScene(settings.obsStartingSceneName || 'starting').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('Starting Scene:', null, settings.obsStartingSceneName || 'starting', (val) => saveSettingsUpdates({ obsStartingSceneName: val }))}
 
-                      <div>
-                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                          Ending Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsEndingSceneName || 'ending'}
-                            onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
-                            placeholder="e.g. ending"
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsEndingSceneName || 'ending'}
-                            onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                          >
-                            {getOptionsForScene(settings.obsEndingSceneName || 'ending').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('Ending Scene:', null, settings.obsEndingSceneName || 'ending', (val) => saveSettingsUpdates({ obsEndingSceneName: val }))}
 
-                      <div>
-                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                          Privacy Scene:
-                        </label>
-                        {customSceneMode ? (
-                          <input
-                            type="text"
-                            value={settings.obsPrivacySceneName || 'privacy'}
-                            onChange={(e) => saveSettingsUpdates({ obsPrivacySceneName: e.target.value })}
-                            placeholder="e.g. privacy"
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                          />
-                        ) : (
-                          <select
-                            value={settings.obsPrivacySceneName || 'privacy'}
-                            onChange={(e) => saveSettingsUpdates({ obsPrivacySceneName: e.target.value })}
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                          >
-                            {getOptionsForScene(settings.obsPrivacySceneName || 'privacy').map(sc => (
-                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
+                      {renderSceneSelect('Privacy Scene:', null, settings.obsPrivacySceneName || 'privacy', (val) => saveSettingsUpdates({ obsPrivacySceneName: val }))}
                     </div>
                   </div>
                 );
@@ -2648,14 +2561,10 @@ function LowBitrateContent() {
                       Switch scenes automatically using the triggers.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsAutoSwitchSceneToggle ?? false}
-                      onChange={(e) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsAutoSwitchSceneToggle ?? false}
+                    onChange={(v) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: v })}
+                  />
                 </div>
 
                 {/* 2. Only while streaming */}
@@ -2668,14 +2577,10 @@ function LowBitrateContent() {
                       Leave OBS alone when you aren&apos;t live.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsSwitchOnlyWhileStreaming ?? true}
-                      onChange={(e) => saveSettingsUpdates({ obsSwitchOnlyWhileStreaming: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsSwitchOnlyWhileStreaming ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsSwitchOnlyWhileStreaming: v })}
+                  />
                 </div>
 
                 {/* 3. Instant recovery */}
@@ -2688,14 +2593,10 @@ function LowBitrateContent() {
                       Go back to LIVE the moment the feed recovers.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsInstantRecovery ?? true}
-                      onChange={(e) => saveSettingsUpdates({ obsInstantRecovery: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsInstantRecovery ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsInstantRecovery: v })}
+                  />
                 </div>
 
                 {/* 4. Chat notification */}
@@ -2713,14 +2614,10 @@ function LowBitrateContent() {
                       Post in chat when a scene switches automatically. Pick the channels on the Chat page.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsChatAlertsEnabled ?? true}
-                      onChange={(e) => saveSettingsUpdates({ obsChatAlertsEnabled: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsChatAlertsEnabled ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsChatAlertsEnabled: v })}
+                  />
                 </div>
 
                 {/* 5. Checks before switching */}
@@ -2760,14 +2657,10 @@ function LowBitrateContent() {
                       Show the Starting scene when the stream starts.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsStartingSceneOnGoLive ?? false}
-                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneOnGoLive: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsStartingSceneOnGoLive ?? false}
+                    onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
+                  />
                 </div>
 
                 {/* 2. Ending scene on stream stop */}
@@ -2780,14 +2673,10 @@ function LowBitrateContent() {
                       Switch to the Ending scene when the stream stops.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsEndingSceneOnStreamStop ?? false}
-                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsEndingSceneOnStreamStop ?? false}
+                    onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
+                  />
                 </div>
 
                 {/* 3. Auto stop stream on raid */}
@@ -2800,14 +2689,10 @@ function LowBitrateContent() {
                       Enable/disable stopping the stream on a raid.
                     </div>
                   </div>
-                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsAutoStopStreamOnRaid ?? false}
-                      onChange={(e) => saveSettingsUpdates({ obsAutoStopStreamOnRaid: e.target.checked })}
-                      style={{ width: '22px', height: '22px', accentColor: '#9146FF' }}
-                    />
-                  </label>
+                  <PurpleToggle
+                    checked={settings.obsAutoStopStreamOnRaid ?? false}
+                    onChange={(v) => saveSettingsUpdates({ obsAutoStopStreamOnRaid: v })}
+                  />
                 </div>
               </div>
 
@@ -3172,14 +3057,10 @@ function LowBitrateContent() {
                   Let everyone in chat use commands like !bitrate.
                 </div>
               </div>
-              <label style={{ cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={settings.obsCommandsPublicEnabled ?? true}
-                  onChange={(e) => saveSettingsUpdates({ obsCommandsPublicEnabled: e.target.checked })}
-                  style={{ width: '20px', height: '20px', accentColor: '#9146FF' }}
-                />
-              </label>
+              <PurpleToggle
+                checked={settings.obsCommandsPublicEnabled ?? true}
+                onChange={(v) => saveSettingsUpdates({ obsCommandsPublicEnabled: v })}
+              />
             </div>
 
             {/* Moderator Commands Toggle Row */}
@@ -3190,14 +3071,10 @@ function LowBitrateContent() {
                   Let your moderators run moderator commands.
                 </div>
               </div>
-              <label style={{ cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={settings.obsCommandsModEnabled ?? true}
-                  onChange={(e) => saveSettingsUpdates({ obsCommandsModEnabled: e.target.checked })}
-                  style={{ width: '20px', height: '20px', accentColor: '#9146FF' }}
-                />
-              </label>
+              <PurpleToggle
+                checked={settings.obsCommandsModEnabled ?? true}
+                onChange={(v) => saveSettingsUpdates({ obsCommandsModEnabled: v })}
+              />
             </div>
           </div>
 
@@ -3213,9 +3090,9 @@ function LowBitrateContent() {
               <div style={{ display: 'flex', gap: '6px' }}>
                 {[
                   { key: 'All', label: `All ${countAll}` },
-                  { key: 'Admins', label: `Admins (${countAdmins})` },
-                  { key: 'Moderators', label: `Moderators (${countMods})` },
-                  { key: 'Everyone', label: `Everyone (${countEveryone})` },
+                  { key: 'Admins', label: 'Admins' },
+                  { key: 'Moderators', label: 'Moderators' },
+                  { key: 'Everyone', label: 'Everyone' },
                 ].map(tab => (
                   <button
                     key={tab.key}
@@ -3367,14 +3244,10 @@ function LowBitrateContent() {
                       <option value="Admins">Admins {cmd.defaultRole === 'Admins' ? '(default)' : ''}</option>
                     </select>
 
-                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={cmd.enabled}
-                        onChange={() => toggleCommandEnabled(cmd.id)}
-                        style={{ width: '20px', height: '20px', accentColor: '#9146FF' }}
-                      />
-                    </label>
+                    <PurpleToggle
+                      checked={cmd.enabled}
+                      onChange={() => toggleCommandEnabled(cmd.id)}
+                    />
                   </div>
                 </div>
               ))}
