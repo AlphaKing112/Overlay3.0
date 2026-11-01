@@ -15,7 +15,7 @@ if (!g.__workingUrlCache) g.__workingUrlCache = new Map<string, string>();
 
 const bitrateCache: Map<string, CacheEntry> = g.__bitrateCache;
 const workingUrlCache: Map<string, string> = g.__workingUrlCache;
-const CACHE_TTL_MS = 5000; // 5 seconds cache TTL
+const CACHE_TTL_MS = 1000; // 1 second cache TTL for near-instant offline/recovery detection
 
 export async function GET(req: NextRequest) {
     try {
@@ -35,7 +35,8 @@ export async function GET(req: NextRequest) {
             return NextResponse.json(cached.data, {
                 status: cached.status,
                 headers: {
-                    'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=2',
+                    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                    'Pragma': 'no-cache',
                     'X-Cache': 'HIT'
                 }
             });
@@ -119,7 +120,8 @@ export async function GET(req: NextRequest) {
 
                         return NextResponse.json(data, {
                             headers: {
-                                'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=2',
+                                'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                    'Pragma': 'no-cache',
                                 'X-Cache': 'MISS'
                             }
                         });
