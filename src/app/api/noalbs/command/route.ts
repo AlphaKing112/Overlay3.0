@@ -92,7 +92,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Connect to OBS helper
-    const obsUrl = settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+    const wsPort = settings.obsWebsocketPort || 4455;
+    const obsUrl = settings.obsWebsocketUrl || `ws://127.0.0.1:${wsPort}`;
     const obsPassword = settings.obsWebsocketPassword || '';
 
     const connectObs = async () => {
@@ -200,53 +201,52 @@ export async function POST(req: NextRequest) {
         targetScene = settings.obsPrivacySceneName || 'privacy';
       }
 
+      // Dispatch signal to OBS Browser Source on the streamer's machine
+      const now = Date.now();
+      await saveSettingsPatch({
+        obsSceneSwitchSignal: { sceneName: targetScene, timestamp: now }
+      });
+
+      // Attempt direct WS if available locally
+      let switchedDirect = false;
       try {
         const obs = await connectObs();
-        const success = await safeObsSwitchScene(obs, targetScene);
+        switchedDirect = await safeObsSwitchScene(obs, targetScene);
         await obs.disconnect();
+      } catch {}
 
-        if (success) {
-          return NextResponse.json({
-            success: true,
-            message: `🎬 Switched OBS Program Scene to "${targetScene}"`,
-            scene: targetScene
-          });
-        } else {
-          return NextResponse.json({
-            success: false,
-            error: `Failed to switch to scene "${targetScene}". Please ensure scene exists in OBS.`
-          }, { status: 404 });
-        }
-      } catch (err: any) {
-        return NextResponse.json({
-          success: false,
-          error: `OBS connection error: ${err.message}`
-        }, { status: 503 });
-      }
+      return NextResponse.json({
+        success: true,
+        message: `🎬 Switched OBS Program Scene to "${targetScene}"`,
+        scene: targetScene,
+        via: switchedDirect ? 'direct' : 'browser_source'
+      });
     }
 
     // 4. !fix / !refresh / !f
     if (cmdName === '!fix' || cmdName === '!refresh' || cmdName === '!f') {
       const refreshScene = settings.obsRefreshSceneName || 'refresh';
       const liveScene = settings.obsLiveSceneName || 'live';
+      const now = Date.now();
 
+      // Dispatch stream refresh command to active OBS Browser Source
+      await saveSettingsPatch({
+        obsStreamCommandSignal: { action: 'refresh', timestamp: now }
+      });
+
+      // Also attempt direct WS if local
       try {
         const obs = await connectObs();
         safeObsRefreshCycle(obs, refreshScene, liveScene, 6000)
-          .then(async () => {
-            try { await obs.disconnect(); } catch {}
-          })
-          .catch(async () => {
+          .finally(async () => {
             try { await obs.disconnect(); } catch {}
           });
+      } catch {}
 
-        return NextResponse.json({
-          success: true,
-          message: `🔄 Stream refresh sequence initiated! Switching to "${refreshScene}" -> "${liveScene}" (6s reload)`
-        });
-      } catch (err: any) {
-        return NextResponse.json({ success: false, error: `OBS connection error: ${err.message}` }, { status: 503 });
-      }
+      return NextResponse.json({
+        success: true,
+        message: `🔄 Stream refresh sequence initiated! Switching to "${refreshScene}" -> "${liveScene}" (6s reload)`
+      });
     }
 
     // 5. !trigger <kbps>

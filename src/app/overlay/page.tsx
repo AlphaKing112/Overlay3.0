@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, takeObsScreenshot, triggerObsReplayBuffer } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -2758,6 +2758,7 @@ function OverlayPage() {
           if (sceneName && lastLoggedStateRef.current.currentScene !== sceneName) {
             lastLoggedStateRef.current.currentScene = sceneName;
             appendObsLog('info', `[scene-manager] Switched program scene to: '${sceneName}'`);
+            fetch('/api/obs-telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ online: true, currentScene: sceneName }) }).catch(() => {});
           }
         });
 
@@ -2822,6 +2823,8 @@ function OverlayPage() {
 
         // Try primary URL, then fallbacks
         const urlsToTry = [
+          `ws://127.0.0.1:${settings.obsWebsocketPort || 4455}`,
+          `ws://localhost:${settings.obsWebsocketPort || 4455}`,
           settings.obsWebsocketUrl || 'ws://127.0.0.1:4455',
           'ws://127.0.0.1:4455',
           'ws://localhost:4455'
@@ -2880,6 +2883,20 @@ function OverlayPage() {
             if (scenes) {
               lastLoggedStateRef.current.currentScene = scenes.currentProgramSceneName;
               appendObsLog('info', `[scene-manager] Current scene: '${scenes.currentProgramSceneName}' (${scenes.scenes?.length || 0} scenes available)`);
+              const sceneNames = scenes?.scenes ? (scenes.scenes as any[]).map(s => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  streaming: Boolean(stream?.outputActive),
+                  currentScene: scenes?.currentProgramSceneName || '',
+                  scenes: sceneNames,
+                  obsVersion: version?.obsVersion,
+                  obsWebSocketVersion: version?.obsWebSocketVersion,
+                  platform: version?.platformDescription || version?.platform
+                })
+              }).catch(() => {});
             }
 
             if (stream?.outputActive) {
@@ -2927,7 +2944,25 @@ function OverlayPage() {
         localObsRef.current = null;
       }
     };
-  }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketUrl, settings.obsWebsocketPassword, appendObsLog]);
+  }, [settings.obsAutoSwitchSceneToggle, settings.obsWebsocketPort, settings.obsWebsocketUrl, settings.obsWebsocketPassword, appendObsLog]);
+
+  // Cloud Scene Switch Signal Listener (triggers immediate local scene switch from cloud dashboard or chat commands)
+  const lastProcessedSceneSignalRef = useRef<number>(0);
+  useEffect(() => {
+    const signal = settings.obsSceneSwitchSignal;
+    if (!signal || !signal.timestamp || !signal.sceneName) return;
+    if (signal.timestamp <= lastProcessedSceneSignalRef.current) return;
+    lastProcessedSceneSignalRef.current = signal.timestamp;
+
+    console.log(`🎬 [OBS Overlay] Received cloud scene switch signal for: "${signal.sceneName}"`);
+    if (localObsRef.current) {
+      safeObsSwitchScene(localObsRef.current, signal.sceneName).then(ok => {
+        if (ok) {
+          appendObsLog('success', `[cloud-relay] Switched scene to '${signal.sceneName}' via cloud signal`);
+        }
+      });
+    }
+  }, [settings.obsSceneSwitchSignal, appendObsLog]);
 
   // Periodic OBS Telemetry Reporter (relays Dropped Frames, Uptime, CPU %, FPS, and Logs to cloud)
   useEffect(() => {

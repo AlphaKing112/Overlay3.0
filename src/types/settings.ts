@@ -216,7 +216,9 @@ export interface OverlaySettings {
   twitchUsername?: string;
   combineDateTimeWithLocation?: boolean;
   obsWebsocketUrl?: string;
+  obsWebsocketPort?: number;
   obsWebsocketPassword?: string;
+  obsSceneSwitchSignal?: { sceneName: string; timestamp: number } | null;
   obsAutoSwitchSceneToggle?: boolean;
   obsOfflineSceneName?: string;
   obsLiveSceneName?: string;
@@ -506,7 +508,9 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   twitchUsername: '',
   combineDateTimeWithLocation: false,
   obsWebsocketUrl: 'ws://127.0.0.1:4455',
+  obsWebsocketPort: 4455,
   obsWebsocketPassword: '',
+  obsSceneSwitchSignal: null,
   obsAutoSwitchSceneToggle: false,
   obsOfflineSceneName: 'offline',
   obsLiveSceneName: 'live',
@@ -587,8 +591,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
 };
 
 // Valid settings schema for validation
-// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', 'obsSceneSwitchSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'obsSceneSwitchSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
   shoutoutAnnouncementTemplate: 'string',
   shoutoutX: 'number',
   shoutoutY: 'number',
@@ -743,6 +747,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   twitchUsername: 'string',
   combineDateTimeWithLocation: 'boolean',
   obsWebsocketUrl: 'string',
+  obsWebsocketPort: 'number',
   obsWebsocketPassword: 'string',
   obsAutoSwitchSceneToggle: 'boolean',
   obsOfflineSceneName: 'string',

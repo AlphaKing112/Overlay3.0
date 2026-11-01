@@ -22,6 +22,7 @@ export interface ObsTelemetryStats {
   renderSkippedFrames?: number;
   renderTotalFrames?: number;
   currentScene?: string;
+  scenes?: string[];
   obsVersion?: string;
   obsWebSocketVersion?: string;
   platform?: string;

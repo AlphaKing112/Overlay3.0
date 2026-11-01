@@ -42,10 +42,12 @@ export async function GET(): Promise<NextResponse> {
   const responseData: ObsTelemetryStats = telemetry && !isStale ? {
     ...telemetry,
     online: Boolean(telemetry.online !== false),
+    scenes: telemetry.scenes || [],
   } : {
     online: false,
     streaming: false,
     recording: false,
+    scenes: telemetry?.scenes || [],
     error: telemetry?.error,
     updatedAt: telemetry?.updatedAt || 0,
   };
@@ -89,7 +91,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       fps: typeof body.fps === 'number' ? body.fps : 60,
       renderSkippedFrames: typeof body.renderSkippedFrames === 'number' ? body.renderSkippedFrames : undefined,
       renderTotalFrames: typeof body.renderTotalFrames === 'number' ? body.renderTotalFrames : undefined,
-      currentScene: body.currentScene || undefined,
+      currentScene: body.currentScene || previousTelemetry?.currentScene || undefined,
+      scenes: Array.isArray(body.scenes) && body.scenes.length > 0 ? body.scenes : previousTelemetry?.scenes || undefined,
       obsVersion: body.obsVersion || previousTelemetry?.obsVersion || undefined,
       obsWebSocketVersion: body.obsWebSocketVersion || previousTelemetry?.obsWebSocketVersion || undefined,
       platform: body.platform || previousTelemetry?.platform || undefined,

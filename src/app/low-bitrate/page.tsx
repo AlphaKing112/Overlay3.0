@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
+import { safeObsSwitchScene } from '@/lib/obs-helper';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
@@ -49,6 +50,121 @@ function LowBitrateContent() {
   const [newAliasValue, setNewAliasValue] = useState<string>('');
   const [addingChannelType, setAddingChannelType] = useState<'twitch' | 'kick' | null>(null);
   const [channelInputText, setChannelInputText] = useState<string>('');
+
+  // OBS WebSocket inputs matching NOALBS UI
+  const [obsPortInput, setObsPortInput] = useState<string>(String(settings.obsWebsocketPort || 4455));
+  const [obsPasswordInput, setObsPasswordInput] = useState<string>('');
+  const localObsRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (settings.obsWebsocketPort) {
+      setObsPortInput(String(settings.obsWebsocketPort));
+    }
+  }, [settings.obsWebsocketPort]);
+
+  const handleSaveObsWs = async () => {
+    const portNum = parseInt(obsPortInput, 10) || 4455;
+    const updates: Partial<OverlaySettings> = {
+      obsWebsocketPort: portNum,
+      obsWebsocketUrl: `ws://127.0.0.1:${portNum}`,
+    };
+    if (obsPasswordInput.trim()) {
+      updates.obsWebsocketPassword = obsPasswordInput.trim();
+    }
+    await saveSettingsUpdates(updates);
+    setObsPasswordInput('');
+    showToast('OBS WebSocket settings saved! Match OBS Tools → WebSocket Server Settings.', 'success');
+  };
+
+  const handleRemoveObsPassword = async () => {
+    await saveSettingsUpdates({ obsWebsocketPassword: '' });
+    setObsPasswordInput('');
+    showToast('OBS WebSocket password removed.', 'info');
+  };
+
+  // Local OBS WebSocket connection inside Browser Source when mode === 'overlay'
+  useEffect(() => {
+    if (mode !== 'overlay') return;
+    let isActive = true;
+    let retryTimer: NodeJS.Timeout;
+
+    const connectLocalObs = async () => {
+      if (!isActive) return;
+      try {
+        const { default: OBSWebSocket } = await import('obs-websocket-js');
+        const obs = new OBSWebSocket();
+        const wsPort = settings.obsWebsocketPort || 4455;
+        const targetUrl = `ws://127.0.0.1:${wsPort}`;
+        const targetPass = settings.obsWebsocketPassword || '';
+
+        await obs.connect(targetUrl, targetPass || undefined);
+        if (!isActive) { obs.disconnect(); return; }
+
+        localObsRef.current = obs;
+        setObsConnected(true);
+
+        const sceneData: any = await obs.call('GetSceneList').catch(() => null);
+        const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+        const currentProg = sceneData?.currentProgramSceneName || '';
+        if (currentProg) setCurrentScene(currentProg);
+        if (scenes.length > 0) setAvailableScenes(scenes);
+
+        fetch('/api/obs-telemetry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ online: true, currentScene: currentProg, scenes })
+        }).catch(() => {});
+
+        obs.on('CurrentProgramSceneChanged' as any, (data: any) => {
+          const sName = data?.sceneName || data?.currentProgramSceneName;
+          if (sName) {
+            setCurrentScene(sName);
+            fetch('/api/obs-telemetry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ online: true, currentScene: sName })
+            }).catch(() => {});
+          }
+        });
+
+        obs.on('ConnectionClosed', () => {
+          localObsRef.current = null;
+          setObsConnected(false);
+          if (isActive) retryTimer = setTimeout(connectLocalObs, 5000);
+        });
+      } catch {
+        setObsConnected(false);
+        if (isActive) retryTimer = setTimeout(connectLocalObs, 5000);
+      }
+    };
+
+    connectLocalObs();
+
+    return () => {
+      isActive = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (localObsRef.current) {
+        try { localObsRef.current.disconnect(); } catch {}
+        localObsRef.current = null;
+      }
+    };
+  }, [mode, settings.obsWebsocketPort, settings.obsWebsocketPassword]);
+
+  // Cloud Scene Switch Signal Listener when mode === 'overlay'
+  const lastProcessedSceneSignalRef = useRef<number>(0);
+  useEffect(() => {
+    if (mode !== 'overlay') return;
+    const signal = settings.obsSceneSwitchSignal;
+    if (!signal || !signal.timestamp || !signal.sceneName) return;
+    if (signal.timestamp <= lastProcessedSceneSignalRef.current) return;
+    lastProcessedSceneSignalRef.current = signal.timestamp;
+
+    if (localObsRef.current) {
+      safeObsSwitchScene(localObsRef.current, signal.sceneName).then(ok => {
+        if (ok) setCurrentScene(signal.sceneName);
+      });
+    }
+  }, [mode, settings.obsSceneSwitchSignal]);
 
   // Refs for tracking transitions and preventing re-trigger loops
   const settingsRef = useRef<OverlaySettings>(settings);
@@ -171,12 +287,21 @@ function LowBitrateContent() {
     setLastSwitchLog(logText);
 
     try {
+      const now = Date.now();
+      saveSettingsUpdates({ obsSceneSwitchSignal: { sceneName, timestamp: now } });
+
+      if (localObsRef.current) {
+        safeObsSwitchScene(localObsRef.current, sceneName).then(ok => {
+          if (ok) setCurrentScene(sceneName);
+        });
+      }
+
       const res = await fetch('/api/obs-switch-scene', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sceneName,
-          obsUrl: settings.obsWebsocketUrl,
+          obsUrl: settings.obsWebsocketUrl || `ws://127.0.0.1:${settings.obsWebsocketPort || 4455}`,
           obsPassword: settings.obsWebsocketPassword
         })
       });
@@ -548,6 +673,166 @@ function LowBitrateContent() {
   const countAdmins = activeCommandsList.filter(c => c.role === 'Admins').length;
   const countMods = activeCommandsList.filter(c => c.role === 'Moderators').length;
   const countEveryone = activeCommandsList.filter(c => c.role === 'Everyone').length;
+
+  // OBS WebSocket Card Component matching NOALBS UI Screenshot
+  const renderObsWebSocketCard = () => (
+    <div
+      style={{
+        background: '#0e121b',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: '12px',
+        padding: '24px',
+        marginBottom: '24px',
+      }}
+    >
+      <div style={{ marginBottom: '16px' }}>
+        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 4px 0', color: '#fff' }}>
+          OBS WebSocket
+        </h3>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.4 }}>
+          How the browser source reaches OBS on your computer. Match OBS&apos;s Tools → WebSocket Server Settings.
+        </p>
+      </div>
+
+      {/* Port & Password Inputs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 160px) 1fr', gap: '16px', marginBottom: '12px' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#e2e8f0', marginBottom: '6px' }}>
+            Port
+          </label>
+          <input
+            type="number"
+            value={obsPortInput}
+            onChange={(e) => setObsPortInput(e.target.value)}
+            placeholder="4455"
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              background: 'rgba(0, 0, 0, 0.4)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '8px',
+              color: '#fff',
+              fontSize: '0.95rem',
+              outline: 'none',
+            }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#e2e8f0', marginBottom: '6px' }}>
+            Password
+          </label>
+          <input
+            type="password"
+            value={obsPasswordInput}
+            onChange={(e) => setObsPasswordInput(e.target.value)}
+            placeholder={settings.obsWebsocketPassword ? 'Saved — type to replace' : 'Enter password (optional)'}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              background: 'rgba(0, 0, 0, 0.4)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '8px',
+              color: '#fff',
+              fontSize: '0.95rem',
+              outline: 'none',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Security Note */}
+      <div style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '16px' }}>
+        The password is stored encrypted and only ever sent to your browser source.
+      </div>
+
+      {/* Save and Remove password buttons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '18px' }}>
+        <button
+          onClick={handleSaveObsWs}
+          style={{
+            padding: '9px 24px',
+            backgroundColor: '#6366f1',
+            border: 'none',
+            borderRadius: '8px',
+            color: '#fff',
+            fontWeight: 600,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
+          }}
+        >
+          Save
+        </button>
+
+        {Boolean(settings.obsWebsocketPassword) && (
+          <button
+            onClick={handleRemoveObsPassword}
+            style={{
+              padding: '9px 18px',
+              backgroundColor: 'rgba(255, 255, 255, 0.06)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '8px',
+              color: '#e2e8f0',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+            }}
+          >
+            Remove password
+          </button>
+        )}
+      </div>
+
+      {/* Connection Loopback Status & Copy Browser Source Pill */}
+      <div
+        style={{
+          background: obsConnected ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+          border: `1px solid ${obsConnected ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+          borderRadius: '8px',
+          padding: '12px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: obsConnected ? '#22c55e' : '#f59e0b',
+              boxShadow: `0 0 8px ${obsConnected ? '#22c55e' : '#f59e0b'}`,
+            }}
+          />
+          <strong style={{ fontSize: '0.86rem', color: obsConnected ? '#4ade80' : '#fbbf24' }}>
+            {obsConnected
+              ? `CONNECTED TO OBS (Port ${settings.obsWebsocketPort || 4455})`
+              : 'WAITING FOR OBS BROWSER SOURCE'}
+          </strong>
+        </div>
+        <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.7)', lineHeight: 1.4 }}>
+          {obsConnected
+            ? `Your Browser Source is actively running inside OBS on 127.0.0.1:${settings.obsWebsocketPort || 4455}. Automatic low-bitrate switching and chat commands are live!`
+            : 'To connect, add your overlay URL as a Browser Source inside OBS Studio. It communicates with OBS locally on your PC without needing port forwarding.'}
+        </p>
+        {!obsConnected && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-small"
+              onClick={copyObsLink}
+              style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'rgba(255,255,255,0.1)' }}
+            >
+              📋 Copy Overlay Browser Source Link
+            </button>
+            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+              Add to OBS scenes as a Browser Source (1920x1080)
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   // =========================================================================
   // MODE 2: OBS BROWSER SOURCE OVERLAY VIEW (?mode=overlay)
@@ -1129,6 +1414,9 @@ function LowBitrateContent() {
                 </div>
               </section>
 
+              {/* OBS WebSocket Card matching NOALBS UI */}
+              {renderObsWebSocketCard()}
+
               {/* Realtime Bitrate History Sparkline Chart */}
               <section className="settings-section" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -1693,6 +1981,9 @@ function LowBitrateContent() {
               <span>ⓘ</span> Using your own bot? Sign in as the bot account when asked, not as yourself.
             </div>
           </div>
+
+          {/* OBS WebSocket Card in Settings Tab */}
+          {renderObsWebSocketCard()}
 
           {/* CARD 3: SETTINGS (PREFIX, BOT LANGUAGE, REPLY MODE, TOGGLES) */}
           <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
