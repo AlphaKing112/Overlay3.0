@@ -234,17 +234,24 @@ export async function POST(req: NextRequest) {
       });
 
       // Also attempt direct WS if local
+      let fixResult: any = null;
       try {
         const obs = await connectObs();
-        safeObsFixFeed(obs, liveScene)
-          .finally(async () => {
-            try { await obs.disconnect(); } catch {}
-          });
+        fixResult = await safeObsFixFeed(obs, liveScene);
+        try { await obs.disconnect(); } catch {}
       } catch {}
+
+      const scene = fixResult?.scene || liveScene;
+      const sources: string[] = fixResult?.sources || [];
+      const msg = fixResult
+        ? fixResult.message
+        : `🔧 Signal dispatched to fix feed on active scene (${liveScene})`;
 
       return NextResponse.json({
         success: true,
-        message: `🔧 Reconnected Belabox stream source on active scene (${liveScene}) & hid overlay!`
+        scene,
+        sources,
+        message: msg
       });
     }
 

@@ -550,7 +550,13 @@ function LowBitrateContent() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(data.message || 'Stream feed fixed successfully!', 'success');
+        if (data.sources && data.sources.length > 0) {
+          showToast(data.message || `Reconnecting ${data.sources.join(', ')}`, 'success');
+        } else if (data.sources && data.sources.length === 0) {
+          showToast(data.message || `Nothing to fix: no stream source is playing on ${data.scene || liveScene}`, 'info');
+        } else {
+          showToast(data.message || 'Stream feed fixed successfully!', 'success');
+        }
         setLastSwitchLog(data.message || 'Feed sources reconnected.');
         refreshObsScenes();
       } else {
@@ -1377,16 +1383,23 @@ function LowBitrateContent() {
             top: '24px',
             right: '24px',
             zIndex: 9999,
-            padding: '12px 24px',
+            padding: '12px 20px',
             borderRadius: '8px',
             background: toast.type === 'success' ? '#15803d' : toast.type === 'error' ? '#b91c1c' : '#0369a1',
             color: '#fff',
             fontWeight: '600',
+            fontSize: '0.92rem',
             boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             border: '1px solid rgba(255,255,255,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
           }}
         >
-          {toast.message}
+          {toast.type === 'info' && <span style={{ fontSize: '1.15em' }}>ℹ</span>}
+          {toast.type === 'success' && <span style={{ fontSize: '1.15em' }}>✅</span>}
+          {toast.type === 'error' && <span style={{ fontSize: '1.15em' }}>❌</span>}
+          <span>{toast.message}</span>
         </div>
       )}
 
@@ -1974,6 +1987,23 @@ function LowBitrateContent() {
                         {(currentScene || telemetry?.currentScene) && (
                           <span style={{ fontSize: '0.8em', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
                             🎬 Scene: {currentScene || telemetry?.currentScene}
+                          </span>
+                        )}
+                        {telemetry?.mediaFeedSource && (
+                          <span style={{
+                            fontSize: '0.8em',
+                            color: telemetry.mediaFeedLive ? '#53FC19' : '#f87171',
+                            background: telemetry.mediaFeedLive ? 'rgba(83, 252, 25, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                            border: telemetry.mediaFeedLive ? '1px solid rgba(83, 252, 25, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontWeight: 'bold',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <span>{telemetry.mediaFeedLive ? '▶️' : '⏹️'}</span>
+                            <span>{telemetry.mediaFeedSource}: {telemetry.mediaFeedLive ? 'LIVE' : (telemetry.mediaFeedState ? telemetry.mediaFeedState.replace('OBS_MEDIA_STATE_', '') : 'OFFLINE')}</span>
                           </span>
                         )}
                         <button

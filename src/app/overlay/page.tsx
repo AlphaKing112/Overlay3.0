@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -1825,11 +1825,11 @@ function OverlayPage() {
               OverlayLogger.overlay(`Twitch IRC executing !fix command (reconnecting stream sources on active scene "${liveScene}")`);
 
               (async () => {
-                let fixRes: { success: boolean; error?: string } = { success: false };
+                let fixRes: any = { success: false, sources: [] };
                 if (localObsRef.current) {
                   fixRes = await safeObsFixFeed(localObsRef.current, liveScene);
                 }
-                if (!fixRes.success) {
+                if (!fixRes.success && fixRes.error) {
                   try {
                     const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
                     const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
@@ -1847,7 +1847,11 @@ function OverlayPage() {
                 }
 
                 if (fixRes.success) {
-                  sendChatReply(`🔧 @${senderDisplayName || senderUser}, Belabox stream feed reconnected & overlay hidden!`);
+                  if (fixRes.sources && fixRes.sources.length > 0) {
+                    sendChatReply(`🔧 @${senderDisplayName || senderUser}, reconnecting ${fixRes.sources.join(', ')}`);
+                  } else {
+                    sendChatReply(`ℹ @${senderDisplayName || senderUser}, nothing to fix: no stream source is playing on ${fixRes.scene || liveScene}`);
+                  }
                 } else {
                   sendChatReply(`⚠️ @${senderDisplayName || senderUser}, failed to fix feed: ${fixRes.error || 'Check OBS WebSocket'}`);
                 }
@@ -3215,10 +3219,23 @@ function OverlayPage() {
             cpuUsage: cpuUsagePercent
           };
 
+          let mediaFeedLive: boolean | undefined = undefined;
+          let mediaFeedState: string | undefined = undefined;
+          let mediaFeedSource: string | undefined = undefined;
+          try {
+            const feedStatus = await getObsMediaFeedLiveStatus(localObsRef.current, currentScene);
+            mediaFeedLive = feedStatus.isLive;
+            mediaFeedState = feedStatus.mediaState;
+            mediaFeedSource = feedStatus.sourceName;
+          } catch {}
+
           const payload = {
             online: true,
             streaming: isStreaming,
             recording: isRecording,
+            mediaFeedLive,
+            mediaFeedState,
+            mediaFeedSource,
             uptimeTimecode: stream?.outputTimecode || (isStreaming ? '00:00:00' : undefined),
             uptimeDurationMs: stream?.outputDuration,
             outputBytes: stream?.outputBytes,

@@ -23,6 +23,9 @@ export interface ObsTelemetryStats {
   renderTotalFrames?: number;
   currentScene?: string;
   scenes?: string[];
+  mediaFeedLive?: boolean;
+  mediaFeedState?: string;
+  mediaFeedSource?: string;
   obsVersion?: string;
   obsWebSocketVersion?: string;
   platform?: string;

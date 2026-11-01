@@ -178,27 +178,128 @@ export interface ObsFixFeedOptions {
   overlaySourceName?: string;
 }
 
+export interface ObsFixFeedResult {
+  success: boolean;
+  scene: string;
+  sources: string[];
+  reconnectedCount: number;
+  message: string;
+  error?: string;
+}
+
+export const NOALBS_MEDIA_KINDS = ['ffmpeg_source', 'vlc_source', 'irl_source', 'smooth_media_source'];
+export const NOALBS_PLAYING_STATES = [
+  'OBS_MEDIA_STATE_PLAYING',
+  'OBS_MEDIA_STATE_BUFFERING',
+  'OBS_MEDIA_STATE_OPENING',
+];
+
+/**
+ * Checks whether an OBS media player input is currently live and playing,
+ * matching NOALBS (crates/obs-actions/src/fix.rs & stream_servers/obs.rs).
+ */
+export async function getObsMediaInputStatus(
+  obs: any,
+  inputName: string
+): Promise<{ state: string; isLive: boolean } | null> {
+  if (!obs || !inputName) return null;
+  try {
+    const res = await obs.call('GetMediaInputStatus', { inputName });
+    const state = String(res?.mediaState || '').toUpperCase();
+    const isLive = NOALBS_PLAYING_STATES.includes(state);
+    return { state, isLive };
+  } catch (err) {
+    try {
+      const v4Res = await obs.call('GetMediaSourceStatus' as any, { sourceName: inputName });
+      const raw = String(v4Res?.mediaStatus || v4Res?.mediaState || '').toLowerCase();
+      const isLive = ['playing', 'buffering', 'opening'].includes(raw);
+      const state = isLive ? 'OBS_MEDIA_STATE_PLAYING' : 'OBS_MEDIA_STATE_STOPPED';
+      return { state, isLive };
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Scans the active scene for any stream media source and checks if its feed is currently LIVE,
+ * exactly like NOALBS (stream_servers/obs.rs).
+ */
+export async function getObsMediaFeedLiveStatus(
+  obs: any,
+  sceneName?: string,
+  targetSourceName?: string
+): Promise<{
+  isLive: boolean;
+  scene: string;
+  sourceName?: string;
+  mediaState?: string;
+}> {
+  if (!obs) return { isLive: false, scene: sceneName || 'unknown' };
+  try {
+    const scene = sceneName || (await getCurrentObsScene(obs)) || 'live';
+    let items: any[] = [];
+    try {
+      const res = await obs.call('GetSceneItemList', { sceneName: scene });
+      items = (res?.sceneItems as any[]) || [];
+    } catch {
+      try {
+        const v4Res = await obs.call('GetSceneItemList' as any, { 'scene-name': scene });
+        items = (v4Res?.sceneItems || v4Res?.sources as any[]) || [];
+      } catch {}
+    }
+
+    for (const item of items) {
+      const name: string = item.sourceName || item.name || '';
+      if (!name) continue;
+      if (targetSourceName && name.toLowerCase() !== targetSourceName.toLowerCase()) continue;
+
+      const kind: string = item.inputKind || '';
+      const isMediaCandidate = NOALBS_MEDIA_KINDS.includes(kind) || /(bela|belabox|srt|feed|stream|irl)/i.test(name);
+      if (!isMediaCandidate) continue;
+
+      const status = await getObsMediaInputStatus(obs, name);
+      if (status && status.isLive) {
+        return { isLive: true, scene, sourceName: name, mediaState: status.state };
+      }
+    }
+    return { isLive: false, scene };
+  } catch {
+    return { isLive: false, scene: sceneName || 'unknown' };
+  }
+}
+
 /**
  * NOALBS-accurate feed fix / stream source reconnect (!fix / !f)
  * Reconnects ONLY the Belabox / SRT / media stream source on the active scene on air
- * WITHOUT switching scenes, exactly matching NOALBS obs_v5.rs fix():
+ * WITHOUT switching scenes, exactly matching NOALBS (crates/obs-actions/src/fix.rs & obs_v5.rs):
  *
- * 1. Identifies and targets ONLY the Belabox / SRT / media stream input (ffmpeg_source, irl_source, smooth_media_source, vlc_source).
- * 2. Leaves all other sources completely untouched so existing hidden sources (cameras, alerts, chat, images) STAY hidden.
- * 3. Finds any overlay / standby / low bitrate alert element on the scene and explicitly HIDES it (sceneItemEnabled: false).
- * 4. Reconnects the Belabox source via SetInputSettings ({}), TriggerMediaInputAction (Restart), and obs-smooth-media vendor restart.
+ * 1. Checks media player input status: detects if the media feed is actively playing/opening/buffering like NOALBS.
+ * 2. If NO stream source is currently playing on the active scene, returns NOALBS message:
+ *    "Nothing to fix: no stream source is playing on {scene}"
+ * 3. Targets ONLY the live media stream source and leaves all other scene sources untouched.
+ * 4. Finds any overlay / standby / low bitrate alert element on the scene and explicitly HIDES it (sceneItemEnabled: false).
+ * 5. Reconnects via SetInputSettings ({}), TriggerMediaInputAction (Restart), and obs-smooth-media vendor restart.
  */
 export async function safeObsFixFeed(
   obs: any,
   liveScene: string = 'live',
   options?: ObsFixFeedOptions
-): Promise<{ success: boolean; reconnectedCount?: number; error?: string }> {
-  if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
+): Promise<ObsFixFeedResult> {
+  if (!obs) {
+    return {
+      success: false,
+      scene: liveScene || 'live',
+      sources: [],
+      reconnectedCount: 0,
+      message: 'OBS WebSocket instance is not connected',
+      error: 'OBS WebSocket instance is not connected'
+    };
+  }
 
-  console.log(`🔧 [OBS] Executing NOALBS !fix: Targeting ONLY Belabox stream source and hiding overlay...`);
+  console.log(`🔧 [OBS] Executing NOALBS !fix: Checking for playing media stream sources on air...`);
   try {
     const currentScene = (await getCurrentObsScene(obs)) || liveScene || 'live';
-    let reconnectedCount = 0;
 
     // 1. Get scene items on the active program scene
     let items: any[] = [];
@@ -214,7 +315,13 @@ export async function safeObsFixFeed(
 
     if (!items || items.length === 0) {
       console.warn(`[OBS !fix] No scene items found in active scene "${currentScene}"`);
-      return { success: true, reconnectedCount: 0 };
+      return {
+        success: true,
+        scene: currentScene,
+        sources: [],
+        reconnectedCount: 0,
+        message: `Nothing to fix: no stream source is playing on ${currentScene}`
+      };
     }
 
     // Helper: Identify if an item is an overlay/standby/low-bitrate banner that should be hidden on !fix
@@ -226,7 +333,7 @@ export async function safeObsFixFeed(
       return /(overlay|low.*bitrate|standby|offline.*screen|brb|be right back|connecting|loading|placeholder)/i.test(s);
     };
 
-    // Helper: Identify if an item is the Belabox / SRT / media stream input
+    // Helper: Identify if an item is the Belabox / SRT / media stream input and whether it reads a network stream
     const isBelaboxStreamItem = async (item: any): Promise<{ isStream: boolean; inputKind: string }> => {
       const sourceName: string = item.sourceName || item.name || '';
       const s = sourceName.toLowerCase().trim();
@@ -238,7 +345,7 @@ export async function safeObsFixFeed(
       }
 
       // Check inputKind against NOALBS supported media kinds
-      const isKnownMediaKind = ['ffmpeg_source', 'vlc_source', 'irl_source', 'smooth_media_source'].includes(kind);
+      const isKnownMediaKind = NOALBS_MEDIA_KINDS.includes(kind);
 
       // Query input settings to inspect URL / input settings
       let isNetworkStream = false;
@@ -258,7 +365,7 @@ export async function safeObsFixFeed(
           url.includes('belabox') ||
           inputSettings.is_local_file === false;
 
-        if (isNetworkStream || ['ffmpeg_source', 'vlc_source', 'irl_source', 'smooth_media_source'].includes(kind)) {
+        if (isNetworkStream || NOALBS_MEDIA_KINDS.includes(kind)) {
           return { isStream: true, inputKind: kind || 'ffmpeg_source' };
         }
       } catch {}
@@ -295,8 +402,8 @@ export async function safeObsFixFeed(
       }
     }
 
-    // 3. Second pass: Find and reconnect ONLY the Belabox / SRT stream source
-    const streamSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
+    // 3. Second pass: Find candidate stream sources on the current active scene
+    const candidateSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
     for (const item of items) {
       const sourceName: string = item.sourceName || item.name || '';
       const itemId = item.sceneItemId ?? item.itemId;
@@ -307,27 +414,59 @@ export async function safeObsFixFeed(
 
       const check = await isBelaboxStreamItem(item);
       if (check.isStream) {
-        streamSources.push({ item, sourceName, itemId, inputKind: check.inputKind });
+        candidateSources.push({ item, sourceName, itemId, inputKind: check.inputKind });
       }
     }
 
-    // If no stream source matched by kind/settings, try finding any item named with bela/belabox/srt/feed
-    if (streamSources.length === 0) {
+    // Fallback: search for any source named bela/belabox/srt/feed if candidates is empty
+    if (candidateSources.length === 0) {
       for (const item of items) {
         const sourceName: string = item.sourceName || item.name || '';
         const itemId = item.sceneItemId ?? item.itemId;
         if (!sourceName || isOverlayItem(sourceName)) continue;
 
         if (/(bela|belabox|srt|feed)/i.test(sourceName) && !/(chat|alert|overlay|audio|mic)/i.test(sourceName)) {
-          streamSources.push({ item, sourceName, itemId, inputKind: item.inputKind || 'ffmpeg_source' });
+          candidateSources.push({ item, sourceName, itemId, inputKind: item.inputKind || 'ffmpeg_source' });
         }
       }
     }
 
-    // 4. Execute NOALBS In-Place Reconnect on the Belabox stream sources ONLY
-    for (const stream of streamSources) {
+    // 4. Third pass (NOALBS Media Live Detection):
+    // Check GetMediaInputStatus to detect if each candidate media source is actively live/playing
+    const playingStreamSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
+    for (const candidate of candidateSources) {
+      const { sourceName } = candidate;
+      const mediaStatus = await getObsMediaInputStatus(obs, sourceName);
+
+      // NOALBS checks if the media source is currently in PLAYING, BUFFERING, or OPENING state.
+      // If user explicitly configured streamSourceName, allow fix even if restarting an idle player.
+      const isExplicitTarget = options?.streamSourceName && sourceName.toLowerCase() === options.streamSourceName.toLowerCase();
+      if (mediaStatus?.isLive || isExplicitTarget) {
+        console.log(`📡 [OBS !fix] Media feed "${sourceName}" detected LIVE (${mediaStatus?.state || 'TARGETED'})`);
+        playingStreamSources.push(candidate);
+      } else {
+        console.log(`⏸️ [OBS !fix] Media source "${sourceName}" state is ${mediaStatus?.state || 'UNKNOWN'} (not playing)`);
+      }
+    }
+
+    // If NO stream source is currently playing on the active scene, match NOALBS exact outcome!
+    if (playingStreamSources.length === 0) {
+      const nothingMsg = `Nothing to fix: no stream source is playing on ${currentScene}`;
+      console.log(`ℹ [OBS !fix] ${nothingMsg}`);
+      return {
+        success: true,
+        scene: currentScene,
+        sources: [],
+        reconnectedCount: 0,
+        message: nothingMsg
+      };
+    }
+
+    // 5. Execute NOALBS In-Place Reconnect on the playing media sources ONLY
+    const fixedSources: string[] = [];
+    for (const stream of playingStreamSources) {
       const { sourceName, itemId, inputKind } = stream;
-      console.log(`🎯 [OBS !fix] Reconnecting Belabox stream source "${sourceName}" (kind: ${inputKind || 'unknown'})...`);
+      console.log(`🎯 [OBS !fix] Reconnecting playing media stream source "${sourceName}" (${inputKind || 'media'})...`);
 
       // NOALBS Method A: TriggerMediaInputAction Restart (for irl_source or media inputs)
       try {
@@ -378,14 +517,28 @@ export async function safeObsFixFeed(
         } catch {}
       }
 
-      reconnectedCount++;
+      fixedSources.push(sourceName);
     }
 
-    console.log(`🎉 [OBS !fix] Completed: Reconnected ${reconnectedCount} Belabox source(s), all other source visibilities preserved.`);
-    return { success: true, reconnectedCount };
+    const successMsg = `Reconnecting ${fixedSources.join(', ')}`;
+    console.log(`🎉 [OBS !fix] Completed: ${successMsg}`);
+    return {
+      success: true,
+      scene: currentScene,
+      sources: fixedSources,
+      reconnectedCount: fixedSources.length,
+      message: successMsg
+    };
   } catch (err: any) {
     console.error('❌ [OBS !fix] Error fixing feed:', err);
-    return { success: false, error: formatObsError(err) };
+    return {
+      success: false,
+      scene: liveScene || 'live',
+      sources: [],
+      reconnectedCount: 0,
+      message: `Failed to fix feed: ${formatObsError(err)}`,
+      error: formatObsError(err)
+    };
   }
 }
 
@@ -439,15 +592,22 @@ export async function safeObsStreamControlResult(
     streamSourceName?: string;
     overlaySourceName?: string;
   }
-): Promise<{ success: boolean; isRecording?: boolean; error?: string }> {
+): Promise<{ success: boolean; isRecording?: boolean; scene?: string; sources?: string[]; message?: string; error?: string }> {
   if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
 
   if (action === 'fix') {
     const liveScene = options?.liveScene || 'live';
-    return await safeObsFixFeed(obs, liveScene, {
+    const fixRes = await safeObsFixFeed(obs, liveScene, {
       streamSourceName: options?.streamSourceName,
       overlaySourceName: options?.overlaySourceName
     });
+    return {
+      success: fixRes.success,
+      scene: fixRes.scene,
+      sources: fixRes.sources,
+      message: fixRes.message,
+      error: fixRes.error
+    };
   }
 
   if (action === 'refresh') {
