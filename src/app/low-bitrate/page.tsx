@@ -361,15 +361,13 @@ function LowBitrateContent() {
         }
       }
 
-      showToast('Could not reach OBS. Make sure OBS is open with Tools → WebSocket Server Settings enabled (Port 4455).', 'warning');
+      showToast('Could not reach OBS. Make sure OBS is open with Tools → WebSocket Server Settings enabled (Port 4455).', 'info');
     } catch (err: any) {
       showToast(`Scan error: ${err?.message || err}`, 'error');
     } finally {
       setIsScanningScenes(false);
     }
   };
-    return () => clearInterval(telInterval);
-  }, [fetchTelemetry]);
 
   // 4. Save settings changes
   const saveSettingsUpdates = async (updates: Partial<OverlaySettings>) => {
@@ -2009,11 +2007,11 @@ function LowBitrateContent() {
                   <span>8,000+ kbps</span>
                 </div>
 
-                {/* Inputs: Switch to LOW / Switch to BRB */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '18px' }}>
-                  {/* LOW Bitrate Input */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                {/* Sliders & Inputs: Switch to LOW / Switch to BRB */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px', marginBottom: '18px' }}>
+                  {/* LOW Bitrate Slider & Input */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(250, 204, 21, 0.2)', borderRadius: '10px', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#facc15', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', display: 'inline-block' }} />
                         Switch to LOW at or below
@@ -2027,9 +2025,22 @@ function LowBitrateContent() {
                         />
                       </label>
                     </div>
+                    {/* Range Slider */}
+                    <input
+                      type="range"
+                      min={200}
+                      max={6000}
+                      step={50}
+                      value={settings.obsLowBitrateThreshold ?? 1100}
+                      onChange={(e) => saveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
+                      style={{ width: '100%', accentColor: '#facc15', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
+                    />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="number"
+                        min={0}
+                        max={20000}
+                        step={50}
                         value={settings.obsLowBitrateThreshold ?? 1100}
                         onChange={(e) => saveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
@@ -2038,9 +2049,9 @@ function LowBitrateContent() {
                     </div>
                   </div>
 
-                  {/* BRB Bitrate Input */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  {/* BRB Bitrate Slider & Input */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '10px', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
                         Switch to BRB at or below
@@ -2054,9 +2065,22 @@ function LowBitrateContent() {
                         />
                       </label>
                     </div>
+                    {/* Range Slider */}
+                    <input
+                      type="range"
+                      min={0}
+                      max={2500}
+                      step={25}
+                      value={settings.obsOfflineBitrateThreshold ?? 400}
+                      onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
+                      style={{ width: '100%', accentColor: '#ef4444', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
+                    />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="number"
+                        min={0}
+                        max={10000}
+                        step={25}
                         value={settings.obsOfflineBitrateThreshold ?? 400}
                         onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
@@ -2143,11 +2167,11 @@ function LowBitrateContent() {
                   <span>5,000+ ms</span>
                 </div>
 
-                {/* Inputs: Switch to LOW at or above / Switch to BRB at or above */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  {/* LOW RTT */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                {/* Sliders & Inputs: Switch to LOW at or above / Switch to BRB at or above */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px', marginBottom: '18px' }}>
+                  {/* LOW RTT Slider & Input */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(250, 204, 21, 0.2)', borderRadius: '10px', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#facc15', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', display: 'inline-block' }} />
                         Switch to LOW at or above
@@ -2161,9 +2185,22 @@ function LowBitrateContent() {
                         />
                       </label>
                     </div>
+                    {/* Range Slider */}
+                    <input
+                      type="range"
+                      min={200}
+                      max={6000}
+                      step={50}
+                      value={settings.obsRttThreshold ?? 2500}
+                      onChange={(e) => saveSettingsUpdates({ obsRttThreshold: Number(e.target.value) || 0 })}
+                      style={{ width: '100%', accentColor: '#facc15', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
+                    />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="number"
+                        min={0}
+                        max={15000}
+                        step={50}
                         value={settings.obsRttThreshold ?? 2500}
                         onChange={(e) => saveSettingsUpdates({ obsRttThreshold: Number(e.target.value) || 0 })}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
@@ -2172,9 +2209,9 @@ function LowBitrateContent() {
                     </div>
                   </div>
 
-                  {/* BRB RTT */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  {/* BRB RTT Slider & Input */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '10px', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
                         Switch to BRB at or above
@@ -2188,9 +2225,22 @@ function LowBitrateContent() {
                         />
                       </label>
                     </div>
+                    {/* Range Slider */}
+                    <input
+                      type="range"
+                      min={500}
+                      max={8000}
+                      step={50}
+                      value={settings.obsRttOfflineThreshold ?? 3500}
+                      onChange={(e) => saveSettingsUpdates({ obsRttOfflineThreshold: Number(e.target.value) || 0 })}
+                      style={{ width: '100%', accentColor: '#ef4444', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
+                    />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="number"
+                        min={0}
+                        max={20000}
+                        step={50}
                         value={settings.obsRttOfflineThreshold ?? 3500}
                         onChange={(e) => saveSettingsUpdates({ obsRttOfflineThreshold: Number(e.target.value) || 0 })}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
@@ -2199,231 +2249,334 @@ function LowBitrateContent() {
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* CARD 3: Target Scene Names Dropdowns (All scenes detected) */}
-              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>
-                      Target Scene Names
-                    </h3>
-                    <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                      Choose from all scenes detected in OBS for each automatic trigger
-                    </span>
-                  </div>
-                  {availableScenes.length > 0 && (
-                    <span style={{ fontSize: '0.75rem', color: '#4ade80', background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.3)', padding: '3px 8px', borderRadius: '6px', fontWeight: 700 }}>
-                      ✓ {availableScenes.length} OBS scenes detected
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
-                  {/* LIVE SCENE */}
-                  <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#4ade80', marginBottom: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-                      Live Scene:
-                    </label>
-                    <select
-                      value={settings.obsLiveSceneName || 'live'}
-                      onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsLiveSceneName || 'live').toLowerCase()) && (
-                            <option value={settings.obsLiveSceneName || 'live'}>{settings.obsLiveSceneName || 'live'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                              {sc}
-                            </option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsLiveSceneName || 'live'}>{settings.obsLiveSceneName || 'live'} (Connect OBS to detect scenes)</option>
-                      )}
-                    </select>
+                {/* 3 Status Summary Boxes for RTT */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {/* LIVE */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#4ade80', marginBottom: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                      LIVE
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+                      below {(settings.obsRttThreshold ?? 2500).toLocaleString()} ms
+                    </div>
                   </div>
 
-                  {/* LOW SCENE */}
-                  <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#facc15', marginBottom: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
-                      Low Scene:
-                    </label>
-                    <select
-                      value={settings.obsLowSceneName || 'low'}
-                      onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsLowSceneName || 'low').toLowerCase()) && (
-                            <option value={settings.obsLowSceneName || 'low'}>{settings.obsLowSceneName || 'low'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                              {sc}
-                            </option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsLowSceneName || 'low'}>{settings.obsLowSceneName || 'low'} (Connect OBS to detect scenes)</option>
-                      )}
-                    </select>
+                  {/* LOW */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(234, 179, 8, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#facc15', marginBottom: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+                      LOW
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+                      {(settings.obsRttThreshold ?? 2500).toLocaleString()} ms to {(settings.obsRttOfflineThreshold ?? 3500).toLocaleString()} ms
+                    </div>
                   </div>
 
-                  {/* BRB / OFFLINE SCENE */}
-                  <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#f87171', marginBottom: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
-                      BRB / Offline Scene:
-                    </label>
-                    <select
-                      value={settings.obsOfflineSceneName || 'offline'}
-                      onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsOfflineSceneName || 'offline').toLowerCase()) && (
-                            <option value={settings.obsOfflineSceneName || 'offline'}>{settings.obsOfflineSceneName || 'offline'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                              {sc}
-                            </option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsOfflineSceneName || 'offline'}>{settings.obsOfflineSceneName || 'offline'} (Connect OBS to detect scenes)</option>
-                      )}
-                    </select>
-                  </div>
-
-                  {/* REFRESH SCENE */}
-                  <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8', marginBottom: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }} />
-                      Refresh Scene:
-                    </label>
-                    <select
-                      value={settings.obsRefreshSceneName || 'refresh'}
-                      onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsRefreshSceneName || 'refresh').toLowerCase()) && (
-                            <option value={settings.obsRefreshSceneName || 'refresh'}>{settings.obsRefreshSceneName || 'refresh'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                              {sc}
-                            </option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsRefreshSceneName || 'refresh'}>{settings.obsRefreshSceneName || 'refresh'} (Connect OBS to detect scenes)</option>
-                      )}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Switch Delay & Secondary scenes */}
-                <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                      Switch Delay:
-                    </label>
-                    <select
-                      value={settings.obsSwitchDelaySeconds ?? 3}
-                      onChange={(e) => saveSettingsUpdates({ obsSwitchDelaySeconds: Number(e.target.value) || 3 })}
-                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                    >
-                      <option value={1} style={{ background: '#1e293b' }}>1 Second (Instant)</option>
-                      <option value={2} style={{ background: '#1e293b' }}>2 Seconds</option>
-                      <option value={3} style={{ background: '#1e293b' }}>3 Seconds (Recommended)</option>
-                      <option value={5} style={{ background: '#1e293b' }}>5 Seconds</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                      Starting Scene:
-                    </label>
-                    <select
-                      value={settings.obsStartingSceneName || 'starting'}
-                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
-                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsStartingSceneName || 'starting').toLowerCase()) && (
-                            <option value={settings.obsStartingSceneName || 'starting'}>{settings.obsStartingSceneName || 'starting'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsStartingSceneName || 'starting'}>{settings.obsStartingSceneName || 'starting'}</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                      Ending Scene:
-                    </label>
-                    <select
-                      value={settings.obsEndingSceneName || 'ending'}
-                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
-                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsEndingSceneName || 'ending').toLowerCase()) && (
-                            <option value={settings.obsEndingSceneName || 'ending'}>{settings.obsEndingSceneName || 'ending'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsEndingSceneName || 'ending'}>{settings.obsEndingSceneName || 'ending'}</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
-                      Privacy Scene:
-                    </label>
-                    <select
-                      value={settings.obsPrivacySceneName || 'privacy'}
-                      onChange={(e) => saveSettingsUpdates({ obsPrivacySceneName: e.target.value })}
-                      style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        <>
-                          {!availableScenes.some(s => s.toLowerCase() === (settings.obsPrivacySceneName || 'privacy').toLowerCase()) && (
-                            <option value={settings.obsPrivacySceneName || 'privacy'}>{settings.obsPrivacySceneName || 'privacy'} (Saved)</option>
-                          )}
-                          {availableScenes.map(sc => (
-                            <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value={settings.obsPrivacySceneName || 'privacy'}>{settings.obsPrivacySceneName || 'privacy'}</option>
-                      )}
-                    </select>
+                  {/* BRB */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#f87171', marginBottom: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                      BRB
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+                      {(settings.obsRttOfflineThreshold ?? 3500).toLocaleString()} ms or higher
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* CARD 3: Target Scene Names Dropdowns (All scenes detected + Fallback Presets + Manual Typing) */}
+              {(() => {
+                const defaultPresets = [
+                  'live', 'low', 'offline', 'refresh', 'starting', 'ending', 'privacy',
+                  'Live', 'Low Bitrate', 'BRB', 'Starting Soon', 'Stream Ending', 'Just Chatting', 'Gameplay', 'Screen Share'
+                ];
+                const getOptionsForScene = (currentValue: string) => {
+                  if (availableScenes.length > 0) {
+                    return Array.from(new Set([currentValue, ...availableScenes])).filter(Boolean);
+                  }
+                  return Array.from(new Set([currentValue, ...defaultPresets])).filter(Boolean);
+                };
+
+                return (
+                  <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>
+                          Target Scene Names
+                        </h3>
+                        <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                          Choose from all scenes detected in OBS for each automatic trigger
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={handleScanObsScenes}
+                          disabled={isScanningScenes}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'rgba(56, 189, 248, 0.15)',
+                            border: '1px solid #38bdf8',
+                            borderRadius: '6px',
+                            color: '#38bdf8',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: isScanningScenes ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <span>🔄</span>
+                          {isScanningScenes ? 'Scanning OBS...' : 'Rescan OBS Scenes'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setCustomSceneMode(prev => !prev)}
+                          style={{
+                            padding: '6px 10px',
+                            background: customSceneMode ? 'rgba(147, 51, 234, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            borderRadius: '6px',
+                            color: '#fff',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {customSceneMode ? '📋 Use Dropdowns' : '✏️ Type Manually'}
+                        </button>
+
+                        {availableScenes.length > 0 ? (
+                          <span style={{ fontSize: '0.75rem', color: '#4ade80', background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.3)', padding: '3px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                            ✓ {availableScenes.length} scenes detected
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: '#facc15', background: 'rgba(250, 204, 21, 0.1)', border: '1px solid rgba(250, 204, 21, 0.3)', padding: '3px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                            Preset scenes (Click Rescan to detect OBS)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+                      {/* LIVE SCENE */}
+                      <div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#4ade80', marginBottom: '6px' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                          Live Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsLiveSceneName || 'live'}
+                            onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
+                            placeholder="e.g. Live"
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsLiveSceneName || 'live'}
+                            onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          >
+                            {getOptionsForScene(settings.obsLiveSceneName || 'live').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                                {sc}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      {/* LOW SCENE */}
+                      <div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#facc15', marginBottom: '6px' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+                          Low Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsLowSceneName || 'low'}
+                            onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
+                            placeholder="e.g. low"
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsLowSceneName || 'low'}
+                            onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          >
+                            {getOptionsForScene(settings.obsLowSceneName || 'low').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                                {sc}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      {/* BRB / OFFLINE SCENE */}
+                      <div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#f87171', marginBottom: '6px' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                          BRB / Offline Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsOfflineSceneName || 'offline'}
+                            onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
+                            placeholder="e.g. offline"
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsOfflineSceneName || 'offline'}
+                            onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          >
+                            {getOptionsForScene(settings.obsOfflineSceneName || 'offline').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                                {sc}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      {/* REFRESH SCENE */}
+                      <div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8', marginBottom: '6px' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }} />
+                          Refresh Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsRefreshSceneName || 'refresh'}
+                            onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
+                            placeholder="e.g. refresh"
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsRefreshSceneName || 'refresh'}
+                            onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
+                            style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.88rem' }}
+                          >
+                            {getOptionsForScene(settings.obsRefreshSceneName || 'refresh').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                                {sc}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Switch Delay & Secondary scenes */}
+                    <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                          Switch Delay:
+                        </label>
+                        <select
+                          value={settings.obsSwitchDelaySeconds ?? 3}
+                          onChange={(e) => saveSettingsUpdates({ obsSwitchDelaySeconds: Number(e.target.value) || 3 })}
+                          style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                        >
+                          <option value={1} style={{ background: '#1e293b' }}>1 Second (Instant)</option>
+                          <option value={2} style={{ background: '#1e293b' }}>2 Seconds</option>
+                          <option value={3} style={{ background: '#1e293b' }}>3 Seconds (Recommended)</option>
+                          <option value={5} style={{ background: '#1e293b' }}>5 Seconds</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                          Starting Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsStartingSceneName || 'starting'}
+                            onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                            placeholder="e.g. starting"
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsStartingSceneName || 'starting'}
+                            onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                          >
+                            {getOptionsForScene(settings.obsStartingSceneName || 'starting').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                          Ending Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsEndingSceneName || 'ending'}
+                            onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
+                            placeholder="e.g. ending"
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsEndingSceneName || 'ending'}
+                            onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                          >
+                            {getOptionsForScene(settings.obsEndingSceneName || 'ending').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
+                          Privacy Scene:
+                        </label>
+                        {customSceneMode ? (
+                          <input
+                            type="text"
+                            value={settings.obsPrivacySceneName || 'privacy'}
+                            onChange={(e) => saveSettingsUpdates({ obsPrivacySceneName: e.target.value })}
+                            placeholder="e.g. privacy"
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                          />
+                        ) : (
+                          <select
+                            value={settings.obsPrivacySceneName || 'privacy'}
+                            onChange={(e) => saveSettingsUpdates({ obsPrivacySceneName: e.target.value })}
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }}
+                          >
+                            {getOptionsForScene(settings.obsPrivacySceneName || 'privacy').map(sc => (
+                              <option key={sc} value={sc} style={{ background: '#1e293b' }}>{sc}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
             </div>
 
