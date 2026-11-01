@@ -1764,9 +1764,25 @@ function OverlayPage() {
               sendChatReply(replyMsg, { color: success ? 'primary' : 'orange' });
             };
 
+            // Helper to check command permission from NOALBS command settings
+            const checkCommandRole = (cmdId: string, defaultRole: 'Admins' | 'Moderators' | 'Everyone'): { allowed: boolean; role: 'Admins' | 'Moderators' | 'Everyone' } => {
+              const list: any[] = seSettingsRef.current?.noalbsCommandsList || [];
+              const cfg = list.find((c: any) => c.id === cmdId || c.name === `!${cmdId}`);
+              const role: 'Admins' | 'Moderators' | 'Everyone' = cfg?.role || cfg?.defaultRole || defaultRole;
+
+              if (role === 'Admins') {
+                return { allowed: Boolean(isBroadcaster), role };
+              }
+              if (role === 'Moderators') {
+                return { allowed: Boolean(isBroadcaster || isMod), role };
+              }
+              return { allowed: true, role };
+            };
+
             // Helper to send permission error reply
-            const sendPermError = (cmdName: string) => {
-              sendChatReply(`⚠️ Command !${cmdName} ignored: Only the Broadcaster can use stream commands.`, { color: 'orange' });
+            const sendPermError = (cmdName: string, role: 'Admins' | 'Moderators' | 'Everyone' = 'Admins') => {
+              const roleLabel = role === 'Admins' ? 'Broadcaster (Admin)' : 'Moderator or Broadcaster';
+              sendChatReply(`⚠️ Command !${cmdName} ignored: Requires ${roleLabel} permission.`, { color: 'orange' });
             };
 
             // Command: !start / !startstream / !golive
@@ -1776,10 +1792,10 @@ function OverlayPage() {
                 OverlayLogger.overlay(`Twitch IRC !start command ignored (obsStreamCommandsEnabled is disabled in settings)`);
                 return;
               }
-              const isStreamCmdAllowed = isBroadcaster;
-              if (!isStreamCmdAllowed) {
-                OverlayLogger.overlay(`Twitch IRC !start command ignored (user lacks broadcaster permission)`);
-                sendPermError('start');
+              const perm = checkCommandRole('start', 'Admins');
+              if (!perm.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !start command ignored (user lacks ${perm.role} permission)`);
+                sendPermError('start', perm.role);
                 return;
               }
               executeObsStreamAction('start');
@@ -1793,10 +1809,10 @@ function OverlayPage() {
                 OverlayLogger.overlay(`Twitch IRC !end command ignored (obsStreamCommandsEnabled is disabled in settings)`);
                 return;
               }
-              const isStreamCmdAllowed = isBroadcaster;
-              if (!isStreamCmdAllowed) {
-                OverlayLogger.overlay(`Twitch IRC !end command ignored (user lacks broadcaster permission)`);
-                sendPermError('end');
+              const perm = checkCommandRole('stop', 'Admins');
+              if (!perm.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !end command ignored (user lacks ${perm.role} permission)`);
+                sendPermError('end', perm.role);
                 return;
               }
               executeObsStreamAction('stop');
@@ -1814,10 +1830,10 @@ function OverlayPage() {
                 OverlayLogger.overlay('Twitch IRC !fix ignored due to cooldown');
                 return;
               }
-              const isStreamCmdAllowed = isBroadcaster || isMod;
-              if (!isStreamCmdAllowed) {
-                OverlayLogger.overlay(`Twitch IRC !fix command ignored (user lacks moderator permission)`);
-                sendPermError('fix');
+              const perm = checkCommandRole('fix', 'Moderators');
+              if (!perm.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !fix command ignored (user lacks ${perm.role} permission)`);
+                sendPermError('fix', perm.role);
                 return;
               }
 
@@ -1870,10 +1886,10 @@ function OverlayPage() {
                 OverlayLogger.overlay('Twitch IRC !refresh ignored due to cooldown');
                 return;
               }
-              const isStreamCmdAllowed = isBroadcaster;
-              if (!isStreamCmdAllowed) {
-                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (user lacks broadcaster permission)`);
-                sendPermError('refresh');
+              const perm = checkCommandRole('refresh', 'Moderators');
+              if (!perm.allowed) {
+                OverlayLogger.overlay(`Twitch IRC !refresh command ignored (user lacks ${perm.role} permission)`);
+                sendPermError('refresh', perm.role);
                 return;
               }
               
