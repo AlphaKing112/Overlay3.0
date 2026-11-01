@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
@@ -166,6 +166,33 @@ function LowBitrateContent() {
     }
   }, [mode, settings.obsSceneSwitchSignal]);
 
+  // Fast 1.5s signal poller when running inside OBS Browser Source (?mode=overlay)
+  useEffect(() => {
+    if (mode !== 'overlay') return;
+    let isActive = true;
+    const pollSignal = async () => {
+      if (!isActive || !localObsRef.current) return;
+      try {
+        const res = await fetch('/api/obs-switch-scene', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.signal && data.signal.timestamp > lastProcessedSceneSignalRef.current) {
+            lastProcessedSceneSignalRef.current = data.signal.timestamp;
+            safeObsSwitchScene(localObsRef.current, data.signal.sceneName).then(ok => {
+              if (ok) setCurrentScene(data.signal.sceneName);
+            });
+          }
+        }
+      } catch {}
+    };
+
+    const interval = setInterval(pollSignal, 1500);
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [mode]);
+
   // Refs for tracking transitions and preventing re-trigger loops
   const settingsRef = useRef<OverlaySettings>(settings);
   const autoSwitchStateRef = useRef(autoSwitchState);
@@ -276,6 +303,8 @@ function LowBitrateContent() {
     }
   };
 
+  const manualOverrideUntilRef = useRef<number>(0);
+
   // 5. Scene Switching Execution
   const switchScene = async (sceneName: string, reason: string = 'Manual') => {
     if (!sceneName) {
@@ -285,6 +314,17 @@ function LowBitrateContent() {
     setIsSwitchingScene(true);
     const logText = `Switching to: "${sceneName}" (${reason})...`;
     setLastSwitchLog(logText);
+
+    // If manual switch to a non-live scene (e.g. low, offline), pause auto-switching for 45s
+    const isLiveTarget = sceneName.toLowerCase().includes('live') || sceneName.toLowerCase() === (settings.obsLiveSceneName || 'live').toLowerCase();
+    if (!isLiveTarget) {
+      manualOverrideUntilRef.current = Date.now() + 45000;
+      setAutoSwitchState(sceneName.toLowerCase().includes('low') ? 'LOW' : 'OFFLINE');
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏸️ Pausing auto-switch for 45s to stay on: "${sceneName}"`);
+    } else {
+      manualOverrideUntilRef.current = 0;
+      setAutoSwitchState('LIVE');
+    }
 
     try {
       const now = Date.now();
@@ -431,6 +471,11 @@ function LowBitrateContent() {
       // NOALBS State Machine Evaluation
       if (!currentSettings.obsAutoSwitchSceneToggle) {
         setAutoSwitchState('IDLE');
+        return;
+      }
+
+      // If manual scene switch is active, hold on the selected scene and skip auto-switch
+      if (Date.now() < manualOverrideUntilRef.current) {
         return;
       }
 
@@ -653,26 +698,30 @@ function LowBitrateContent() {
     saveSettingsUpdates({ noalbsCommandsList: updated });
   };
 
-  // Filter commands by role and search
-  const filteredCommands = activeCommandsList.filter(cmd => {
-    if (commandsRoleFilter !== 'All' && cmd.role !== commandsRoleFilter) {
-      return false;
-    }
-    if (commandSearchQuery.trim()) {
-      const q = commandSearchQuery.toLowerCase().trim();
-      const matchName = cmd.name.toLowerCase().includes(q);
-      const matchDesc = cmd.description.toLowerCase().includes(q);
-      const matchAliases = (cmd.aliases || []).some(a => a.toLowerCase().includes(q));
-      return matchName || matchDesc || matchAliases;
-    }
-    return true;
-  });
+  // Filter commands by role and search (memoized for performance)
+  const filteredCommands = useMemo(() => {
+    return activeCommandsList.filter(cmd => {
+      if (commandsRoleFilter !== 'All' && cmd.role !== commandsRoleFilter) {
+        return false;
+      }
+      if (commandSearchQuery.trim()) {
+        const q = commandSearchQuery.toLowerCase().trim();
+        const matchName = cmd.name.toLowerCase().includes(q);
+        const matchDesc = cmd.description.toLowerCase().includes(q);
+        const matchAliases = (cmd.aliases || []).some(a => a.toLowerCase().includes(q));
+        return matchName || matchDesc || matchAliases;
+      }
+      return true;
+    });
+  }, [activeCommandsList, commandsRoleFilter, commandSearchQuery]);
 
-  // Role count helpers
-  const countAll = activeCommandsList.length;
-  const countAdmins = activeCommandsList.filter(c => c.role === 'Admins').length;
-  const countMods = activeCommandsList.filter(c => c.role === 'Moderators').length;
-  const countEveryone = activeCommandsList.filter(c => c.role === 'Everyone').length;
+  // Role count helpers (memoized)
+  const { countAll, countAdmins, countMods, countEveryone } = useMemo(() => ({
+    countAll: activeCommandsList.length,
+    countAdmins: activeCommandsList.filter(c => c.role === 'Admins').length,
+    countMods: activeCommandsList.filter(c => c.role === 'Moderators').length,
+    countEveryone: activeCommandsList.filter(c => c.role === 'Everyone').length,
+  }), [activeCommandsList]);
 
   // OBS WebSocket Card Component matching NOALBS UI Screenshot
   const renderObsWebSocketCard = () => (
@@ -1635,6 +1684,7 @@ function LowBitrateContent() {
                         <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Live Scene:</label>
                         <input
                           type="text"
+                          list="obs-available-scenes"
                           className="form-control"
                           value={settings.obsLiveSceneName ?? 'live'}
                           onChange={(e) => saveSettingsUpdates({ obsLiveSceneName: e.target.value })}
@@ -1647,6 +1697,7 @@ function LowBitrateContent() {
                         <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Low Scene:</label>
                         <input
                           type="text"
+                          list="obs-available-scenes"
                           className="form-control"
                           value={settings.obsLowSceneName ?? 'low'}
                           onChange={(e) => saveSettingsUpdates({ obsLowSceneName: e.target.value })}
@@ -1659,6 +1710,7 @@ function LowBitrateContent() {
                         <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Offline Scene:</label>
                         <input
                           type="text"
+                          list="obs-available-scenes"
                           className="form-control"
                           value={settings.obsOfflineSceneName ?? 'offline'}
                           onChange={(e) => saveSettingsUpdates({ obsOfflineSceneName: e.target.value })}
@@ -1671,6 +1723,7 @@ function LowBitrateContent() {
                         <label style={{ fontSize: '0.75rem', opacity: 0.7 }}>Refresh Scene:</label>
                         <input
                           type="text"
+                          list="obs-available-scenes"
                           className="form-control"
                           value={settings.obsRefreshSceneName ?? 'refresh'}
                           onChange={(e) => saveSettingsUpdates({ obsRefreshSceneName: e.target.value })}
@@ -1679,6 +1732,13 @@ function LowBitrateContent() {
                         />
                       </div>
                     </div>
+
+                    {/* Datalist for autocomplete with actual OBS scenes */}
+                    <datalist id="obs-available-scenes">
+                      {availableScenes.map(sc => (
+                        <option key={sc} value={sc} />
+                      ))}
+                    </datalist>
                   </div>
 
                 </div>

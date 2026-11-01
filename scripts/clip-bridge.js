@@ -92,7 +92,7 @@ async function processClip(inputPath, durationSec) {
  * Uploads processed video to Discord Webhook
  */
 async function uploadToDiscord(options) {
-  const { webhookUrl, videoPath, username, displayName, duration, pointsSpent = 0, sceneName } = options;
+  const { webhookUrl, videoPath, username, displayName, duration, pointsSpent = 0, sceneName, title } = options;
 
   if (!webhookUrl || !webhookUrl.startsWith('https://')) {
     throw new Error('Invalid Discord Webhook URL');
@@ -102,16 +102,17 @@ async function uploadToDiscord(options) {
   const nowIso = new Date().toISOString();
   const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const filename = `clip_${name}_${Date.now()}.mp4`;
+  const titleHeader = title && title.trim() ? ` "${title.trim()}"` : '';
 
   const stats = fs.statSync(videoPath);
   console.log(`📤 [Local Bridge] Uploading ${Math.round(stats.size / 1024)} KB clip to Discord for @${name}...`);
 
   const discordPayload = {
-    content: `🎬 **!clip** (${duration}s) captured by **${name}**!`,
+    content: `🎬 **!clip**${titleHeader} (${duration}s) captured by **${name}**!`,
     embeds: [
       {
-        title: `🎬 Live Stream Clip (${duration}s)`,
-        description: `Clipped by **${name}** via \`!clip\` chat command${pointsSpent > 0 ? ` (${pointsSpent} StreamElements points)` : ''}${sceneName ? `\n📺 Scene: \`${sceneName}\`` : ''}`,
+        title: `🎬 Live Stream Clip${titleHeader} (${duration}s)`,
+        description: `Clipped by **${name}** via \`!clip\`${title ? `\n📝 Title: **${title.trim()}**` : ''}${pointsSpent > 0 ? ` (${pointsSpent} StreamElements points)` : ''}${sceneName ? `\n📺 Scene: \`${sceneName}\`` : ''}`,
         color: 0x00d2ff,
         footer: {
           text: `Stream Overlay • ${timeStr}`
@@ -189,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const body = JSON.parse(bodyData || '{}');
-        const { action = 'process_and_upload', replayPath, duration = 60, webhookUrl, username, displayName, pointsCost = 0, sceneName } = body;
+        const { action = 'process_and_upload', replayPath, duration = 60, webhookUrl, username, displayName, pointsCost = 0, sceneName, title } = body;
 
         if (action === 'health') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -227,7 +228,8 @@ const server = http.createServer(async (req, res) => {
               displayName,
               duration,
               pointsSpent: pointsCost,
-              sceneName
+              sceneName,
+              title
             });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: 'Clip processed and uploaded to Discord successfully' }));

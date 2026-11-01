@@ -2948,21 +2948,63 @@ function OverlayPage() {
 
   // Cloud Scene Switch Signal Listener (triggers immediate local scene switch from cloud dashboard or chat commands)
   const lastProcessedSceneSignalRef = useRef<number>(0);
-  useEffect(() => {
-    const signal = settings.obsSceneSwitchSignal;
+  const manualOverrideUntilRef = useRef<number>(0);
+
+  const processSceneSignal = useCallback((signal: { sceneName: string; timestamp: number }) => {
     if (!signal || !signal.timestamp || !signal.sceneName) return;
     if (signal.timestamp <= lastProcessedSceneSignalRef.current) return;
     lastProcessedSceneSignalRef.current = signal.timestamp;
 
     console.log(`🎬 [OBS Overlay] Received cloud scene switch signal for: "${signal.sceneName}"`);
+
+    // If switching to non-live scene (e.g. low, offline), pause auto-switching for 45s
+    const isLiveTarget = signal.sceneName.toLowerCase().includes('live');
+    if (!isLiveTarget) {
+      manualOverrideUntilRef.current = Date.now() + 45000;
+      lastBitrateStateRef.current = 'low';
+      appendObsLog('info', `[manual-override] Pausing auto-switch for 45s to stay on '${signal.sceneName}'`);
+    } else {
+      manualOverrideUntilRef.current = 0;
+      lastBitrateStateRef.current = 'live';
+    }
+
     if (localObsRef.current) {
       safeObsSwitchScene(localObsRef.current, signal.sceneName).then(ok => {
         if (ok) {
-          appendObsLog('success', `[cloud-relay] Switched scene to '${signal.sceneName}' via cloud signal`);
+          appendObsLog('success', `[cloud-relay] Switched OBS program scene to '${signal.sceneName}'`);
         }
       });
     }
-  }, [settings.obsSceneSwitchSignal, appendObsLog]);
+  }, [appendObsLog]);
+
+  useEffect(() => {
+    if (settings.obsSceneSwitchSignal) {
+      processSceneSignal(settings.obsSceneSwitchSignal);
+    }
+  }, [settings.obsSceneSwitchSignal, processSceneSignal]);
+
+  // Fast 1.5s signal check to guarantee immediate scene switching from dashboard/chat
+  useEffect(() => {
+    let isActive = true;
+    const pollSignal = async () => {
+      if (!isActive || !localObsRef.current) return;
+      try {
+        const res = await fetch('/api/obs-switch-scene', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.signal && data.signal.timestamp > lastProcessedSceneSignalRef.current) {
+            processSceneSignal(data.signal);
+          }
+        }
+      } catch {}
+    };
+
+    const interval = setInterval(pollSignal, 1500);
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [processSceneSignal]);
 
   // Periodic OBS Telemetry Reporter (relays Dropped Frames, Uptime, CPU %, FPS, and Logs to cloud)
   useEffect(() => {
@@ -3210,6 +3252,12 @@ function OverlayPage() {
     setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
 
     if (!obsConnected || !hasFetchedStats) {
+      return;
+    }
+
+    // Skip auto-switch while streamer has a manual scene switch active
+    if (Date.now() < manualOverrideUntilRef.current) {
+      console.log('[AUTO-SWITCH] Paused due to active manual scene switch override');
       return;
     }
     

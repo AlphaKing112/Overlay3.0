@@ -288,7 +288,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
 
   // Log any rejected keys (potential malicious entries)
   for (const key of Object.keys(settings)) {
-    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'mapFormat' && key !== 'mapShowSpeed' && key !== 'mapShowTime' && key !== 'mapShowAltitude' && key !== 'mapShowCoords' && key !== 'mapShowLocation' && key !== 'mapShowHeading' && key !== 'mapShowStatus' && key !== 'mapShowTrail' && key !== 'mapShowHud' && key !== 'mapShowControls' && key !== 'mapPitch' && key !== 'mapZoom' && key !== 'mapUiScale' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'obsStreamCommandSignal' && key !== 'obsSceneSwitchSignal') { // valid keys
+    if (!(key in SETTINGS_CONFIG) && key !== 'todos' && key !== 'urls' && key !== 'showTodoList' && key !== 'swapLocationTimePositions' && key !== 'minimapScale' && key !== 'showBackground' && key !== 'mapStyle' && key !== 'mapFormat' && key !== 'mapShowSpeed' && key !== 'mapShowTime' && key !== 'mapShowAltitude' && key !== 'mapShowCoords' && key !== 'mapShowLocation' && key !== 'mapShowHeading' && key !== 'mapShowStatus' && key !== 'mapShowTrail' && key !== 'mapShowHud' && key !== 'mapShowControls' && key !== 'mapPitch' && key !== 'mapZoom' && key !== 'mapUiScale' && key !== 'bitrateDisplay' && key !== 'bitrateAnchor' && key !== 'showLowBitrateAlert' && key !== 'showBitrateWarnings' && key !== 'globalFont' && key !== 'globalTheme' && key !== 'lowBitrateThreshold' && key !== 'criticalBitrateThreshold' && key !== 'lowBitrateAlertScale' && key !== 'lowBitrateAlertX' && key !== 'lowBitrateAlertY' && key !== 'todoListPosition' && key !== 'showCalorieTracker' && key !== 'calorieGoal' && key !== 'minimapX' && key !== 'minimapY' && key !== 'minimapPosition' && key !== 'donationGoals' && key !== 'donoShowBackground' && key !== 'donoGoalText' && key !== 'obsWebsocketUrl' && key !== 'obsWebsocketPassword' && key !== 'shoutout' && key !== 'shoutoutAnnouncementTemplate' && key !== 'shoutoutX' && key !== 'shoutoutY' && key !== 'shoutoutScale' && key !== 'obsStreamCommandSignal' && key !== 'obsSceneSwitchSignal' && key !== 'noalbsCommandsList') { // valid keys
       rejectedKeys.push(key);
     }
   }
@@ -627,6 +627,7 @@ const VALID_SETTINGS_KEYS = new Set<string>([
   'shoutout',
   'obsStreamCommandSignal',
   'obsSceneSwitchSignal',
+  'noalbsCommandsList',
   'settings'
 ]);
 

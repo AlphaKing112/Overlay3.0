@@ -23,35 +23,79 @@ export function formatObsError(err: any): string {
  */
 export async function safeObsSwitchScene(obs: any, sceneName: string): Promise<boolean> {
   if (!obs || !sceneName) return false;
+  const target = String(sceneName).trim();
+  const lowerTarget = target.toLowerCase();
+
   try {
-    // 1. Try standard OBS WebSocket v5: SetCurrentProgramScene
-    await obs.call('SetCurrentProgramScene', { sceneName });
-    console.log(`✅ [OBS] Switched scene to: "${sceneName}"`);
+    // 1. Try standard OBS WebSocket v5: SetCurrentProgramScene (exact match)
+    await obs.call('SetCurrentProgramScene', { sceneName: target });
+    console.log(`✅ [OBS] Switched scene to: "${target}"`);
     return true;
   } catch (err1) {
     try {
-      // 2. Case-insensitive scene name lookup matching
+      // 2. Fetch full scene list from OBS
       const sceneListData = await obs.call('GetSceneList');
-      const scenes = (sceneListData.scenes as any[]) || [];
-      const matched = scenes.find((s: any) => 
-        String(s.sceneName || s.name || '').toLowerCase() === sceneName.toLowerCase()
-      );
+      const rawScenes = (sceneListData.scenes as any[]) || [];
+      const scenes = rawScenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean);
+
+      // 2a. Case-insensitive exact match
+      let matched = scenes.find((s: string) => s.toLowerCase() === lowerTarget);
+
+      // 2b. Intelligent partial/keyword match
+      if (!matched) {
+        if (lowerTarget === 'live') {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l.includes('live') || l.includes('main') || l.includes('game') || l.includes('chat') || l.includes('stream') || l.includes('irl');
+          });
+        } else if (lowerTarget === 'low' || lowerTarget.includes('low')) {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l.includes('low') || l.includes('weak') || l.includes('bad') || l.includes('standby') || l.includes('reconnect');
+          });
+        } else if (lowerTarget === 'offline' || lowerTarget === 'brb' || lowerTarget.includes('off')) {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l.includes('offline') || l.includes('brb') || l.includes('break') || l.includes('pause') || l.includes('right back');
+          });
+        } else if (lowerTarget === 'refresh' || lowerTarget === 'fix') {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l.includes('refresh') || l.includes('fix') || l.includes('reset') || l.includes('reload');
+          });
+        } else if (lowerTarget === 'starting' || lowerTarget === 'start') {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l.includes('start') || l.includes('intro') || l.includes('soon');
+          });
+        } else if (lowerTarget === 'ending' || lowerTarget === 'end') {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l.includes('end') || l.includes('outro') || l.includes('bye');
+          });
+        } else {
+          // General partial match
+          matched = scenes.find(s => s.toLowerCase().includes(lowerTarget) || lowerTarget.includes(s.toLowerCase()));
+        }
+      }
+
       if (matched) {
-        const exactName = String(matched.sceneName || matched.name);
-        await obs.call('SetCurrentProgramScene', { sceneName: exactName });
-        console.log(`✅ [OBS] Switched scene via case-insensitive match to: "${exactName}"`);
+        await obs.call('SetCurrentProgramScene', { sceneName: matched });
+        console.log(`✅ [OBS] Switched scene via smart match to: "${matched}"`);
         return true;
       }
-    } catch {}
+    } catch (err2) {
+      console.warn('⚠️ [OBS] Smart scene lookup fallback failed:', err2);
+    }
 
     try {
       // 3. Fallback to v4 syntax: SetCurrentScene
       const v4Method = 'SetCurrentScene' as any;
-      await obs.call(v4Method, { 'scene-name': sceneName });
-      console.log(`✅ [OBS] Switched scene via v4 to: "${sceneName}"`);
+      await obs.call(v4Method, { 'scene-name': target });
+      console.log(`✅ [OBS] Switched scene via v4 to: "${target}"`);
       return true;
     } catch (err3) {
-      console.warn(`⚠️ [OBS] safeObsSwitchScene failed for "${sceneName}": ${formatObsError(err3)}`);
+      console.warn(`⚠️ [OBS] safeObsSwitchScene failed for "${target}": ${formatObsError(err3)}`);
     }
   }
   return false;

@@ -53,6 +53,20 @@ async function getObsConnectionInfo(overrideUrl?: string, overridePassword?: str
  */
 export async function GET(request: NextRequest) {
   try {
+    // 0. Check latest scene switch signal
+    let signal: any = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsSceneSignal : null);
+    if (!signal) {
+      try {
+        const kvSettings: any = await kv.get('overlay_settings');
+        if (kvSettings?.obsSceneSwitchSignal) {
+          signal = kvSettings.obsSceneSwitchSignal;
+          if (typeof globalThis !== 'undefined') {
+            (globalThis as any).__cachedObsSceneSignal = signal;
+          }
+        }
+      } catch {}
+    }
+
     // 1. Check if active OBS Browser Source on streamer's PC reported telemetry
     let telemetry: any = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsTelemetry : null);
     if (!telemetry) {
@@ -68,6 +82,7 @@ export async function GET(request: NextRequest) {
         currentScene: telemetry.currentScene || '',
         scenes: telemetry.scenes || [],
         connected: true,
+        signal: signal || null,
         via: 'browser_source'
       });
     }
@@ -115,6 +130,7 @@ export async function GET(request: NextRequest) {
         success: false,
         error: 'OBS WebSocket not reachable. Add your overlay as a Browser Source in OBS Studio to connect.',
         connected: false,
+        signal: signal || null,
         scenes: telemetry?.scenes || [],
         currentScene: telemetry?.currentScene || ''
       }, { status: 200 });
@@ -140,6 +156,9 @@ export async function POST(request: NextRequest) {
 
     const now = Date.now();
     const signal = { sceneName, timestamp: now };
+    if (typeof globalThis !== 'undefined') {
+      (globalThis as any).__cachedObsSceneSignal = signal;
+    }
 
     // 1. Dispatch signal via Settings Broadcast to the active OBS Browser Source
     try {
