@@ -1,8 +1,8 @@
 import { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
-  title: 'NOALBS Low Bitrate & Scene Switcher | Overlay 3.0',
-  description: 'Automatic low bitrate switching, OBS scene controls, stream health telemetry & commands inspired by NOALBS.',
+  title: 'Low Bitrate & Scene Switcher | Overlay 3.0',
+  description: 'Automatic low bitrate switching, OBS scene controls, stream health telemetry & chat commands inside your overlay.',
 };
 
 export const viewport: Viewport = {

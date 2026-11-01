@@ -1612,7 +1612,7 @@ export default function AdminPage() {
       <main className="main-content">
         <div className="settings-container">
 
-          {/* NOALBS Low Bitrate & Switcher Studio Banner */}
+          {/* Low Bitrate & Switcher Studio Banner */}
           <div
             style={{
               background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(99, 102, 241, 0.12))',
@@ -1631,7 +1631,7 @@ export default function AdminPage() {
               <span style={{ fontSize: '1.8rem' }}>⚡</span>
               <div>
                 <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fbbf24' }}>
-                  NOALBS Low Bitrate &amp; OBS Switcher Studio
+                  Low Bitrate &amp; OBS Switcher Studio
                 </div>
                 <div style={{ fontSize: '0.82rem', opacity: 0.8, color: '#e2e8f0', marginTop: '2px' }}>
                   OBS WebSocket connection, automatic low-bitrate scene switching, stream telemetry, and diagnostics are managed in Switcher Studio.
@@ -4169,13 +4169,13 @@ export default function AdminPage() {
               {/* Safe Relocation Banner for !start / !end */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(0,0,0,0.25)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap', gap: '8px', fontSize: '0.82em' }}>
                 <span style={{ color: '#94a3b8' }}>
-                  💡 Stream start/end (<code>!start</code> / <code>!end</code>), SRT refresh (<code>!ref</code>), and OBS auto-switching are managed on the dedicated <strong style={{ color: '#53FC19' }}>NOALBS Low Bitrate</strong> page.
+                  💡 Stream start/end (<code>!start</code> / <code>!end</code>), SRT refresh (<code>!ref</code>), and OBS auto-switching are managed on the dedicated <strong style={{ color: '#53FC19' }}>Low Bitrate Switcher</strong> page.
                 </span>
                 <a
                   href="/low-bitrate"
                   style={{ color: '#53FC19', textDecoration: 'none', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(83, 252, 25, 0.12)', padding: '3px 10px', borderRadius: '6px', border: '1px solid rgba(83, 252, 25, 0.3)' }}
                 >
-                  Go to NOALBS Page →
+                  Go to Switcher Studio →
                 </a>
               </div>
 

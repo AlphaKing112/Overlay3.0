@@ -1691,3 +1691,24 @@ select.text-input option,
     min-width: 100%;
   }
 }
+
+/* === LOW BITRATE SWITCHER RESPONSIVE STYLES === */
+.switcher-bitrate-mobile {
+  display: none;
+}
+
+.switcher-bitrate-desktop {
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .switcher-bitrate-mobile {
+    display: block !important;
+    margin-bottom: 20px;
+    width: 100%;
+  }
+
+  .switcher-bitrate-desktop {
+    display: none !important;
+  }
+}

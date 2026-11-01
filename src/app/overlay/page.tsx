@@ -1812,7 +1812,7 @@ function OverlayPage() {
 
             // Helper to send command disabled notification
             const sendDisabledNotice = (cmdName: string) => {
-              sendChatReply(`⚠️ Command ${cmdName.startsWith('!') ? cmdName : `!${cmdName}`} is currently disabled in NOALBS settings.`, { color: 'orange' });
+              sendChatReply(`⚠️ Command ${cmdName.startsWith('!') ? cmdName : `!${cmdName}`} is currently disabled in switcher settings.`, { color: 'orange' });
             };
 
             // Command: !start / !startstream / !golive
@@ -2034,7 +2034,7 @@ function OverlayPage() {
                   }
                 })
                 .catch(err => {
-                  OverlayLogger.warn(`NOALBS command fetch error: ${err.message}`);
+                  OverlayLogger.warn(`Switcher command fetch error: ${err.message}`);
                 });
                 return;
               }
@@ -3548,7 +3548,7 @@ function OverlayPage() {
       }
     }
 
-    // Auto-switch to low bitrate scene (NOALBS)
+    // Auto-switch to low bitrate scene
     if (settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
       const lowScene = settings.obsLowSceneName || 'low';
       if (isLow && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {

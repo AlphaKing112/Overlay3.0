@@ -6,6 +6,7 @@ import { fetchBitrateStats } from '@/utils/api-utils';
 import { CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 10;
 
 async function getSettings(): Promise<any> {
   let settings: any = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlaySettings : null) || null;
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     // Check if command is globally disabled or specifically disabled (allow dashboard bypass)
     if (foundConfig && !foundConfig.enabled && !body.fromDashboard) {
-      return NextResponse.json({ success: false, error: `Command "${rawCmd}" is currently disabled in NOALBS settings.` }, { status: 403 });
+      return NextResponse.json({ success: false, error: `Command "${rawCmd}" is currently disabled in switcher settings.` }, { status: 403 });
     }
 
     // Check role permissions: Admins -> Moderators -> Everyone
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Connect to OBS helper
+    // Connect to OBS helper with fast timeout for Vercel serverless
     const wsPort = settings.obsWebsocketPort || 4455;
     const obsUrl = settings.obsWebsocketUrl || `ws://127.0.0.1:${wsPort}`;
     const obsPassword = settings.obsWebsocketPassword || '';
@@ -108,7 +109,9 @@ export async function POST(req: NextRequest) {
       const obs = new OBSWebSocket();
       obs.on('ConnectionClosed', () => {});
       obs.on('ConnectionError', () => {});
-      await obs.connect(obsUrl, obsPassword || undefined);
+      const connectPromise = obs.connect(obsUrl, obsPassword || undefined);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 2500));
+      await Promise.race([connectPromise, timeoutPromise]);
       return obs;
     };
 
@@ -476,7 +479,7 @@ export async function POST(req: NextRequest) {
       error: `Unknown command "${rawCmd}". Type !help for available commands.`
     }, { status: 400 });
   } catch (err: any) {
-    console.error('NOALBS command execution error:', err);
+    console.error('Switcher command execution error:', err);
     return NextResponse.json({ success: false, error: err.message || 'Server error' }, { status: 500 });
   }
 }
