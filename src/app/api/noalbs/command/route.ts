@@ -223,9 +223,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. !fix / !refresh / !f / !ref
-    if (cmdName === '!fix' || cmdName === '!refresh' || cmdName === '!f' || cmdName === '!ref') {
-      const refreshScene = settings.obsRefreshSceneName || 'refresh';
+    // 4a. !fix / !f (Reconnect stream/Belabox sources on the scene on air, ZERO scene change!)
+    if (cmdName === '!fix' || cmdName === '!f') {
       const liveScene = settings.obsLiveSceneName || 'live';
       const now = Date.now();
 
@@ -237,7 +236,7 @@ export async function POST(req: NextRequest) {
       // Also attempt direct WS if local
       try {
         const obs = await connectObs();
-        safeObsFixFeed(obs, liveScene, refreshScene)
+        safeObsFixFeed(obs, liveScene)
           .finally(async () => {
             try { await obs.disconnect(); } catch {}
           });
@@ -245,7 +244,31 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `🔧 Stream sources reconnected on active scene (${liveScene})!`
+        message: `🔧 Reconnected Belabox & stream sources on active scene (${liveScene})!`
+      });
+    }
+
+    // 4b. !refresh / !ref (Full scene transition cycle: switches to refresh scene for 6s then returns to live)
+    if (cmdName === '!refresh' || cmdName === '!ref') {
+      const refreshScene = settings.obsRefreshSceneName || 'refresh';
+      const liveScene = settings.obsLiveSceneName || 'live';
+      const now = Date.now();
+
+      await saveSettingsPatch({
+        obsStreamCommandSignal: { action: 'refresh', timestamp: now }
+      });
+
+      try {
+        const obs = await connectObs();
+        safeObsRefreshCycle(obs, refreshScene, liveScene, 6000)
+          .finally(async () => {
+            try { await obs.disconnect(); } catch {}
+          });
+      } catch {}
+
+      return NextResponse.json({
+        success: true,
+        message: `🔄 Stream refresh sequence initiated! Switching to "${refreshScene}" -> "${liveScene}" (6s reload)`
       });
     }
 

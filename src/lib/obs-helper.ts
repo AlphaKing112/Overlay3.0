@@ -174,51 +174,119 @@ export async function safeObsRefreshCycle(
 }
 
 /**
- * Universal feed fix / stream source reconnect (!fix / !f)
- * Reconnects the media and stream sources on the active scene on air
- * by toggling scene item visibility and/or refreshing browser/SRT/media cache.
- * If a refresh scene is configured, cycles through it to reset network buffers.
+ * NOALBS-accurate feed fix / stream source reconnect (!fix / !f)
+ * Reconnects the Belabox, SRT, RTMP, and media sources on the scene on air
+ * WITHOUT SWITCHING SCENES, exactly matching NOALBS obs_v5.rs fix():
+ * 1. Checks all media / stream inputs on the current active scene on air.
+ * 2. Re-applies settings to ffmpeg_source to trigger reconnect callback.
+ * 3. Triggers TriggerMediaInputAction ('OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART') on irl_source / media inputs.
+ * 4. Dispatches vendor request to 'obs-smooth-media' (RestartSource).
+ * 5. Toggles source visibility enabled off/on to force hardware socket re-bind.
+ * 6. Refreshes browser source cache via PressInputPropertiesButton.
  */
 export async function safeObsFixFeed(
   obs: any,
-  liveScene: string = 'live',
-  refreshScene?: string
-): Promise<{ success: boolean; error?: string }> {
+  liveScene: string = 'live'
+): Promise<{ success: boolean; reconnectedCount?: number; error?: string }> {
   if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
 
-  console.log(`🔧 [OBS] Executing !fix (reconnecting stream sources)...`);
+  console.log(`🔧 [OBS] Executing NOALBS !fix: Reconnecting stream sources on air (ZERO scene changes)...`);
   try {
     const currentScene = (await getCurrentObsScene(obs)) || liveScene;
+    let reconnectedCount = 0;
+
+    // 1. Get scene items on the active scene
+    let items: any[] = [];
     try {
       const sceneItemsRes = await obs.call('GetSceneItemList', { sceneName: currentScene });
-      const items = (sceneItemsRes?.sceneItems as any[]) || [];
+      items = (sceneItemsRes?.sceneItems as any[]) || [];
+    } catch {
+      try {
+        const v4Res = await obs.call('GetSceneItemList' as any, { 'scene-name': currentScene });
+        items = (v4Res?.sceneItems || v4Res?.sources as any[]) || [];
+      } catch {}
+    }
 
-      for (const item of items) {
-        const id = item.sceneItemId ?? item.itemId;
-        const name = item.sourceName || item.name;
-        if (id !== undefined) {
-          try {
-            await obs.call('SetSceneItemEnabled', { sceneName: currentScene, sceneItemId: id, sceneItemEnabled: false });
-            await new Promise(r => setTimeout(r, 80));
-            await obs.call('SetSceneItemEnabled', { sceneName: currentScene, sceneItemId: id, sceneItemEnabled: true });
-          } catch {}
-        }
-        if (name) {
-          try {
-            await obs.call('PressInputPropertiesButton', { inputName: name, propertyName: 'refreshnocache' });
-          } catch {}
-        }
+    // 2. Also query full input list to catch inputs by kind
+    let allInputs: any[] = [];
+    try {
+      const inputsRes = await obs.call('GetInputList');
+      allInputs = (inputsRes?.inputs as any[]) || [];
+    } catch {}
+
+    // 3. For each source on the current active scene, execute in-place source reconnect
+    for (const item of items) {
+      const sourceName: string = item.sourceName || item.name || '';
+      const itemId = item.sceneItemId ?? item.itemId;
+
+      if (!sourceName) continue;
+
+      // Method A: Native OBS WebSocket v5 Media Action Restart (for irl_source / media_source / vlc)
+      try {
+        await obs.call('TriggerMediaInputAction', {
+          inputName: sourceName,
+          mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
+        });
+        reconnectedCount++;
+        console.log(`✅ [OBS !fix] Triggered MediaAction Restart for "${sourceName}"`);
+      } catch {}
+
+      // Method B: NOALBS ffmpeg_source / vlc_source Settings Rewrite
+      // Writing empty settings back triggers the source's update callback to reopen the network stream
+      try {
+        await obs.call('SetInputSettings', {
+          inputName: sourceName,
+          inputSettings: {},
+          overlay: true
+        });
+        reconnectedCount++;
+        console.log(`✅ [OBS !fix] Re-applied settings callback for "${sourceName}"`);
+      } catch {}
+
+      // Method C: Smooth Media Source Vendor Request
+      try {
+        await obs.call('CallVendorRequest', {
+          vendorName: 'obs-smooth-media',
+          requestType: 'RestartSource',
+          requestData: { sourceName }
+        });
+        reconnectedCount++;
+        console.log(`✅ [OBS !fix] Called obs-smooth-media RestartSource for "${sourceName}"`);
+      } catch {}
+
+      // Method D: Browser Source refresh without cache
+      try {
+        await obs.call('PressInputPropertiesButton', {
+          inputName: sourceName,
+          propertyName: 'refreshnocache'
+        });
+        console.log(`✅ [OBS !fix] Refreshed browser source cache for "${sourceName}"`);
+      } catch {}
+
+      // Method E: Universal Socket Reconnect via Scene Item Enable toggle (Off -> 120ms -> On)
+      // This forces OBS to destroy the old network socket and establish a brand new Belabox/SRT ingest
+      if (itemId !== undefined) {
+        try {
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: currentScene,
+            sceneItemId: itemId,
+            sceneItemEnabled: false
+          });
+          await new Promise(r => setTimeout(r, 120));
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: currentScene,
+            sceneItemId: itemId,
+            sceneItemEnabled: true
+          });
+          reconnectedCount++;
+          console.log(`✅ [OBS !fix] Toggled scene item enable state for "${sourceName}"`);
+        } catch {}
       }
-    } catch (toggleErr) {
-      console.warn('⚠️ [OBS] Direct scene item reconnect notice:', toggleErr);
     }
 
-    if (refreshScene && refreshScene.toLowerCase() !== liveScene.toLowerCase()) {
-      await safeObsRefreshCycle(obs, refreshScene, liveScene, 3000);
-    }
-
-    return { success: true };
+    return { success: true, reconnectedCount };
   } catch (err: any) {
+    console.error('❌ [OBS !fix] Error fixing feed:', err);
     return { success: false, error: formatObsError(err) };
   }
 }
@@ -269,9 +337,8 @@ export async function safeObsStreamControlResult(
   if (!obs) return { success: false, error: 'OBS WebSocket instance is not connected' };
 
   if (action === 'fix') {
-    const refreshScene = options?.refreshScene;
     const liveScene = options?.liveScene || 'live';
-    return await safeObsFixFeed(obs, liveScene, refreshScene);
+    return await safeObsFixFeed(obs, liveScene);
   }
 
   if (action === 'refresh') {

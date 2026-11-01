@@ -519,13 +519,12 @@ function LowBitrateContent() {
     }
   };
 
-  // 6. Execute Fix Feed (!fix)
+  // 6. Execute Fix Feed (!fix) — In-place Belabox/media source reconnect, ZERO scene changes!
   const handleFixFeed = async () => {
     setIsFixingFeed(true);
-    setIsSwitchingScene(true);
-    const liveScene = settings.obsLiveSceneName || 'live';
-    setLastSwitchLog(`🔧 Reconnecting stream sources on active scene "${liveScene}"...`);
-    showToast(`🔧 Reconnecting stream sources on active scene...`, 'info');
+    const liveScene = currentScene || settings.obsLiveSceneName || 'live';
+    setLastSwitchLog(`🔧 Reconnecting stream sources on air ("${liveScene}")...`);
+    showToast(`🔧 Reconnecting Belabox & stream sources on active scene...`, 'info');
 
     try {
       await saveSettingsUpdates({
@@ -549,7 +548,6 @@ function LowBitrateContent() {
       showToast(`Fix feed error: ${err.message}`, 'error');
     } finally {
       setIsFixingFeed(false);
-      setIsSwitchingScene(false);
     }
   };
 
@@ -1787,13 +1785,13 @@ function LowBitrateContent() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
                   <button
                     className="btn btn-secondary"
-                    onClick={handleFixFeed}
-                    disabled={isSwitchingScene || isFixingFeed}
-                    title="Reconnect the stream sources on the scene on air (!fix)"
+                    onClick={triggerRefreshCycle}
+                    disabled={isSwitchingScene}
+                    title="Executes feed reset cycle: cuts to refresh scene for 6s then returns to live"
                     style={{ padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}
                   >
-                    <span>🔧</span>
-                    <strong>!FIX FEED</strong>
+                    <span>🔄</span>
+                    <strong>!REFRESH</strong>
                   </button>
 
                   <button

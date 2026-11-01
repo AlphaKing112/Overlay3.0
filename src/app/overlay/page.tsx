@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -1803,8 +1803,60 @@ function OverlayPage() {
               return;
             }
 
-            // Command: !fix / !f / !refresh / !ref / !fixaudio / !restartfeed / !resetsrt
-            if (lowerText === '!fix' || lowerText.startsWith('!fix ') || lowerText === '!f' || lowerText === '!refresh' || lowerText.startsWith('!refresh ') || lowerText === '!ref' || lowerText === '!fixaudio' || lowerText === '!restartfeed' || lowerText === '!resetsrt') {
+            // Command: !fix / !f (NOALBS In-Place Source & Belabox Reconnect, ZERO scene switch!)
+            if (lowerText === '!fix' || lowerText.startsWith('!fix ') || lowerText === '!f') {
+              const isEnabled = seSettingsRef.current?.obsStreamCommandsEnabled === true;
+              if (!isEnabled) {
+                OverlayLogger.overlay(`Twitch IRC !fix command ignored (obsStreamCommandsEnabled is disabled in settings)`);
+                return;
+              }
+              if (isCommandRateLimited('fix', 4000)) {
+                OverlayLogger.overlay('Twitch IRC !fix ignored due to cooldown');
+                return;
+              }
+              const isStreamCmdAllowed = isBroadcaster || isMod;
+              if (!isStreamCmdAllowed) {
+                OverlayLogger.overlay(`Twitch IRC !fix command ignored (user lacks moderator permission)`);
+                sendPermError('fix');
+                return;
+              }
+
+              const liveScene = seSettingsRef.current.obsLiveSceneName || 'live';
+              OverlayLogger.overlay(`Twitch IRC executing !fix command (reconnecting stream sources on active scene "${liveScene}")`);
+
+              (async () => {
+                let fixRes: { success: boolean; error?: string } = { success: false };
+                if (localObsRef.current) {
+                  fixRes = await safeObsFixFeed(localObsRef.current, liveScene);
+                }
+                if (!fixRes.success) {
+                  try {
+                    const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                    const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
+                    const tempObs = new OBSWebSocket();
+                    tempObs.on('ConnectionClosed', () => {});
+                    tempObs.on('ConnectionError', () => {});
+                    const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 3000));
+                    await Promise.race([connectPromise, timeoutPromise]);
+                    fixRes = await safeObsFixFeed(tempObs, liveScene);
+                    try { await tempObs.disconnect(); } catch {}
+                  } catch (connErr: any) {
+                    fixRes = { success: false, error: connErr?.message || String(connErr) };
+                  }
+                }
+
+                if (fixRes.success) {
+                  sendChatReply(`🔧 @${senderDisplayName || senderUser}, stream sources on active scene reconnected!`);
+                } else {
+                  sendChatReply(`⚠️ @${senderDisplayName || senderUser}, failed to fix feed: ${fixRes.error || 'Check OBS WebSocket'}`);
+                }
+              })();
+              return;
+            }
+
+            // Command: !refresh / !ref / !fixaudio / !restartfeed / !resetsrt (Scene Cycle)
+            if (lowerText === '!refresh' || lowerText.startsWith('!refresh ') || lowerText === '!ref' || lowerText === '!fixaudio' || lowerText === '!restartfeed' || lowerText === '!resetsrt') {
               const isEnabled = seSettingsRef.current?.obsStreamCommandsEnabled === true;
               if (!isEnabled) {
                 OverlayLogger.overlay(`Twitch IRC !refresh command ignored (obsStreamCommandsEnabled is disabled in settings)`);
