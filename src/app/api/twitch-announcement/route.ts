@@ -1,4 +1,18 @@
 import { NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
+
+async function getSettings(): Promise<any> {
+  let settings: any = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlaySettings : null) || null;
+  if (!settings) {
+    try {
+      const kvData = await kv.get('overlay_settings');
+      if (kvData && typeof kvData === 'object') {
+        settings = kvData;
+      }
+    } catch {}
+  }
+  return settings || {};
+}
 
 /**
  * POST /api/twitch-announcement
@@ -8,9 +22,38 @@ import { NextResponse } from 'next/server';
  */
 export async function POST(request: Request) {
   try {
-    const { broadcasterId, message, token, clientId, color, asAnnouncement, replyParentMessageId } = await request.json();
+    const body = await request.json();
+    let { broadcasterId, message, token, clientId, color, asAnnouncement, replyParentMessageId } = body;
 
-    if (!broadcasterId || !message || !token || !clientId) {
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json({ success: false, reason: 'Message string is required' });
+    }
+
+    // Auto-resolve credentials from KV if not supplied by caller
+    if (!token || !broadcasterId) {
+      const settings = await getSettings();
+      token = token || settings.twitchToken || '';
+      broadcasterId = broadcasterId || settings.twitchBroadcasterId || '';
+      clientId = clientId || settings.twitchClientId || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+    }
+
+    // Auto-resolve broadcasterId from token if missing
+    if (token && !broadcasterId) {
+      try {
+        const uRes = await fetch('https://api.twitch.tv/helix/users', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Client-Id': clientId || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw'
+          }
+        });
+        if (uRes.ok) {
+          const uData = await uRes.json();
+          broadcasterId = uData?.data?.[0]?.id;
+        }
+      } catch {}
+    }
+
+    if (!broadcasterId || !token || !clientId) {
       return NextResponse.json({ success: false, reason: 'Twitch integration token or broadcasterId not connected' });
     }
 

@@ -1630,30 +1630,26 @@ function OverlayPage() {
             const sendChatReply = (message: string, options?: { replyId?: string; color?: 'primary' | 'green' | 'orange' }) => {
               const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
               const token = seSettingsRef.current.twitchToken;
-              if (broadcasterId && token) {
-                const clientId = API_KEYS.TWITCH_CLIENT_ID;
+              const clientId = API_KEYS.TWITCH_CLIENT_ID;
 
-                fetch('/api/twitch-announcement', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    broadcasterId,
-                    token,
-                    clientId,
-                    message,
-                    replyParentMessageId: options?.replyId || msgId,
-                    color: options?.color || 'primary',
-                    asAnnouncement: false
-                  })
-                }).then(async res => {
-                  const data = await res.json().catch(() => null);
-                  if (!res.ok || (data && !data.success)) {
-                    OverlayLogger.error('Twitch chat reply API error:', data || res.statusText);
-                  }
-                }).catch(err => OverlayLogger.error('Failed to post Twitch chat reply:', err));
-              } else {
-                OverlayLogger.warn('Cannot send Twitch chat reply: broadcasterId or token missing in settings');
-              }
+              fetch('/api/twitch-announcement', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  broadcasterId,
+                  token,
+                  clientId,
+                  message,
+                  replyParentMessageId: options?.replyId || msgId,
+                  color: options?.color || 'primary',
+                  asAnnouncement: false
+                })
+              }).then(async res => {
+                const data = await res.json().catch(() => null);
+                if (!res.ok || (data && !data.success)) {
+                  OverlayLogger.error('Twitch chat reply API error:', data || res.statusText);
+                }
+              }).catch(err => OverlayLogger.error('Failed to post Twitch chat reply:', err));
             };
 
             // Helper to check command rate limiting & calculate remaining cooldown
@@ -2327,8 +2323,8 @@ function OverlayPage() {
               return;
             }
 
-            // Command: !clip / !clip <title> / !clip <seconds> <title> / !clip30/45/60 <title> / !cliptheclip / !replay / !highlight
-            const clipCmdMatch = chatText.trim().match(/^!(clip\d*|cliptheclip|replay|highlight)(?:\s+([\s\S]*))?$/i);
+            // Command: !clip / !clip <title> / clip <title> / !clip <seconds> <title> / !clip30/45/60 <title> / !cliptheclip / !replay / !highlight
+            const clipCmdMatch = chatText.trim().match(/^!?(clip\d*|cliptheclip|replay|highlight)(?:\s+([\s\S]*))?$/i);
             if (clipCmdMatch) {
               const cmdCfg = getCommandConfig('clip', 'Everyone');
               const isEnabled = seSettingsRef.current.clipCommandEnabled !== false && cmdCfg.enabled;
@@ -2510,12 +2506,13 @@ function OverlayPage() {
                           })
                         }).catch(() => {});
                       }
-                      sendChatReply(`❌ Failed to create clip (${clipData.error || 'Make sure stream is live'}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
+                      const refundNotice = clipCost > 0 ? ` Refunded ${clipCost} points to @${senderDisplayName || senderUser}.` : '';
+                      sendChatReply(`❌ Failed to create clip: ${clipData.error || 'Make sure stream is live on Twitch'}.${refundNotice}`, { color: 'orange' });
                     }
                   } catch (twitchClipErr: any) {
                     clearCommandCooldown(userClipKey);
                     OverlayLogger.error('Twitch clip exception:', twitchClipErr);
-                    sendChatReply(`❌ Failed to create Twitch clip (${twitchClipErr?.message || 'Network error'}).`, { color: 'orange' });
+                    sendChatReply(`❌ Error creating Twitch clip: ${twitchClipErr?.message || 'Network error'}.`, { color: 'orange' });
                   }
                   return;
                 }
