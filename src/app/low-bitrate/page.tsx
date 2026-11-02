@@ -75,7 +75,7 @@ function LowBitrateContent() {
   const initialMode = searchParams.get('mode') === 'overlay' ? 'overlay' : 'dashboard';
 
   const [mode, setMode] = useState<'dashboard' | 'overlay'>(initialMode);
-  const [activeTab, setActiveTab] = useState<'switcher' | 'switching' | 'chat_commands'>('switcher');
+  const [activeTab, setActiveTab] = useState<'switching' | 'chat_commands'>('switching');
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -2264,37 +2264,17 @@ function LowBitrateContent() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
-            onClick={() => setActiveTab('switcher')}
-            style={{
-              padding: '10px 20px',
-              borderRadius: '8px',
-              fontSize: '0.95rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              background: activeTab === 'switcher' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.04)',
-              color: activeTab === 'switcher' ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
-              border: activeTab === 'switcher' ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <span>⚡</span> Switcher Studio & Health Monitor
-          </button>
-
-          <button
             onClick={() => setActiveTab('switching')}
             style={{
-              padding: '10px 20px',
+              padding: '10px 22px',
               borderRadius: '8px',
               fontSize: '0.95rem',
               fontWeight: 700,
               cursor: 'pointer',
               transition: 'all 0.2s',
-              background: activeTab === 'switching' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+              background: activeTab === 'switching' ? 'rgba(34, 197, 94, 0.22)' : 'rgba(255, 255, 255, 0.04)',
               color: activeTab === 'switching' ? '#4ade80' : 'rgba(255, 255, 255, 0.7)',
-              border: activeTab === 'switching' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+              border: activeTab === 'switching' ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
@@ -2306,7 +2286,7 @@ function LowBitrateContent() {
           <button
             onClick={() => setActiveTab('chat_commands')}
             style={{
-              padding: '10px 20px',
+              padding: '10px 22px',
               borderRadius: '8px',
               fontSize: '0.95rem',
               fontWeight: 700,
@@ -2465,17 +2445,17 @@ function LowBitrateContent() {
       </div>
 
       {/* =====================================================================
-          TAB 1: SWITCHER STUDIO & HEALTH MONITOR
+          TAB 1: SWITCHING (COMPLETE NOALBS SWITCHING DASHBOARD & STUDIO)
           ===================================================================== */}
-      {activeTab === 'switcher' && (
-        <>
+      {activeTab === 'switching' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
           {/* Realtime Status Badges Bar */}
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
               gap: '12px',
-              marginBottom: '24px',
+              marginBottom: '10px',
             }}
           >
             {/* OBS WebSocket Status */}
@@ -2547,54 +2527,50 @@ function LowBitrateContent() {
             </div>
           </div>
 
-          {/* Mobile View: Realtime Bitrate History Sparkline Chart directly between indicators and Scene Switching Studio */}
+          {/* Mobile View: Realtime Bitrate History Sparkline Chart */}
           <div className="switcher-bitrate-mobile">
             {renderBitrateHistoryCard(mobileCanvasRef)}
           </div>
 
-          {/* Main 2-Column Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: '24px' }}>
-            
-            {/* COLUMN 1: Scene Switching Studio & Stream Monitor */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              
-              {/* Quick Scene Switch Grid */}
-              <section className="settings-section" style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                      <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#fff' }}>
-                        🎬 Scene Switching Studio
-                      </h2>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        padding: '3px 9px',
-                        borderRadius: '6px',
-                        background: currentScene ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-                        border: currentScene ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.12)',
-                        color: currentScene ? '#4ade80' : 'rgba(255, 255, 255, 0.55)',
-                        fontWeight: 700,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}>
-                        <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: currentScene ? '#22c55e' : '#888', boxShadow: currentScene ? '0 0 6px #22c55e' : 'none' }} />
-                        {currentScene ? `Active Scene: "${currentScene}"` : 'No Scene Active'}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '0.8rem', opacity: 0.7, display: 'block', marginTop: '3px' }}>
-                      One-click instant scene triggers for OBS Studio
-                    </span>
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-small"
-                    onClick={refreshObsScenes}
-                    style={{ fontSize: '0.78rem', padding: '6px 14px', background: 'rgba(255, 255, 255, 0.12)', border: '1px solid rgba(255, 255, 255, 0.25)', color: '#ffffff', fontWeight: 700 }}
-                    title="Refresh scenes from OBS WebSocket"
-                  >
-                    🔄 Refresh Scenes
-                  </button>
+          {/* Quick Scene Switch Grid (Scene Switching Studio) */}
+          <section className="settings-section" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#fff' }}>
+                    🎬 Scene Switching Studio
+                  </h2>
+                  <span style={{
+                    fontSize: '0.75rem',
+                    padding: '3px 9px',
+                    borderRadius: '6px',
+                    background: currentScene ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                    border: currentScene ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.12)',
+                    color: currentScene ? '#4ade80' : 'rgba(255, 255, 255, 0.55)',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: currentScene ? '#22c55e' : '#888', boxShadow: currentScene ? '0 0 6px #22c55e' : 'none' }} />
+                    {currentScene ? `Active Scene: "${currentScene}"` : 'No Scene Active'}
+                  </span>
                 </div>
+                <span style={{ fontSize: '0.8rem', opacity: 0.7, display: 'block', marginTop: '3px' }}>
+                  One-click instant scene triggers for OBS Studio
+                </span>
+              </div>
+              <button
+                className="btn btn-secondary btn-small btn-refresh-scenes"
+                onClick={refreshObsScenes}
+                style={{ fontSize: '0.78rem', padding: '6px 14px', background: 'rgba(255, 255, 255, 0.12)', border: '1px solid rgba(255, 255, 255, 0.25)', color: '#ffffff', fontWeight: 700 }}
+                title="Refresh scenes from OBS WebSocket"
+              >
+                <span style={{ color: '#ffffff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  🔄 Refresh Scenes
+                </span>
+              </button>
+            </div>
 
                 {(() => {
                   const liveScene = (settings.obsLiveSceneName || 'live').trim();
@@ -2883,29 +2859,6 @@ function LowBitrateContent() {
                 </div>
               </section>
 
-            </div>
-
-            {/* COLUMN 2: OBS Studio WebSocket & Telemetry Diagnostics */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              {/* OBS WebSocket Card */}
-              {renderObsWebSocketCard()}
-
-              {/* Desktop View: Realtime Bitrate History Sparkline Chart */}
-              <div className="switcher-bitrate-desktop">
-                {renderBitrateHistoryCard(desktopCanvasRef)}
-              </div>
-            </div>
-
-          </div>
-        </>
-      )}
-
-      {/* =====================================================================
-          TAB 2: SWITCHING (SCENE SWITCHING DASHBOARD)
-          ===================================================================== */}
-      {activeTab === 'switching' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-          
           {/* Switching Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
@@ -3655,6 +3608,14 @@ function LowBitrateContent() {
                 <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: '6px' }}>
                   <strong>Trigger Log:</strong> {lastSwitchLog || 'Normal stream ingest'}
                 </div>
+              </div>
+
+              {/* CARD 4: OBS Studio WebSocket & Telemetry Diagnostics */}
+              {renderObsWebSocketCard()}
+
+              {/* Desktop View: Realtime Bitrate History Sparkline Chart */}
+              <div className="switcher-bitrate-desktop">
+                {renderBitrateHistoryCard(desktopCanvasRef)}
               </div>
 
             </div>
