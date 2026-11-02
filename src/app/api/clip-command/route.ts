@@ -330,7 +330,9 @@ export async function POST(request: NextRequest) {
           let cleanErrMsg = 'Stream must be live to create clips.';
           try {
             const errJson = JSON.parse(errText);
-            if (errJson.message === 'Channel offline.' || twitchRes.status === 404) {
+            if (errJson.status === 401 || errJson.message === 'Invalid OAuth token' || twitchRes.status === 401) {
+              cleanErrMsg = 'Twitch login token expired. Please click your Twitch username in Dashboard/Settings to disconnect and reconnect Twitch.';
+            } else if (errJson.message === 'Channel offline.' || twitchRes.status === 404) {
               cleanErrMsg = 'Channel is offline. Stream must be live on Twitch to create clips.';
             } else if (errJson.message) {
               cleanErrMsg = errJson.message;
