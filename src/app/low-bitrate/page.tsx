@@ -349,11 +349,14 @@ function LowBitrateContent() {
             // Stream just went live! Switch to configured starting scene if enabled
             if (!wasLiveBefore && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
               const startScene = settingsRef.current.obsStartingSceneName || 'starting';
-              switchScene(startScene, 'Stream Started');
+              const checkSec = Math.max(60, settingsRef.current.obsStartingSceneCheckSeconds ?? 60);
               startingCheckStartRef.current = Date.now();
+              manualOverrideUntilRef.current = 0;
               setIsCheckingStartingBelabox(true);
+              setStartingCheckRemainingSeconds(checkSec);
               currentSceneRef.current = startScene;
               setCurrentScene(startScene);
+              switchScene(startScene, 'Stream Started');
             }
           } else {
             startingCheckStartRef.current = 0;
@@ -482,6 +485,26 @@ function LowBitrateContent() {
   useEffect(() => {
     currentSceneRef.current = currentScene;
   }, [currentScene]);
+
+  // Dedicated 1-second countdown ticker for Belabox starting check UI
+  useEffect(() => {
+    if (!isCheckingStartingBelabox || startingCheckStartRef.current === 0) {
+      return;
+    }
+    const checkWindowSec = Math.max(60, settingsRef.current.obsStartingSceneCheckSeconds ?? 60);
+    const checkDurationMs = checkWindowSec * 1000;
+
+    const tick = () => {
+      if (startingCheckStartRef.current === 0) return;
+      const elapsedMs = Math.max(0, Date.now() - startingCheckStartRef.current);
+      const remainingSec = Math.max(0, Math.ceil((checkDurationMs - elapsedMs) / 1000));
+      setStartingCheckRemainingSeconds(remainingSec);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [isCheckingStartingBelabox]);
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -775,7 +798,7 @@ function LowBitrateContent() {
 
     if (isSpecial) {
       // Special scene (Starting, Ending, Privacy, Refresh):
-      if (isStartingTarget && startingCheckStartRef.current > 0) {
+      if (isStartingTarget && (startingCheckStartRef.current > 0 || (reason && reason.includes('Stream Started')))) {
         manualOverrideUntilRef.current = 0;
       } else {
         manualOverrideUntilRef.current = now + 86400000;
@@ -1105,11 +1128,14 @@ function LowBitrateContent() {
           const liveNorm = (settingsRef.current.obsLiveSceneName || 'live').trim().toLowerCase();
           if (cur !== liveNorm && !cur.includes('live')) {
             const startScene = settingsRef.current.obsStartingSceneName || 'starting';
-            switchScene(startScene, 'Stream Started');
+            const checkSec = Math.max(60, settingsRef.current.obsStartingSceneCheckSeconds ?? 60);
             startingCheckStartRef.current = Date.now();
+            manualOverrideUntilRef.current = 0;
             setIsCheckingStartingBelabox(true);
+            setStartingCheckRemainingSeconds(checkSec);
             currentSceneRef.current = startScene;
             setCurrentScene(startScene);
+            switchScene(startScene, 'Stream Started');
           }
         } else if (!finalState) {
           startingCheckStartRef.current = 0;
@@ -1186,30 +1212,12 @@ function LowBitrateContent() {
       setCurrentRtt(rtt);
       setBitrateHistory(prev => [...prev.slice(-59), bitrate]);
 
-      // State Machine Evaluation
-      if (!currentSettings.obsAutoSwitchSceneToggle) {
-        setAutoSwitchState('IDLE');
-        return;
-      }
-
-      // "Only while streaming" setting: Leave OBS alone when you aren't live
-      if (currentSettings.obsSwitchOnlyWhileStreaming && telemetry && telemetry.online && !telemetry.streaming) {
-        setAutoSwitchState('IDLE');
-        return;
-      }
-
-      // If manual scene switch is active, hold on the selected scene and skip auto-switch
-      if (Date.now() < manualOverrideUntilRef.current) {
-        return;
-      }
-
-      // Check current scene: if OBS is on a Special Scene (starting, ending, privacy, refresh), NEVER auto-switch!
       const curScene = (currentSceneRef.current || '').trim().toLowerCase();
-      const startSceneNorm = (currentSettings.obsStartingSceneName || 'starting').trim().toLowerCase();
-      const isCurStarting = curScene === startSceneNorm || curScene === 'starting' || curScene.includes('starting');
 
-      // Belabox Go-Live Check while starting stream (checks for min 1 min, switches to live or stops checking)
+      // 1. Belabox Go-Live Check on Stream Start (Runs immediately, never blocked by toggles or special scene pause)
       if (startingCheckStartRef.current > 0) {
+        manualOverrideUntilRef.current = 0; // Clear any manual override during starting check
+
         const liveScene = currentSettings.obsLiveSceneName || 'live';
         const liveSceneNorm = liveScene.trim().toLowerCase();
         // If OBS is already on the live scene, the transition already occurred!
@@ -1223,7 +1231,7 @@ function LowBitrateContent() {
 
         const checkWindowSec = Math.max(60, currentSettings.obsStartingSceneCheckSeconds ?? 60);
         const checkDurationMs = checkWindowSec * 1000;
-        const elapsedMs = Date.now() - startingCheckStartRef.current;
+        const elapsedMs = Math.max(0, Date.now() - startingCheckStartRef.current);
         const remainingSec = Math.max(0, Math.ceil((checkDurationMs - elapsedMs) / 1000));
         setStartingCheckRemainingSeconds(remainingSec);
 
@@ -1250,7 +1258,6 @@ function LowBitrateContent() {
             setIsCheckingStartingBelabox(false);
             setStartingCheckRemainingSeconds(0);
             manualOverrideUntilRef.current = 0;
-            const liveScene = currentSettings.obsLiveSceneName || 'live';
             setAutoSwitchState('LIVE');
             switchScene(liveScene, `Belabox is LIVE (${bitrate} kbps)! Transitioned from starting scene`);
             showToast(`Belabox is LIVE! Switched to '${liveScene}'`, 'success');
@@ -1259,6 +1266,28 @@ function LowBitrateContent() {
         }
 
         // Still checking Belabox on starting scene, do not auto-switch to low or offline
+        return;
+      }
+
+      // 2. Normal State Machine Evaluation
+      if (!currentSettings.obsAutoSwitchSceneToggle) {
+        setAutoSwitchState('IDLE');
+        return;
+      }
+
+      // "Only while streaming" setting: Leave OBS alone when you aren't live
+      if (currentSettings.obsSwitchOnlyWhileStreaming && telemetry && telemetry.online && !telemetry.streaming) {
+        setAutoSwitchState('IDLE');
+        return;
+      }
+
+      // If manual scene switch is active, hold on the selected scene and skip auto-switch
+      if (Date.now() < manualOverrideUntilRef.current) {
+        return;
+      }
+
+      // Check current scene: if OBS is on a Special Scene (starting, ending, privacy, refresh), NEVER auto-switch!
+      if (!curScene || isSpecialSceneName(curScene, currentSettings)) {
         return;
       }
 

@@ -2970,6 +2970,7 @@ function OverlayPage() {
                 appendObsLog('info', `[scene-manager] Stream started, switching to starting scene: '${pickedStartScene}'`);
                 safeObsSwitchScene(obs, pickedStartScene);
                 startingCheckStartRef.current = Date.now();
+                manualOverrideUntilRef.current = 0;
                 lastLoggedStateRef.current.currentScene = pickedStartScene;
                 lastBitrateStateRef.current = null;
               }
@@ -3546,43 +3547,11 @@ function OverlayPage() {
       return;
     }
 
-    // Leave OBS alone when streamer isn't live ("Only while streaming" setting)
-    if (settings.obsSwitchOnlyWhileStreaming && !lastLoggedStateRef.current.isStreaming) {
-      return;
-    }
-
-    // Skip auto-switch while streamer has a manual scene switch active
-    if (Date.now() < manualOverrideUntilRef.current) {
-      console.log('[AUTO-SWITCH] Paused due to active manual scene switch override');
-      return;
-    }
-
-    // Skip auto-switch if OBS is currently on a special scene (Starting, Ending, Privacy, Refresh)
     const activeScene = (lastLoggedStateRef.current.currentScene || '').trim().toLowerCase();
     if (!activeScene) {
       // Do not auto-switch if current scene is not yet confirmed
       return;
     }
-    const startingScene = (settings.obsStartingSceneName || 'starting').trim().toLowerCase();
-    const endingScene = (settings.obsEndingSceneName || 'ending').trim().toLowerCase();
-    const privacyScene = (settings.obsPrivacySceneName || 'privacy').trim().toLowerCase();
-    const refreshScene = (settings.obsRefreshSceneName || 'refresh').trim().toLowerCase();
-
-    const isSpecialScene = (
-      activeScene === startingScene ||
-      activeScene === endingScene ||
-      activeScene === privacyScene ||
-      activeScene === refreshScene ||
-      activeScene === 'starting' ||
-      activeScene === 'ending' ||
-      activeScene === 'privacy' ||
-      activeScene === 'refresh' ||
-      activeScene.includes('starting') ||
-      activeScene.includes('ending') ||
-      activeScene.includes('priv') ||
-      activeScene.includes('pause') ||
-      (activeScene.includes('refresh') && !activeScene.includes('live'))
-    );
 
     // Switch scene via direct local WebSocket first, then fallback to API
     const switchSceneViaApi = async (sceneName: string): Promise<boolean> => {
@@ -3657,7 +3626,9 @@ function OverlayPage() {
       }
     };
 
+    // 1. Belabox Go-Live Check on Stream Start (always evaluated when starting check is active)
     if (startingCheckStartRef.current > 0) {
+      manualOverrideUntilRef.current = 0; // Clear any manual override during starting check
       const liveScene = (settings.obsLiveSceneName || 'live').trim().toLowerCase();
       // If OBS is already on the live scene, the transition already occurred!
       if (activeScene && (activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical')))) {
@@ -3668,7 +3639,7 @@ function OverlayPage() {
 
       const checkWindowSec = Math.max(60, settings.obsStartingSceneCheckSeconds ?? 60);
       const checkDurationMs = checkWindowSec * 1000;
-      const elapsedMs = Date.now() - startingCheckStartRef.current;
+      const elapsedMs = Math.max(0, Date.now() - startingCheckStartRef.current);
 
       if (elapsedMs >= checkDurationMs) {
         startingCheckStartRef.current = 0;
@@ -3697,6 +3668,39 @@ function OverlayPage() {
       // Still checking Belabox on starting scene - NEVER auto-switch to offline or low
       return;
     }
+
+    // 2. Leave OBS alone when streamer isn't live ("Only while streaming" setting)
+    if (settings.obsSwitchOnlyWhileStreaming && !lastLoggedStateRef.current.isStreaming) {
+      return;
+    }
+
+    // 3. Skip auto-switch while streamer has a manual scene switch active
+    if (Date.now() < manualOverrideUntilRef.current) {
+      console.log('[AUTO-SWITCH] Paused due to active manual scene switch override');
+      return;
+    }
+
+    // 4. Skip auto-switch if OBS is currently on a special scene (Starting, Ending, Privacy, Refresh)
+    const startingScene = (settings.obsStartingSceneName || 'starting').trim().toLowerCase();
+    const endingScene = (settings.obsEndingSceneName || 'ending').trim().toLowerCase();
+    const privacyScene = (settings.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+    const refreshScene = (settings.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+
+    const isSpecialScene = (
+      activeScene === startingScene ||
+      activeScene === endingScene ||
+      activeScene === privacyScene ||
+      activeScene === refreshScene ||
+      activeScene === 'starting' ||
+      activeScene === 'ending' ||
+      activeScene === 'privacy' ||
+      activeScene === 'refresh' ||
+      activeScene.includes('starting') ||
+      activeScene.includes('ending') ||
+      activeScene.includes('priv') ||
+      activeScene.includes('pause') ||
+      (activeScene.includes('refresh') && !activeScene.includes('live'))
+    );
 
     if (isSpecialScene) {
       return;
