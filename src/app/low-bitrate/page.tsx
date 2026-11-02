@@ -227,6 +227,17 @@ function LowBitrateContent() {
           const sName = data?.sceneName || data?.currentProgramSceneName;
           if (sName) {
             setCurrentScene(sName);
+            currentSceneRef.current = sName;
+            lastManualSceneSwitchTimeRef.current = Date.now();
+
+            if (isSpecialSceneName(sName, settingsRef.current)) {
+              manualOverrideUntilRef.current = Date.now() + 86400000;
+              setAutoSwitchState('IDLE');
+              setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sName}" — Auto-switching PAUSED`);
+            } else if (isLiveSceneName(sName, settingsRef.current)) {
+              manualOverrideUntilRef.current = 0;
+            }
+
             fetch('/api/obs-telemetry', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -360,6 +371,7 @@ function LowBitrateContent() {
   const desktopCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mobileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const currentSceneRef = useRef(currentScene);
+  const lastManualSceneSwitchTimeRef = useRef<number>(0);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -379,8 +391,8 @@ function LowBitrateContent() {
 
   const showToast = useCallback((rawMessage: string, type: 'success' | 'error' | 'info' = 'success', durationMs: number = 4500) => {
     if (!rawMessage) return;
-    // Strip leading duplicate symbols so we never show duplicate icons like "[✓] [✓]"
-    const cleanMessage = rawMessage.replace(/^[✅❌ℹ️\s]+/, '').trim();
+    // Strip any leading icons, checkmarks or emoji symbols so toasts never double-render icons
+    const cleanMessage = rawMessage.replace(/^(?:[\u2700-\u27BF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F\uDE80-\uDEFF]|\uD83E[\uDD00-\uDDFF]|[\u2139\uFE0F\s✅❌ℹ️])+/u, '').trim();
     if (!cleanMessage) return;
 
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -432,7 +444,9 @@ function LowBitrateContent() {
         if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
           setAvailableScenes(data.scenes);
         }
-        if (data.currentScene) {
+        // Protect against stale cloud KV overwriting fresh user scene choices
+        const isRecentlySwitched = Date.now() - lastManualSceneSwitchTimeRef.current < 8000;
+        if (data.currentScene && !localObsRef.current && !isRecentlySwitched) {
           setCurrentScene(data.currentScene);
         }
       } else {
@@ -464,7 +478,9 @@ function LowBitrateContent() {
         if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
           setAvailableScenes(data.scenes);
         }
-        if (data.currentScene) {
+        // Protect against stale cloud telemetry overwriting active user scene
+        const isRecentlySwitched = Date.now() - lastManualSceneSwitchTimeRef.current < 8000;
+        if (data.currentScene && !localObsRef.current && !isRecentlySwitched) {
           setCurrentScene(data.currentScene);
         }
       }
@@ -587,19 +603,23 @@ function LowBitrateContent() {
     const refresh = (s.obsRefreshSceneName || 'refresh').trim().toLowerCase();
 
     return n === starting || n === ending || n === privacy || n === refresh ||
-           n.includes('starting') || n.includes('ending') || n.includes('privacy') || n.includes('refresh');
+           n === 'starting' || n === 'ending' || n === 'privacy' || n === 'refresh' ||
+           n.includes('starting') || n.includes('ending') || n.includes('priv') || n.includes('pause') ||
+           (n.includes('refresh') && !n.includes('live'));
   };
 
   const isLiveSceneName = (name: string, s: OverlaySettings) => {
     if (!name) return false;
     const n = name.trim().toLowerCase();
+    if (isSpecialSceneName(n, s)) return false;
     const live = (s.obsLiveSceneName || 'live').trim().toLowerCase();
-    return n === live || n.includes('live');
+    return n === live || (n.includes('live') && !n.includes('vertical'));
   };
 
   const isLowSceneName = (name: string, s: OverlaySettings) => {
     if (!name) return false;
     const n = name.trim().toLowerCase();
+    if (isSpecialSceneName(n, s)) return false;
     const low = (s.obsLowSceneName || 'low').trim().toLowerCase();
     return n === low || n.includes('low');
   };
@@ -607,8 +627,9 @@ function LowBitrateContent() {
   const isOfflineSceneName = (name: string, s: OverlaySettings) => {
     if (!name) return false;
     const n = name.trim().toLowerCase();
+    if (isSpecialSceneName(n, s)) return false;
     const offline = (s.obsOfflineSceneName || 'offline').trim().toLowerCase();
-    return n === offline || n.includes('offline') || n.includes('brb');
+    return n === offline || (n.includes('offline') && !n.includes('vertical')) || n.includes('brb');
   };
 
   // 5. Scene Switching Execution
@@ -617,7 +638,17 @@ function LowBitrateContent() {
       showToast('Scene name not configured.', 'error');
       return false;
     }
+
+    const now = Date.now();
+    lastManualSceneSwitchTimeRef.current = now;
+
+    // 1. Instant Optimistic State Update (< 1ms)
+    setCurrentScene(sceneName);
+    currentSceneRef.current = sceneName;
     setIsSwitchingScene(true);
+    // Quick 80ms throttle so user can click between scenes (starting -> ending) with 0 delay!
+    setTimeout(() => setIsSwitchingScene(false), 80);
+
     const logText = `Switching to: "${sceneName}" (${reason})...`;
     setLastSwitchLog(logText);
 
@@ -629,7 +660,7 @@ function LowBitrateContent() {
     if (isSpecial) {
       // Special scene (Starting, Ending, Privacy, Refresh):
       // Hold indefinitely so auto-switching NEVER forces user back to LIVE!
-      manualOverrideUntilRef.current = Date.now() + 86400000;
+      manualOverrideUntilRef.current = now + 86400000;
       setAutoSwitchState('IDLE');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sceneName}" — Auto-switching PAUSED`);
     } else if (isLiveTarget) {
@@ -637,30 +668,56 @@ function LowBitrateContent() {
       manualOverrideUntilRef.current = 0;
       setAutoSwitchState('LIVE');
     } else if (isLowTarget) {
-      manualOverrideUntilRef.current = Date.now() + 60000;
+      manualOverrideUntilRef.current = now + 60000;
       setAutoSwitchState('LOW');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏸️ Switched to Low Bitrate (holding for 60s)`);
     } else if (isOfflineTarget) {
-      manualOverrideUntilRef.current = Date.now() + 60000;
+      manualOverrideUntilRef.current = now + 60000;
       setAutoSwitchState('OFFLINE');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏸️ Switched to BRB/Offline (holding for 60s)`);
     } else {
       // Custom detected OBS scene: pause auto-switching so streamer stays on it
-      manualOverrideUntilRef.current = Date.now() + 86400000;
+      manualOverrideUntilRef.current = now + 86400000;
       setAutoSwitchState('IDLE');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Custom Scene "${sceneName}" — Auto-switching PAUSED`);
     }
 
-    try {
-      const now = Date.now();
-      saveSettingsUpdates({ obsSceneSwitchSignal: { sceneName, timestamp: now } }, { silent: true });
-
-      if (localObsRef.current) {
-        safeObsSwitchScene(localObsRef.current, sceneName).then(ok => {
-          if (ok) setCurrentScene(sceneName);
-        });
+    // 2. Direct Local OBS WebSocket Execution (Fastest: < 3ms inside local network)
+    let directSuccess = false;
+    if (localObsRef.current) {
+      try {
+        directSuccess = await safeObsSwitchScene(localObsRef.current, sceneName);
+        if (directSuccess) {
+          setCurrentScene(sceneName);
+          currentSceneRef.current = sceneName;
+          const successLog = `Program Scene is now: "${sceneName}"`;
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ ${successLog}`);
+          showToast(successLog, 'success');
+        }
+      } catch (wsErr) {
+        console.warn('Direct OBS switch warning:', wsErr);
       }
+    }
 
+    // 3. Cloud synchronization & Browser Source relay (non-blocking in background)
+    saveSettingsUpdates({ obsSceneSwitchSignal: { sceneName, timestamp: now } }, { silent: true }).catch(() => {});
+
+    // If already executed directly via local OBS WS, fire cloud relay without blocking UI
+    if (directSuccess) {
+      fetch('/api/obs-switch-scene', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sceneName,
+          obsUrl: settings.obsWebsocketUrl || `ws://127.0.0.1:${settings.obsWebsocketPort || 4455}`,
+          obsPassword: settings.obsWebsocketPassword
+        })
+      }).catch(() => {});
+      return true;
+    }
+
+    // Fallback if local OBS WebSocket wasn't connected in this browser tab: await cloud API relay
+    try {
       const res = await fetch('/api/obs-switch-scene', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -674,19 +731,20 @@ function LowBitrateContent() {
       const data = await res.json();
       if (data.success) {
         setCurrentScene(sceneName);
-        const successLog = `✅ Program Scene is now: "${sceneName}"`;
-        setLastSwitchLog(successLog);
+        currentSceneRef.current = sceneName;
+        const successLog = `Program Scene is now: "${sceneName}"`;
+        setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ ${successLog}`);
         showToast(successLog, 'success');
         return true;
       } else {
-        const failLog = `❌ Failed: ${data.error || 'Could not switch scene'}`;
-        setLastSwitchLog(failLog);
+        const failLog = `Failed: ${data.error || 'Could not switch scene'}`;
+        setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ❌ ${failLog}`);
         showToast(failLog, 'error');
         return false;
       }
     } catch (err: any) {
-      const errLog = `❌ Network Error: ${err.message}`;
-      setLastSwitchLog(errLog);
+      const errLog = `Network Error: ${err.message}`;
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ❌ ${errLog}`);
       showToast(errLog, 'error');
       return false;
     } finally {
@@ -756,7 +814,7 @@ function LowBitrateContent() {
     const refreshScene = settings.obsRefreshSceneName || 'refresh';
     const liveScene = settings.obsLiveSceneName || 'live';
     setLastSwitchLog(`🔄 Executing refresh cycle: "${refreshScene}" -> "${liveScene}" (6s reload)...`);
-    showToast(`🔄 Refreshing feed: cutting to "${refreshScene}" for 6s...`, 'info');
+    showToast(`Refreshing feed: cutting to "${refreshScene}" for 6s...`, 'info');
 
     let executedDirectly = false;
     if (localObsRef.current) {
@@ -765,8 +823,9 @@ function LowBitrateContent() {
         if (res.success) {
           executedDirectly = true;
           setCurrentScene(liveScene);
-          showToast(`✅ Refresh cycle completed! Back on "${liveScene}".`, 'success');
-          setLastSwitchLog(`✅ Refresh sequence finished on "${liveScene}".`);
+          currentSceneRef.current = liveScene;
+          showToast(`Refresh cycle completed! Back on "${liveScene}".`, 'success');
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Refresh sequence finished on "${liveScene}".`);
           refreshObsScenes();
         }
       } catch (err) {
@@ -1003,7 +1062,7 @@ function LowBitrateContent() {
 
       // Check current scene: if OBS is on a Special Scene (starting, ending, privacy, refresh), NEVER auto-switch!
       const curScene = (currentSceneRef.current || '').trim().toLowerCase();
-      if (curScene && isSpecialSceneName(curScene, currentSettings)) {
+      if (!curScene || isSpecialSceneName(curScene, currentSettings)) {
         return;
       }
 
@@ -1012,7 +1071,7 @@ function LowBitrateContent() {
       const isCurLive = isLiveSceneName(curScene, currentSettings);
 
       // If OBS is on an unmanaged custom scene (e.g. Chatting or Intermission), leave OBS alone!
-      if (curScene && !isCurLow && !isCurOffline && !isCurLive) {
+      if (!isCurLow && !isCurOffline && !isCurLive) {
         return;
       }
 
@@ -1094,8 +1153,8 @@ function LowBitrateContent() {
         lowCountRef.current = 0;
         liveCountRef.current += 1;
 
-        // Only recover to LIVE if OBS was previously in LOW or OFFLINE
-        const needsRecovery = autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || isCurLow || isCurOffline;
+        // Only recover to LIVE if OBS was previously in LOW or OFFLINE, and never while on a special scene
+        const needsRecovery = (autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || isCurLow || isCurOffline) && !isSpecialSceneName(curScene, currentSettings);
 
         if (liveCountRef.current >= liveRecoveryDelay && needsRecovery) {
           setAutoSwitchState('LIVE');
@@ -2582,9 +2641,9 @@ function LowBitrateContent() {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
                         <button
                           className="btn btn-secondary"
-                          onClick={triggerRefreshCycle}
-                          disabled={isSwitchingScene || isRefreshingFeed}
-                          title="Executes feed reset cycle: cuts to refresh scene for 6s then returns to live"
+                          onClick={() => switchScene(refreshScene, 'Refresh button')}
+                          disabled={isSwitchingScene}
+                          title={`Switch to "${refreshScene}" scene`}
                           style={{
                             background: isRefreshActive
                               ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.35) 0%, rgba(37, 99, 235, 0.75) 100%)'
@@ -2601,7 +2660,7 @@ function LowBitrateContent() {
                             alignItems: 'center',
                             gap: '3px',
                             position: 'relative',
-                            cursor: (isSwitchingScene || isRefreshingFeed) ? 'not-allowed' : 'pointer'
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
                           }}
                         >
                           {isRefreshActive && (
@@ -2610,7 +2669,7 @@ function LowBitrateContent() {
                             </span>
                           )}
                           <span style={{ fontSize: '1.1rem' }}>🔄</span>
-                          <strong>!REFRESH</strong>
+                          <strong>REFRESH</strong>
                           <span style={{ fontSize: '0.7rem', opacity: isRefreshActive ? 1 : 0.65, fontWeight: isRefreshActive ? 600 : 400 }}>{refreshScene}</span>
                         </button>
 

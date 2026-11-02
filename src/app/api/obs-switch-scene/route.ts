@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       obs.on('ConnectionError', () => {});
 
       const connectPromise = obs.connect(url, password || undefined);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Direct WS skipped/timeout')), 1500));
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Direct WS skipped/timeout')), 250));
       await Promise.race([connectPromise, timeoutPromise]);
 
       switchedViaDirect = await safeObsSwitchScene(obs, sceneName);

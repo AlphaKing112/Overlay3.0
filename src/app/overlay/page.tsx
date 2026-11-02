@@ -3287,6 +3287,24 @@ function OverlayPage() {
         const fps = st?.activeFps ? parseFloat(st.activeFps.toFixed(2)) : 60;
         const currentScene = scene?.currentProgramSceneName || (scene as any)?.sceneName || '';
 
+        if (currentScene) {
+          lastLoggedStateRef.current.currentScene = currentScene;
+          const norm = currentScene.trim().toLowerCase();
+          const starting = (seSettingsRef.current.obsStartingSceneName || 'starting').trim().toLowerCase();
+          const ending = (seSettingsRef.current.obsEndingSceneName || 'ending').trim().toLowerCase();
+          const privacy = (seSettingsRef.current.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+          const refresh = (seSettingsRef.current.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+          const isSpecial = norm === starting || norm === ending || norm === privacy || norm === refresh ||
+                            norm === 'starting' || norm === 'ending' || norm === 'privacy' || norm === 'refresh' ||
+                            norm.includes('starting') || norm.includes('ending') || norm.includes('priv') || norm.includes('pause') ||
+                            (norm.includes('refresh') && !norm.includes('live'));
+
+          if (isSpecial) {
+            manualOverrideUntilRef.current = Date.now() + 86400000;
+            lastBitrateStateRef.current = null;
+          }
+        }
+
         // Rate-limited authentic OBS log reports
         const lastHealthLog = lastLoggedStateRef.current.lastHealthLogTime || 0;
         if (now - lastHealthLog > 60000) {
@@ -3507,20 +3525,29 @@ function OverlayPage() {
 
     // Skip auto-switch if OBS is currently on a special scene (Starting, Ending, Privacy, Refresh)
     const activeScene = (lastLoggedStateRef.current.currentScene || '').trim().toLowerCase();
+    if (!activeScene) {
+      // Do not auto-switch if current scene is not yet confirmed
+      return;
+    }
     const startingScene = (settings.obsStartingSceneName || 'starting').trim().toLowerCase();
     const endingScene = (settings.obsEndingSceneName || 'ending').trim().toLowerCase();
     const privacyScene = (settings.obsPrivacySceneName || 'privacy').trim().toLowerCase();
     const refreshScene = (settings.obsRefreshSceneName || 'refresh').trim().toLowerCase();
 
-    const isSpecialScene = !!activeScene && (
+    const isSpecialScene = (
       activeScene === startingScene ||
       activeScene === endingScene ||
       activeScene === privacyScene ||
       activeScene === refreshScene ||
+      activeScene === 'starting' ||
+      activeScene === 'ending' ||
+      activeScene === 'privacy' ||
+      activeScene === 'refresh' ||
       activeScene.includes('starting') ||
       activeScene.includes('ending') ||
-      activeScene.includes('privacy') ||
-      activeScene.includes('refresh')
+      activeScene.includes('priv') ||
+      activeScene.includes('pause') ||
+      (activeScene.includes('refresh') && !activeScene.includes('live'))
     );
 
     if (isSpecialScene) {
@@ -3531,9 +3558,9 @@ function OverlayPage() {
     const lowScene = (settings.obsLowSceneName || 'low').trim().toLowerCase();
     const offlineScene = (settings.obsOfflineSceneName || 'offline').trim().toLowerCase();
 
-    const isCurLive = activeScene === liveScene || activeScene.includes('live');
-    const isCurLow = activeScene === lowScene || activeScene.includes('low');
-    const isCurOffline = activeScene === offlineScene || activeScene.includes('offline') || activeScene.includes('brb');
+    const isCurLive = !isSpecialScene && (activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical')));
+    const isCurLow = !isSpecialScene && (activeScene === lowScene || activeScene.includes('low'));
+    const isCurOffline = !isSpecialScene && (activeScene === offlineScene || (activeScene.includes('offline') && !activeScene.includes('vertical')) || activeScene.includes('brb'));
 
     // If activeScene is recognized as an unmanaged custom scene, leave OBS alone!
     if (activeScene && !isCurLive && !isCurLow && !isCurOffline) {
@@ -3636,7 +3663,7 @@ function OverlayPage() {
 
     // Auto-switch to live scene (ONLY when recovering from low or offline)
     if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
-      const needsRecovery = lastBitrateStateRef.current === 'low' || lastBitrateStateRef.current === 'offline' || isCurLow || isCurOffline;
+      const needsRecovery = !isSpecialScene && (lastBitrateStateRef.current === 'low' || lastBitrateStateRef.current === 'offline' || isCurLow || isCurOffline);
       if (isLive && needsRecovery && lastBitrateStateRef.current !== 'live') {
         console.log(`📡 Stream is live (bitrate=${currentBitrate}), recovering to: ${settings.obsLiveSceneName}`);
         switchSceneViaApi(settings.obsLiveSceneName).then(success => {

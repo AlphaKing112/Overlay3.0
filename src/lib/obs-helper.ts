@@ -46,32 +46,37 @@ export async function safeObsSwitchScene(obs: any, sceneName: string): Promise<b
         if (lowerTarget === 'live') {
           matched = scenes.find(s => {
             const l = s.toLowerCase();
-            return l.includes('live') || l.includes('main') || l.includes('game') || l.includes('chat') || l.includes('stream') || l.includes('irl');
+            return l === 'live' || (l.includes('live') && !l.includes('vertical')) || l.includes('main') || l.includes('game') || l.includes('chat') || l.includes('stream') || l.includes('irl');
           });
         } else if (lowerTarget === 'low' || lowerTarget.includes('low')) {
           matched = scenes.find(s => {
             const l = s.toLowerCase();
-            return l.includes('low') || l.includes('weak') || l.includes('bad') || l.includes('standby') || l.includes('reconnect');
+            return l === 'low' || l.includes('low') || l.includes('weak') || l.includes('bad') || l.includes('standby') || l.includes('reconnect');
           });
         } else if (lowerTarget === 'offline' || lowerTarget === 'brb' || lowerTarget.includes('off')) {
           matched = scenes.find(s => {
             const l = s.toLowerCase();
-            return l.includes('offline') || l.includes('brb') || l.includes('break') || l.includes('pause') || l.includes('right back');
+            return l === 'offline' || (l.includes('offline') && !l.includes('vertical')) || l.includes('brb') || l.includes('break') || l.includes('right back');
           });
         } else if (lowerTarget === 'refresh' || lowerTarget === 'fix') {
           matched = scenes.find(s => {
             const l = s.toLowerCase();
-            return l.includes('refresh') || l.includes('fix') || l.includes('reset') || l.includes('reload');
+            return l === 'refresh' || (l.includes('refresh') && !l.includes('live')) || l.includes('fix') || l.includes('reset') || l.includes('reload');
           });
         } else if (lowerTarget === 'starting' || lowerTarget === 'start') {
           matched = scenes.find(s => {
             const l = s.toLowerCase();
-            return l.includes('start') || l.includes('intro') || l.includes('soon');
+            return l === 'starting' || l.includes('start') || l.includes('intro') || l.includes('soon');
           });
         } else if (lowerTarget === 'ending' || lowerTarget === 'end') {
           matched = scenes.find(s => {
             const l = s.toLowerCase();
-            return l.includes('end') || l.includes('outro') || l.includes('bye');
+            return l === 'ending' || l.includes('end') || l.includes('outro') || l.includes('bye');
+          });
+        } else if (lowerTarget === 'privacy' || lowerTarget === 'pause' || lowerTarget.includes('priv')) {
+          matched = scenes.find(s => {
+            const l = s.toLowerCase();
+            return l === 'privacy' || l.includes('priv') || l.includes('pause') || l.includes('hide');
           });
         } else {
           // General partial match
