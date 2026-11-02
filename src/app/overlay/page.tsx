@@ -2942,6 +2942,12 @@ function OverlayPage() {
 
         obs.on('StreamStateChanged' as any, (data: any) => {
           const isLive = Boolean(data?.outputActive);
+          const outputState = String(data?.outputState || '');
+          if (outputState === 'OBS_WEBSOCKET_OUTPUT_STARTING' || outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPING') {
+            return;
+          }
+
+          const wasStreaming = Boolean(lastLoggedStateRef.current.isStreaming);
           if (lastLoggedStateRef.current.isStreaming !== isLive) {
             lastLoggedStateRef.current.isStreaming = isLive;
             if (isLive) {
@@ -2958,7 +2964,7 @@ function OverlayPage() {
                 appendObsLog('info', `[scene-manager] Stream started, switching to starting scene: '${seSettingsRef.current.obsStartingSceneName}'`);
                 safeObsSwitchScene(obs, seSettingsRef.current.obsStartingSceneName);
               }
-            } else {
+            } else if (wasStreaming) {
               appendObsLog('warn', `[rtmp stream: 'simple_stream'] User stopped the stream`);
               appendObsLog('warn', `==== Streaming Stop ====`);
               fetch('/api/save-settings', {
@@ -2967,12 +2973,14 @@ function OverlayPage() {
                 body: JSON.stringify({ obsTelemetryEnabled: false })
               }).catch(() => {});
 
-              // Stream stopped: Switch immediately with 0 delay to ending or offline scene
-              const stopScene = seSettingsRef.current.obsEndingSceneName || seSettingsRef.current.obsOfflineSceneName || 'ending';
-              if (stopScene) {
-                appendObsLog('info', `[scene-manager] Stream stopped, switching immediately to '${stopScene}'`);
-                safeObsSwitchScene(obs, stopScene);
-                lastBitrateStateRef.current = 'offline';
+              // Stream stopped: ONLY switch if obsEndingSceneOnStreamStop is enabled!
+              if (seSettingsRef.current.obsEndingSceneOnStreamStop) {
+                const stopScene = seSettingsRef.current.obsEndingSceneName || seSettingsRef.current.obsOfflineSceneName || 'ending';
+                if (stopScene) {
+                  appendObsLog('info', `[scene-manager] Stream stopped, switching immediately to '${stopScene}'`);
+                  safeObsSwitchScene(obs, stopScene);
+                  lastBitrateStateRef.current = 'offline';
+                }
               }
             }
           }

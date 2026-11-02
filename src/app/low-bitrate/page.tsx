@@ -63,6 +63,12 @@ function PurpleToggle({
   );
 }
 
+const DEFAULT_SCENE_PRESETS = [
+  'live', 'low', 'offline', 'refresh', 'starting', 'ending', 'privacy',
+  'Live', 'Low Bitrate', 'BRB', 'Offline', 'Starting Soon', 'Stream Ending', 'Stream Offline',
+  'Just Chatting', 'Gameplay', 'Screen Share', 'Be Right Back', 'Reconnecting', 'Pause'
+];
+
 function LowBitrateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -177,6 +183,7 @@ function LowBitrateContent() {
             if (streamData !== null) {
               const live = Boolean(streamData?.outputActive);
               setLocalStreaming(live);
+              wasStreamingRef.current = live;
               setTelemetry(prev => (prev ? {
                 ...prev,
                 streaming: live,
@@ -262,8 +269,23 @@ function LowBitrateContent() {
         });
 
         obs.on('StreamStateChanged' as any, (data: any) => {
+          const outputState = String(data?.outputState || '');
           const isLive = Boolean(data?.outputActive);
+
+          // If OBS is actively connecting to stream, show loading and NEVER switch to ending!
+          if (outputState === 'OBS_WEBSOCKET_OUTPUT_STARTING') {
+            setIsTogglingStream(true);
+            return;
+          }
+
+          // If OBS is actively disconnecting, show loading
+          if (outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPING') {
+            setIsTogglingStream(true);
+            return;
+          }
+
           setLocalStreaming(isLive);
+          setIsTogglingStream(false);
           setTelemetry(prev => prev ? { ...prev, streaming: isLive } : { online: true, streaming: isLive } as any);
           fetch('/api/obs-telemetry', {
             method: 'POST',
@@ -271,12 +293,21 @@ function LowBitrateContent() {
             body: JSON.stringify({ online: true, streaming: isLive })
           }).catch(() => {});
 
-          if (!isLive) {
-            // OBS Stream stopped! Switch immediately to Ending scene or Offline scene (0-second delay)
-            const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
-            switchScene(targetScene, 'OBS Stream Stopped');
-          } else if (isLive && settingsRef.current.obsStartingSceneOnGoLive && settingsRef.current.obsStartingSceneName) {
-            switchScene(settingsRef.current.obsStartingSceneName, 'Stream Started');
+          const wasLiveBefore = wasStreamingRef.current;
+          wasStreamingRef.current = isLive;
+
+          if (isLive) {
+            // Stream just went live! Switch to configured starting scene if enabled
+            if (!wasLiveBefore && settingsRef.current.obsStartingSceneOnGoLive) {
+              const startScene = settingsRef.current.obsStartingSceneName || 'starting';
+              switchScene(startScene, 'Stream Started');
+            }
+          } else {
+            // Stream just stopped! ONLY switch to ending scene if stream was previously LIVE and setting is enabled
+            if (wasLiveBefore && settingsRef.current.obsEndingSceneOnStreamStop) {
+              const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
+              switchScene(targetScene, 'OBS Stream Stopped');
+            }
           }
         });
 
@@ -372,6 +403,7 @@ function LowBitrateContent() {
   const mobileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const currentSceneRef = useRef(currentScene);
   const lastManualSceneSwitchTimeRef = useRef<number>(0);
+  const wasStreamingRef = useRef<boolean>(false);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -923,7 +955,7 @@ function LowBitrateContent() {
     }
 
     setIsTogglingStream(true);
-    showToast(willStream ? '▷ Starting stream broadcast in OBS...' : '⏹ Stopping stream broadcast...', 'info');
+    showToast(willStream ? 'Starting stream broadcast in OBS...' : 'Stopping stream broadcast in OBS...', 'info');
 
     let executedDirectly = false;
     // 1. Send DIRECT command to local OBS Studio WebSocket (instant)
@@ -932,14 +964,6 @@ function LowBitrateContent() {
         const res = await safeObsStreamControlResult(localObsRef.current, willStream ? 'start' : 'stop');
         if (res.success) {
           executedDirectly = true;
-          setLocalStreaming(willStream);
-          setTelemetry(prev => prev ? { ...prev, streaming: willStream } : { online: true, streaming: willStream } as any);
-          showToast(willStream ? '🎬 OBS Stream started live!' : '⏹ OBS Stream stopped.', 'success');
-          fetch('/api/obs-telemetry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ online: true, streaming: willStream })
-          }).catch(() => {});
         } else {
           console.warn('Direct OBS stream control failed, falling back to cloud signal:', res.error);
         }
@@ -962,19 +986,47 @@ function LowBitrateContent() {
           body: JSON.stringify({ command: willStream ? '!start' : '!stop', fromDashboard: true })
         });
         const data = await res.json();
-        if (data.success) {
-          setLocalStreaming(willStream);
-          setTelemetry(prev => prev ? { ...prev, streaming: willStream } : null);
-          showToast(data.message || (willStream ? '🎬 OBS Stream started live!' : '⏹ OBS Stream stopped.'), 'success');
-        } else {
+        if (!data.success) {
           showToast(data.error || 'Failed to control stream.', 'error');
+          setIsTogglingStream(false);
+          return;
         }
       }
     } catch (err: any) {
-      if (!executedDirectly) showToast(`Stream error: ${err.message}`, 'error');
-    } finally {
-      setIsTogglingStream(false);
+      if (!executedDirectly) {
+        showToast(`Stream error: ${err.message}`, 'error');
+        setIsTogglingStream(false);
+        return;
+      }
     }
+
+    // 3. Keep button in loading state until OBS confirms the new stream state
+    let pollCount = 0;
+    const confirmInterval = setInterval(async () => {
+      pollCount++;
+      let currentActive: boolean | null = null;
+      if (localObsRef.current) {
+        try {
+          const statusData: any = await localObsRef.current.call('GetStreamStatus');
+          currentActive = Boolean(statusData?.outputActive);
+        } catch {}
+      }
+
+      if (currentActive === willStream || pollCount >= 18) {
+        clearInterval(confirmInterval);
+        setIsTogglingStream(false);
+        const finalState = currentActive !== null ? currentActive : willStream;
+        setLocalStreaming(finalState);
+        wasStreamingRef.current = finalState;
+        setTelemetry(prev => prev ? { ...prev, streaming: finalState } : { online: true, streaming: finalState } as any);
+        fetch('/api/obs-telemetry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ online: true, streaming: finalState })
+        }).catch(() => {});
+        showToast(finalState ? 'OBS Stream is now LIVE!' : 'OBS Stream has ended.', 'success');
+      }
+    }, 400);
   };
 
   // 7. Command Execution Helper
@@ -2335,12 +2387,12 @@ function LowBitrateContent() {
             <span>{isTogglingRecord ? 'Updating...' : isRecording ? 'Stop record' : 'Record'}</span>
           </button>
 
-          {/* Start stream / Stop stream button */}
+          {/* Start stream / End stream button */}
           <button
             type="button"
             onClick={handleToggleStream}
             disabled={isTogglingStream}
-            title={isStreaming ? 'Stop broadcasting in OBS (!stop)' : 'Start broadcasting in OBS (!start)'}
+            title={isStreaming ? 'End broadcasting in OBS (!stop)' : 'Start broadcasting in OBS (!start)'}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -2360,25 +2412,51 @@ function LowBitrateContent() {
           >
             {isStreaming ? (
               <>
-                <span style={{
-                  width: '9px',
-                  height: '9px',
-                  borderRadius: '50%',
-                  backgroundColor: '#ffffff',
-                  boxShadow: '0 0 8px #ffffff',
-                  display: 'inline-block',
-                  animation: 'pulse 1.5s infinite'
-                }} />
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="5" y="5" width="14" height="14" rx="2" />
-                </svg>
-                <span>{isTogglingStream ? 'Stopping stream...' : 'Stop stream'}</span>
+                {isTogglingStream ? (
+                  <span style={{
+                    width: '12px',
+                    height: '12px',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: '#ffffff',
+                    borderRadius: '50%',
+                    display: 'inline-block',
+                    animation: 'spin 0.8s linear infinite'
+                  }} />
+                ) : (
+                  <>
+                    <span style={{
+                      width: '9px',
+                      height: '9px',
+                      borderRadius: '50%',
+                      backgroundColor: '#ffffff',
+                      boxShadow: '0 0 8px #ffffff',
+                      display: 'inline-block',
+                      animation: 'pulse 1.5s infinite'
+                    }} />
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                      <rect x="5" y="5" width="14" height="14" rx="2" />
+                    </svg>
+                  </>
+                )}
+                <span>{isTogglingStream ? 'Ending stream...' : 'End stream'}</span>
               </>
             ) : (
               <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="6 4 20 12 6 20 6 4" />
-                </svg>
+                {isTogglingStream ? (
+                  <span style={{
+                    width: '12px',
+                    height: '12px',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: '#ffffff',
+                    borderRadius: '50%',
+                    display: 'inline-block',
+                    animation: 'spin 0.8s linear infinite'
+                  }} />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="6 4 20 12 6 20 6 4" />
+                  </svg>
+                )}
                 <span>{isTogglingStream ? 'Starting stream...' : 'Start stream'}</span>
               </>
             )}
@@ -2509,9 +2587,9 @@ function LowBitrateContent() {
                     </span>
                   </div>
                   <button
-                    className="btn btn-small"
+                    className="btn btn-secondary btn-small"
                     onClick={refreshObsScenes}
-                    style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.2)' }}
+                    style={{ fontSize: '0.78rem', padding: '6px 14px', background: 'rgba(255, 255, 255, 0.12)', border: '1px solid rgba(255, 255, 255, 0.25)', color: '#ffffff', fontWeight: 700 }}
                     title="Refresh scenes from OBS WebSocket"
                   >
                     🔄 Refresh Scenes
@@ -3150,11 +3228,7 @@ function LowBitrateContent() {
 
               {/* CARD 3: Target Scene Names Dropdowns (All scenes detected + Fallback Presets + Manual Typing) */}
               {(() => {
-                const defaultPresets = [
-                  'live', 'low', 'offline', 'refresh', 'starting', 'ending', 'privacy',
-                  'Live', 'Low Bitrate', 'BRB', 'Offline', 'Starting Soon', 'Stream Ending', 'Stream Offline',
-                  'Just Chatting', 'Gameplay', 'Screen Share', 'Be Right Back', 'Reconnecting', 'Pause'
-                ];
+                const defaultPresets = DEFAULT_SCENE_PRESETS;
 
                 const renderSceneSelect = (
                   label: string,
@@ -3431,35 +3505,115 @@ function LowBitrateContent() {
                 </h3>
 
                 {/* 1. Starting scene on go-live */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ paddingRight: '16px' }}>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-                      Starting scene on go-live
+                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                        Starting scene on go-live
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                        Show the selected scene when the stream starts on OBS.
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
-                      Show the Starting scene when the stream starts.
-                    </div>
+                    <PurpleToggle
+                      checked={settings.obsStartingSceneOnGoLive ?? false}
+                      onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
+                    />
                   </div>
-                  <PurpleToggle
-                    checked={settings.obsStartingSceneOnGoLive ?? false}
-                    onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
-                  />
+
+                  {/* Pick scene on stream start dropdown */}
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
+                      🎬 Pick scene when stream starts:
+                    </span>
+                    <select
+                      value={settings.obsStartingSceneName || 'starting'}
+                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(192, 132, 252, 0.4)',
+                        borderRadius: '6px',
+                        color: '#ffffff',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {availableScenes.length > 0 && (
+                        <optgroup label="Detected in OBS Studio" style={{ background: '#0f172a', color: '#38bdf8' }}>
+                          {availableScenes.map(sc => (
+                            <option key={`start-obs-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                              {sc}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Preset Scenes" style={{ background: '#0f172a', color: '#94a3b8' }}>
+                        {DEFAULT_SCENE_PRESETS.map(sc => (
+                          <option key={`start-preset-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                            {sc}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
 
                 {/* 2. Ending scene on stream stop */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ paddingRight: '16px' }}>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-                      Ending scene on stream stop
+                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                        Ending scene on stream stop
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                        Switch to the selected scene when the stream stops on OBS.
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
-                      Switch to the Ending scene when the stream stops.
-                    </div>
+                    <PurpleToggle
+                      checked={settings.obsEndingSceneOnStreamStop ?? false}
+                      onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
+                    />
                   </div>
-                  <PurpleToggle
-                    checked={settings.obsEndingSceneOnStreamStop ?? false}
-                    onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
-                  />
+
+                  {/* Pick scene on stream stop dropdown */}
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f472b6' }}>
+                      🏁 Pick scene when stream stops:
+                    </span>
+                    <select
+                      value={settings.obsEndingSceneName || 'ending'}
+                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(244, 114, 182, 0.4)',
+                        borderRadius: '6px',
+                        color: '#ffffff',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {availableScenes.length > 0 && (
+                        <optgroup label="Detected in OBS Studio" style={{ background: '#0f172a', color: '#38bdf8' }}>
+                          {availableScenes.map(sc => (
+                            <option key={`end-obs-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                              {sc}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Preset Scenes" style={{ background: '#0f172a', color: '#94a3b8' }}>
+                        {DEFAULT_SCENE_PRESETS.map(sc => (
+                          <option key={`end-preset-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                            {sc}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
 
                 {/* 3. Auto stop stream on raid */}
