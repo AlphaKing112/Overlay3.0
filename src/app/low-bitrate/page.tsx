@@ -2521,9 +2521,11 @@ function LowBitrateContent() {
       <div className="switcher-subnav-bar">
         <div className="switcher-tabs-group">
           <button
+            type="button"
             onClick={() => setActiveTab('switcher')}
+            className={`switcher-tab-btn ${activeTab === 'switcher' ? 'active-switcher' : ''}`}
             style={{
-              padding: '10px 22px',
+              padding: '10px 18px',
               borderRadius: '8px',
               fontSize: '0.95rem',
               fontWeight: 700,
@@ -2534,16 +2536,21 @@ function LowBitrateContent() {
               border: activeTab === 'switcher' ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
             }}
           >
-            <span>⚡</span> Switcher
+            <span style={{ flexShrink: 0 }}>⚡</span>
+            <span className="switcher-tab-label">
+              <span>Switcher</span>
+            </span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('chat_commands')}
+            className={`switcher-tab-btn ${activeTab === 'chat_commands' ? 'active-chat' : ''}`}
             style={{
-              padding: '10px 22px',
+              padding: '10px 18px',
               borderRadius: '8px',
               fontSize: '0.95rem',
               fontWeight: 700,
@@ -2554,16 +2561,23 @@ function LowBitrateContent() {
               border: activeTab === 'chat_commands' ? '1px solid rgba(145, 70, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
             }}
           >
-            <span>💬</span> <span>Chat & Commands <span className="switcher-tab-badge">({activeCommandsList.length})</span></span>
+            <span style={{ flexShrink: 0 }}>💬</span>
+            <span className="switcher-tab-label">
+              <span className="switcher-tab-text-desktop">Chat & Commands</span>
+              <span className="switcher-tab-text-mobile">Commands</span>{' '}
+              <span className="switcher-tab-badge">({activeCommandsList.length})</span>
+            </span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('switcher_options')}
+            className={`switcher-tab-btn ${activeTab === 'switcher_options' ? 'active-options' : ''}`}
             style={{
-              padding: '10px 22px',
+              padding: '10px 18px',
               borderRadius: '8px',
               fontSize: '0.95rem',
               fontWeight: 700,
@@ -2574,10 +2588,14 @@ function LowBitrateContent() {
               border: activeTab === 'switcher_options' ? '1px solid rgba(56, 189, 248, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
             }}
           >
-            <span>⚙️</span> Switcher Options
+            <span style={{ flexShrink: 0 }}>⚙️</span>
+            <span className="switcher-tab-label">
+              <span className="switcher-tab-text-desktop">Switcher Options</span>
+              <span className="switcher-tab-text-mobile">Options</span>
+            </span>
           </button>
         </div>
 
@@ -2586,6 +2604,7 @@ function LowBitrateContent() {
           {/* Fix feed button */}
           <button
             type="button"
+            className="switcher-action-btn"
             onClick={handleFixFeed}
             disabled={isFixingFeed}
             title="Reconnect the stream sources on the scene on air (!fix)"
@@ -2605,7 +2624,7 @@ function LowBitrateContent() {
               opacity: isFixingFeed ? 0.6 : 1,
             }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'rotate(-45deg)' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'rotate(-45deg)', flexShrink: 0 }}>
               <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
             </svg>
             <span>{isFixingFeed ? 'Fixing feed...' : 'Fix feed'}</span>
@@ -2614,6 +2633,7 @@ function LowBitrateContent() {
           {/* Record button */}
           <button
             type="button"
+            className="switcher-action-btn"
             onClick={handleToggleRecord}
             disabled={isTogglingRecord}
             title={isRecording ? 'Stop video recording in OBS (!rec)' : 'Start video recording in OBS (!rec)'}
@@ -2639,7 +2659,8 @@ function LowBitrateContent() {
               borderRadius: '50%',
               backgroundColor: isRecording ? '#ef4444' : '#64748b',
               boxShadow: isRecording ? '0 0 8px #ef4444' : 'none',
-              display: 'inline-block'
+              display: 'inline-block',
+              flexShrink: 0,
             }} />
             <span>{isTogglingRecord ? 'Updating...' : isRecording ? 'Stop record' : 'Record'}</span>
           </button>
@@ -2647,6 +2668,7 @@ function LowBitrateContent() {
           {/* Start stream / End stream button */}
           <button
             type="button"
+            className="switcher-action-btn"
             onClick={handleToggleStream}
             disabled={isTogglingStream}
             title={isStreaming ? 'End broadcasting in OBS (!stop)' : 'Start broadcasting in OBS (!start)'}
@@ -3180,6 +3202,9 @@ function LowBitrateContent() {
                 {renderBitrateHistoryCard(desktopCanvasRef)}
               </div>
 
+              {/* OBS Studio WebSocket Connection & Diagnostics Card */}
+              {renderObsWebSocketCard()}
+
               {/* Quick Navigation Banner to Switcher Options */}
               <div style={{
                 background: 'rgba(56, 189, 248, 0.05)',
@@ -3196,7 +3221,7 @@ function LowBitrateContent() {
                   <span style={{ fontSize: '1.5rem' }}>⚙️</span>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Configure Auto-Switch Triggers & Target Scenes</div>
-                    <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>Bitrate thresholds, latency triggers, scene names, and OBS connection settings are in Switcher Options.</div>
+                    <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>Bitrate thresholds, latency triggers, and target scene names are in Switcher Options.</div>
                   </div>
                 </div>
                 <button
@@ -3635,9 +3660,6 @@ function LowBitrateContent() {
               </div>
             </div>
           </div>
-
-          {/* OBS WebSocket Card in Settings Tab */}
-          {renderObsWebSocketCard()}
 
           {/* CARD 3: SETTINGS (PREFIX, BOT LANGUAGE, REPLY MODE, TOGGLES) */}
           <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
@@ -4886,9 +4908,6 @@ function LowBitrateContent() {
                   <strong>Trigger Log:</strong> {lastSwitchLog || 'Normal stream ingest'}
                 </div>
               </div>
-
-              {/* CARD 4: OBS Studio WebSocket & Telemetry Diagnostics */}
-              {renderObsWebSocketCard()}
 
             </div>
 

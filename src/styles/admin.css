@@ -1944,8 +1944,39 @@ html, body {
 
 .switcher-tabs-group {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+}
+
+.switcher-tab-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.switcher-tab-text-mobile {
+  display: none;
+}
+.switcher-tab-text-desktop {
+  display: inline;
+}
+
+.switcher-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-tab-badge {
+  opacity: 0.85;
+  font-size: 0.85em;
+  font-weight: 600;
 }
 
 .switcher-action-buttons {
@@ -1955,62 +1986,98 @@ html, body {
   flex-wrap: wrap;
 }
 
-@media (max-width: 720px) {
+.switcher-action-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .switcher-tab-text-mobile {
+    display: inline;
+  }
+  .switcher-tab-text-desktop {
+    display: none;
+  }
+
   .switcher-subnav-bar {
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 12px !important;
+    gap: 10px !important;
     margin-bottom: 16px !important;
   }
+
   .switcher-tabs-group {
     display: grid !important;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     width: 100% !important;
     gap: 6px !important;
   }
-  .switcher-tabs-group button {
+
+  .switcher-tabs-group button,
+  .switcher-tab-btn {
     width: 100% !important;
+    min-width: 0 !important;
     justify-content: center !important;
-    padding: 9px 4px !important;
-    font-size: 0.78rem !important;
+    padding: 10px 4px !important;
+    font-size: 0.82rem !important;
+    min-height: 42px !important;
     white-space: nowrap !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
   }
+
   .switcher-action-buttons {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: 1fr 1fr !important;
     width: 100% !important;
-    gap: 6px !important;
+    gap: 8px !important;
   }
-  .switcher-action-buttons button {
+
+  .switcher-action-buttons button,
+  .switcher-action-btn {
     width: 100% !important;
-    padding: 8px 4px !important;
-    font-size: 0.78rem !important;
+    min-height: 42px !important;
+    padding: 9px 8px !important;
+    font-size: 0.84rem !important;
     justify-content: center !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Make Start stream / End stream button span both columns for prominence and easy finger tap */
+  .switcher-action-buttons > button:last-child {
+    grid-column: span 2 !important;
   }
 }
 
 @media (max-width: 480px) {
-  .switcher-tabs-group button {
-    font-size: 0.71rem !important;
-    padding: 8px 2px !important;
+  .switcher-tabs-group button,
+  .switcher-tab-btn {
+    font-size: 0.78rem !important;
+    padding: 9px 2px !important;
     gap: 4px !important;
   }
+
+  .switcher-action-buttons button,
+  .switcher-action-btn {
+    font-size: 0.82rem !important;
+    padding: 8px 6px !important;
+  }
 }
 
-@media (max-width: 380px) {
-  .switcher-tabs-group button {
-    font-size: 0.65rem !important;
-    padding: 7px 1px !important;
+@media (max-width: 360px) {
+  .switcher-tabs-group button,
+  .switcher-tab-btn {
+    font-size: 0.71rem !important;
+    padding: 8px 1px !important;
     gap: 2px !important;
   }
-}
-
-@media (max-width: 440px) {
-  .switcher-action-buttons {
-    grid-template-columns: 1fr 1fr !important;
-  }
-  .switcher-action-buttons > button:last-child {
-    grid-column: span 2 !important;
+  .switcher-action-buttons button,
+  .switcher-action-btn {
+    font-size: 0.78rem !important;
   }
 }
 
