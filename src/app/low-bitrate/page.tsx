@@ -124,6 +124,9 @@ function LowBitrateContent() {
   const [newAliasValue, setNewAliasValue] = useState<string>('');
   const [addingChannelType, setAddingChannelType] = useState<'twitch' | 'kick' | null>(null);
   const [channelInputText, setChannelInputText] = useState<string>('');
+  const [showManualBotInput, setShowManualBotInput] = useState<boolean>(false);
+  const [manualBotUsername, setManualBotUsername] = useState<string>('');
+  const [manualBotToken, setManualBotToken] = useState<string>('');
 
   const handleConnectCustomBot = () => {
     const clientId = API_KEYS?.TWITCH_CLIENT_ID || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
@@ -3313,6 +3316,15 @@ function LowBitrateContent() {
                       <button
                         type="button"
                         className="btn btn-secondary"
+                        onClick={() => setShowManualBotInput(v => !v)}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', fontSize: '0.8rem', padding: '6px 12px' }}
+                        title="Enter bot username or token manually"
+                      >
+                        ✍️ Manual
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
                         onClick={handleConnectCustomBot}
                         style={{ background: 'rgba(145, 70, 255, 0.15)', border: '1px solid rgba(145, 70, 255, 0.35)', color: '#c084fc', fontSize: '0.82rem', padding: '6px 14px', fontWeight: 600 }}
                         title="Log in with your dedicated bot Twitch account"
@@ -3323,6 +3335,77 @@ function LowBitrateContent() {
                   )}
                 </div>
               </div>
+
+              {/* Manual Bot Entry Form */}
+              {showManualBotInput && (
+                <div style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(145,70,255,0.3)', borderRadius: '8px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#c084fc' }}>
+                    Connect Dedicated Bot Account Manually
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.78rem', opacity: 0.8, display: 'block', marginBottom: '4px' }}>
+                        Bot Twitch Username:
+                      </label>
+                      <input
+                        type="text"
+                        value={manualBotUsername}
+                        onChange={(e) => setManualBotUsername(e.target.value)}
+                        placeholder="e.g. LazeskBot"
+                        style={{ width: '100%', padding: '7px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.78rem', opacity: 0.8, display: 'block', marginBottom: '4px' }}>
+                        Bot OAuth Token:
+                      </label>
+                      <input
+                        type="password"
+                        value={manualBotToken}
+                        onChange={(e) => setManualBotToken(e.target.value)}
+                        placeholder="oauth:xxxx or access token"
+                        style={{ width: '100%', padding: '7px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setShowManualBotInput(false);
+                        setManualBotUsername('');
+                        setManualBotToken('');
+                      }}
+                      style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => {
+                        const cleanName = manualBotUsername.trim().replace(/^@/, '');
+                        if (!cleanName) {
+                          showToast('Please enter the bot username', 'error');
+                          return;
+                        }
+                        const cleanToken = manualBotToken.trim().replace(/^oauth:/i, '');
+                        saveSettingsUpdates({
+                          twitchBotUsername: cleanName,
+                          ...(cleanToken ? { twitchBotToken: cleanToken } : {}),
+                          twitchUseCustomBot: true
+                        });
+                        setShowManualBotInput(false);
+                        showToast(`Bot account @${cleanName} saved and activated!`, 'success');
+                      }}
+                      style={{ padding: '6px 16px', fontSize: '0.82rem', fontWeight: 700 }}
+                    >
+                      Save Bot
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Kick Bot */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>

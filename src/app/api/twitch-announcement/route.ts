@@ -57,10 +57,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, reason: 'Twitch integration token or broadcasterId not connected' });
     }
 
+    // Auto-resolve botUserId if custom bot is enabled but botUserId is missing
+    let botUserId = settings.twitchBotUserId;
+    if (settings.twitchUseCustomBot && settings.twitchBotToken && !botUserId) {
+      try {
+        const bRes = await fetch('https://api.twitch.tv/helix/users', {
+          headers: {
+            'Authorization': `Bearer ${settings.twitchBotToken}`,
+            'Client-Id': clientId
+          }
+        });
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          botUserId = bData?.data?.[0]?.id;
+        }
+      } catch {}
+    }
+
     // Check if custom bot account is enabled and configured
-    const useCustomBot = Boolean(settings.twitchUseCustomBot && settings.twitchBotToken && settings.twitchBotUserId);
+    const useCustomBot = Boolean(settings.twitchUseCustomBot && settings.twitchBotToken && botUserId);
     const activeSenderToken = useCustomBot ? settings.twitchBotToken : token;
-    const activeSenderId = useCustomBot ? settings.twitchBotUserId : broadcasterId;
+    const activeSenderId = useCustomBot ? botUserId : broadcasterId;
 
     const cleanMessage = message.slice(0, 500);
 
