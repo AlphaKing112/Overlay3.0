@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
-import { safeObsSwitchScene, safeObsStreamControlResult } from '@/lib/obs-helper';
+import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle } from '@/lib/obs-helper';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
@@ -94,6 +94,7 @@ function LowBitrateContent() {
   const isStreaming = localStreaming !== null ? localStreaming : Boolean(telemetry?.streaming);
   const isRecording = localRecording !== null ? localRecording : Boolean(telemetry?.recording);
   const [isFixingFeed, setIsFixingFeed] = useState<boolean>(false);
+  const [isRefreshingFeed, setIsRefreshingFeed] = useState<boolean>(false);
   const [isTogglingRecord, setIsTogglingRecord] = useState<boolean>(false);
   const [isTogglingStream, setIsTogglingStream] = useState<boolean>(false);
 
@@ -690,7 +691,58 @@ function LowBitrateContent() {
     }
   };
 
-  const triggerRefreshCycle = handleFixFeed;
+  // 6b. Refresh Sequence (!refresh) — Switches to refresh scene for 6s then returns to live
+  const handleRefreshCycle = async () => {
+    setIsRefreshingFeed(true);
+    const refreshScene = settings.obsRefreshSceneName || 'refresh';
+    const liveScene = settings.obsLiveSceneName || 'live';
+    setLastSwitchLog(`🔄 Executing refresh cycle: "${refreshScene}" -> "${liveScene}" (6s reload)...`);
+    showToast(`🔄 Refreshing feed: cutting to "${refreshScene}" for 6s...`, 'info');
+
+    let executedDirectly = false;
+    if (localObsRef.current) {
+      try {
+        const res = await safeObsRefreshCycle(localObsRef.current, refreshScene, liveScene, 6000);
+        if (res.success) {
+          executedDirectly = true;
+          setCurrentScene(liveScene);
+          showToast(`✅ Refresh cycle completed! Back on "${liveScene}".`, 'success');
+          setLastSwitchLog(`✅ Refresh sequence finished on "${liveScene}".`);
+          refreshObsScenes();
+        }
+      } catch (err) {
+        console.warn('Direct OBS refresh cycle failed:', err);
+      }
+    }
+
+    try {
+      await saveSettingsUpdates({
+        obsStreamCommandSignal: { action: 'refresh', timestamp: Date.now() }
+      }, { silent: true });
+
+      if (!executedDirectly) {
+        const res = await fetch('/api/noalbs/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: '!refresh', fromDashboard: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message || 'Stream refresh sequence completed!', 'success');
+          setLastSwitchLog(data.message || 'Refresh cycle finished.');
+          refreshObsScenes();
+        } else {
+          showToast(data.error || 'Refresh cycle failed.', 'error');
+        }
+      }
+    } catch (err: any) {
+      if (!executedDirectly) showToast(`Refresh error: ${err.message}`, 'error');
+    } finally {
+      setIsRefreshingFeed(false);
+    }
+  };
+
+  const triggerRefreshCycle = handleRefreshCycle;
 
   // 6b. Toggle Video Recording (!rec)
   const handleToggleRecord = async () => {
@@ -1881,27 +1933,6 @@ function LowBitrateContent() {
           )}
         </div>
       )}
-
-      {/* OBS Stream Commands Toggle */}
-      <div style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(83, 252, 25, 0.25)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <label style={{ margin: 0, color: '#53FC19', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95em', fontWeight: 'bold' }}>
-            <span>⚡</span> OBS Stream Commands (!start, !end &amp; !refresh)
-          </label>
-          <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
-            (Allow chat/remote commands to control stream)
-          </span>
-        </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '0.85em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
-            {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
-          </span>
-          <PurpleToggle
-            checked={settings.obsStreamCommandsEnabled ?? true}
-            onChange={(v) => saveSettingsUpdates({ obsStreamCommandsEnabled: v })}
-          />
-        </div>
-      </div>
     </section>
   );
 
@@ -2315,131 +2346,299 @@ function LowBitrateContent() {
               
               {/* Quick Scene Switch Grid */}
               <section className="settings-section" style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
-                    <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#fff' }}>
-                      🎬 Scene Switching Studio
-                    </h2>
-                    <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#fff' }}>
+                        🎬 Scene Switching Studio
+                      </h2>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        padding: '3px 9px',
+                        borderRadius: '6px',
+                        background: currentScene ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                        border: currentScene ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.12)',
+                        color: currentScene ? '#4ade80' : 'rgba(255, 255, 255, 0.55)',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: currentScene ? '#22c55e' : '#888', boxShadow: currentScene ? '0 0 6px #22c55e' : 'none' }} />
+                        {currentScene ? `Active Scene: "${currentScene}"` : 'No Scene Active'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', opacity: 0.7, display: 'block', marginTop: '3px' }}>
                       One-click instant scene triggers for OBS Studio
                     </span>
                   </div>
                   <button
                     className="btn btn-small"
                     onClick={refreshObsScenes}
-                    style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                    style={{ fontSize: '0.75rem', padding: '5px 12px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.2)' }}
                     title="Refresh scenes from OBS WebSocket"
                   >
                     🔄 Refresh Scenes
                   </button>
                 </div>
 
-                {/* Quick Switch Buttons */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
-                  <button
-                    className="btn"
-                    onClick={() => switchScene(settings.obsLiveSceneName || 'live', 'Quick button')}
-                    disabled={isSwitchingScene}
-                    style={{
-                      background: currentScene.toLowerCase() === (settings.obsLiveSceneName || 'live').toLowerCase() ? '#15803d' : 'rgba(34, 197, 94, 0.15)',
-                      border: '1px solid rgba(34, 197, 94, 0.4)',
-                      color: '#4ade80',
-                      padding: '14px 8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ fontSize: '1.2rem' }}>🟢</span>
-                    <strong>LIVE</strong>
-                    <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>{settings.obsLiveSceneName || 'live'}</span>
-                  </button>
+                {(() => {
+                  const liveScene = (settings.obsLiveSceneName || 'live').trim();
+                  const lowScene = (settings.obsLowSceneName || 'low').trim();
+                  const offlineScene = (settings.obsOfflineSceneName || 'offline').trim();
+                  const refreshScene = (settings.obsRefreshSceneName || 'refresh').trim();
+                  const startingScene = (settings.obsStartingSceneName || 'starting').trim();
+                  const endingScene = (settings.obsEndingSceneName || 'ending').trim();
+                  const privacyScene = (settings.obsPrivacySceneName || 'privacy').trim();
 
-                  <button
-                    className="btn"
-                    onClick={() => switchScene(settings.obsLowSceneName || 'low', 'Quick button')}
-                    disabled={isSwitchingScene}
-                    style={{
-                      background: currentScene.toLowerCase() === (settings.obsLowSceneName || 'low').toLowerCase() ? '#b45309' : 'rgba(245, 158, 11, 0.15)',
-                      border: '1px solid rgba(245, 158, 11, 0.4)',
-                      color: '#fbbf24',
-                      padding: '14px 8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ fontSize: '1.2rem' }}>🟡</span>
-                    <strong>LOW BITRATE</strong>
-                    <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>{settings.obsLowSceneName || 'low'}</span>
-                  </button>
+                  const currentNorm = (currentScene || '').trim().toLowerCase();
+                  const isLiveActive = !!currentNorm && currentNorm === liveScene.toLowerCase();
+                  const isLowActive = !!currentNorm && currentNorm === lowScene.toLowerCase();
+                  const isOfflineActive = !!currentNorm && currentNorm === offlineScene.toLowerCase();
+                  const isRefreshActive = (!!currentNorm && currentNorm === refreshScene.toLowerCase()) || isRefreshingFeed;
+                  const isStartingActive = !!currentNorm && currentNorm === startingScene.toLowerCase();
+                  const isEndingActive = !!currentNorm && currentNorm === endingScene.toLowerCase();
+                  const isPrivacyActive = !!currentNorm && currentNorm === privacyScene.toLowerCase();
 
-                  <button
-                    className="btn"
-                    onClick={() => switchScene(settings.obsOfflineSceneName || 'offline', 'Quick button')}
-                    disabled={isSwitchingScene}
-                    style={{
-                      background: currentScene.toLowerCase() === (settings.obsOfflineSceneName || 'offline').toLowerCase() ? '#b91c1c' : 'rgba(239, 68, 68, 0.15)',
-                      border: '1px solid rgba(239, 68, 68, 0.4)',
-                      color: '#f87171',
-                      padding: '14px 8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ fontSize: '1.2rem' }}>🔴</span>
-                    <strong>OFFLINE / BRB</strong>
-                    <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>{settings.obsOfflineSceneName || 'offline'}</span>
-                  </button>
-                </div>
+                  return (
+                    <>
+                      {/* Quick Switch Buttons */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                        <button
+                          className="btn"
+                          onClick={() => switchScene(liveScene, 'Quick button')}
+                          disabled={isSwitchingScene}
+                          style={{
+                            background: isLiveActive
+                              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.35) 0%, rgba(21, 128, 61, 0.75) 100%)'
+                              : 'rgba(34, 197, 94, 0.08)',
+                            border: isLiveActive ? '2px solid #22c55e' : '1px solid rgba(34, 197, 94, 0.3)',
+                            boxShadow: isLiveActive ? '0 0 16px rgba(34, 197, 94, 0.55), inset 0 0 8px rgba(34, 197, 94, 0.25)' : 'none',
+                            color: isLiveActive ? '#ffffff' : '#4ade80',
+                            transform: isLiveActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '14px 8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '4px',
+                            position: 'relative',
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isLiveActive && (
+                            <span style={{ position: 'absolute', top: '5px', right: '5px', background: '#22c55e', color: '#052e16', fontSize: '0.62rem', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', letterSpacing: '0.5px' }}>
+                              ● ON AIR
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.25rem' }}>🟢</span>
+                          <strong style={{ fontSize: '0.95rem', letterSpacing: '0.5px' }}>LIVE</strong>
+                          <span style={{ fontSize: '0.72rem', opacity: isLiveActive ? 1 : 0.75, fontWeight: isLiveActive ? 600 : 400 }}>{liveScene}</span>
+                        </button>
 
-                {/* Secondary Buttons Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={triggerRefreshCycle}
-                    disabled={isSwitchingScene}
-                    title="Executes feed reset cycle: cuts to refresh scene for 6s then returns to live"
-                    style={{ padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}
-                  >
-                    <span>🔄</span>
-                    <strong>!REFRESH</strong>
-                  </button>
+                        <button
+                          className="btn"
+                          onClick={() => switchScene(lowScene, 'Quick button')}
+                          disabled={isSwitchingScene}
+                          style={{
+                            background: isLowActive
+                              ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.35) 0%, rgba(180, 83, 9, 0.75) 100%)'
+                              : 'rgba(245, 158, 11, 0.08)',
+                            border: isLowActive ? '2px solid #f59e0b' : '1px solid rgba(245, 158, 11, 0.3)',
+                            boxShadow: isLowActive ? '0 0 16px rgba(245, 158, 11, 0.55), inset 0 0 8px rgba(245, 158, 11, 0.25)' : 'none',
+                            color: isLowActive ? '#ffffff' : '#fbbf24',
+                            transform: isLowActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '14px 8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '4px',
+                            position: 'relative',
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isLowActive && (
+                            <span style={{ position: 'absolute', top: '5px', right: '5px', background: '#f59e0b', color: '#451a03', fontSize: '0.62rem', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', letterSpacing: '0.5px' }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.25rem' }}>🟡</span>
+                          <strong style={{ fontSize: '0.95rem', letterSpacing: '0.5px' }}>LOW BITRATE</strong>
+                          <span style={{ fontSize: '0.72rem', opacity: isLowActive ? 1 : 0.75, fontWeight: isLowActive ? 600 : 400 }}>{lowScene}</span>
+                        </button>
 
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => switchScene(settings.obsStartingSceneName || 'starting', 'Starting button')}
-                    disabled={isSwitchingScene}
-                    style={{ padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}
-                  >
-                    <span>🎬</span>
-                    <strong>STARTING</strong>
-                  </button>
+                        <button
+                          className="btn"
+                          onClick={() => switchScene(offlineScene, 'Quick button')}
+                          disabled={isSwitchingScene}
+                          style={{
+                            background: isOfflineActive
+                              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.35) 0%, rgba(185, 28, 28, 0.75) 100%)'
+                              : 'rgba(239, 68, 68, 0.08)',
+                            border: isOfflineActive ? '2px solid #ef4444' : '1px solid rgba(239, 68, 68, 0.3)',
+                            boxShadow: isOfflineActive ? '0 0 16px rgba(239, 68, 68, 0.55), inset 0 0 8px rgba(239, 68, 68, 0.25)' : 'none',
+                            color: isOfflineActive ? '#ffffff' : '#f87171',
+                            transform: isOfflineActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '14px 8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '4px',
+                            position: 'relative',
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isOfflineActive && (
+                            <span style={{ position: 'absolute', top: '5px', right: '5px', background: '#ef4444', color: '#ffffff', fontSize: '0.62rem', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', letterSpacing: '0.5px' }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.25rem' }}>🔴</span>
+                          <strong style={{ fontSize: '0.95rem', letterSpacing: '0.5px' }}>OFFLINE / BRB</strong>
+                          <span style={{ fontSize: '0.72rem', opacity: isOfflineActive ? 1 : 0.75, fontWeight: isOfflineActive ? 600 : 400 }}>{offlineScene}</span>
+                        </button>
+                      </div>
 
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => switchScene(settings.obsEndingSceneName || 'ending', 'Ending button')}
-                    disabled={isSwitchingScene}
-                    style={{ padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}
-                  >
-                    <span>🏁</span>
-                    <strong>ENDING</strong>
-                  </button>
+                      {/* Secondary Buttons Row */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={triggerRefreshCycle}
+                          disabled={isSwitchingScene || isRefreshingFeed}
+                          title="Executes feed reset cycle: cuts to refresh scene for 6s then returns to live"
+                          style={{
+                            background: isRefreshActive
+                              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.35) 0%, rgba(37, 99, 235, 0.75) 100%)'
+                              : 'rgba(255, 255, 255, 0.05)',
+                            border: isRefreshActive ? '2px solid #3b82f6' : '1px solid rgba(255, 255, 255, 0.12)',
+                            boxShadow: isRefreshActive ? '0 0 14px rgba(59, 130, 246, 0.55), inset 0 0 6px rgba(59, 130, 246, 0.25)' : 'none',
+                            color: isRefreshActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)',
+                            transform: isRefreshActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '10px 4px',
+                            fontSize: '0.78rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '3px',
+                            position: 'relative',
+                            cursor: (isSwitchingScene || isRefreshingFeed) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isRefreshActive && (
+                            <span style={{ position: 'absolute', top: '4px', right: '4px', background: '#3b82f6', color: '#ffffff', fontSize: '0.58rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', letterSpacing: '0.5px' }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.1rem' }}>🔄</span>
+                          <strong>!REFRESH</strong>
+                          <span style={{ fontSize: '0.7rem', opacity: isRefreshActive ? 1 : 0.65, fontWeight: isRefreshActive ? 600 : 400 }}>{refreshScene}</span>
+                        </button>
 
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => switchScene(settings.obsPrivacySceneName || 'privacy', 'Privacy button')}
-                    disabled={isSwitchingScene}
-                    style={{ padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}
-                  >
-                    <span>🔒</span>
-                    <strong>PRIVACY</strong>
-                  </button>
-                </div>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => switchScene(startingScene, 'Starting button')}
+                          disabled={isSwitchingScene}
+                          style={{
+                            background: isStartingActive
+                              ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.35) 0%, rgba(126, 34, 206, 0.75) 100%)'
+                              : 'rgba(255, 255, 255, 0.05)',
+                            border: isStartingActive ? '2px solid #a855f7' : '1px solid rgba(255, 255, 255, 0.12)',
+                            boxShadow: isStartingActive ? '0 0 14px rgba(168, 85, 247, 0.55), inset 0 0 6px rgba(168, 85, 247, 0.25)' : 'none',
+                            color: isStartingActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)',
+                            transform: isStartingActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '10px 4px',
+                            fontSize: '0.78rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '3px',
+                            position: 'relative',
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isStartingActive && (
+                            <span style={{ position: 'absolute', top: '4px', right: '4px', background: '#a855f7', color: '#ffffff', fontSize: '0.58rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', letterSpacing: '0.5px' }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.1rem' }}>🎬</span>
+                          <strong>STARTING</strong>
+                          <span style={{ fontSize: '0.7rem', opacity: isStartingActive ? 1 : 0.65, fontWeight: isStartingActive ? 600 : 400 }}>{startingScene}</span>
+                        </button>
+
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => switchScene(endingScene, 'Ending button')}
+                          disabled={isSwitchingScene}
+                          style={{
+                            background: isEndingActive
+                              ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.35) 0%, rgba(190, 24, 93, 0.75) 100%)'
+                              : 'rgba(255, 255, 255, 0.05)',
+                            border: isEndingActive ? '2px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.12)',
+                            boxShadow: isEndingActive ? '0 0 14px rgba(236, 72, 153, 0.55), inset 0 0 6px rgba(236, 72, 153, 0.25)' : 'none',
+                            color: isEndingActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)',
+                            transform: isEndingActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '10px 4px',
+                            fontSize: '0.78rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '3px',
+                            position: 'relative',
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isEndingActive && (
+                            <span style={{ position: 'absolute', top: '4px', right: '4px', background: '#ec4899', color: '#ffffff', fontSize: '0.58rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', letterSpacing: '0.5px' }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.1rem' }}>🏁</span>
+                          <strong>ENDING</strong>
+                          <span style={{ fontSize: '0.7rem', opacity: isEndingActive ? 1 : 0.65, fontWeight: isEndingActive ? 600 : 400 }}>{endingScene}</span>
+                        </button>
+
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => switchScene(privacyScene, 'Privacy button')}
+                          disabled={isSwitchingScene}
+                          style={{
+                            background: isPrivacyActive
+                              ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.35) 0%, rgba(161, 98, 7, 0.75) 100%)'
+                              : 'rgba(255, 255, 255, 0.05)',
+                            border: isPrivacyActive ? '2px solid #eab308' : '1px solid rgba(255, 255, 255, 0.12)',
+                            boxShadow: isPrivacyActive ? '0 0 14px rgba(234, 179, 8, 0.55), inset 0 0 6px rgba(234, 179, 8, 0.25)' : 'none',
+                            color: isPrivacyActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)',
+                            transform: isPrivacyActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            padding: '10px 4px',
+                            fontSize: '0.78rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '3px',
+                            position: 'relative',
+                            cursor: isSwitchingScene ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isPrivacyActive && (
+                            <span style={{ position: 'absolute', top: '4px', right: '4px', background: '#eab308', color: '#422006', fontSize: '0.58rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', letterSpacing: '0.5px' }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                          <span style={{ fontSize: '1.1rem' }}>🔒</span>
+                          <strong>PRIVACY</strong>
+                          <span style={{ fontSize: '0.7rem', opacity: isPrivacyActive ? 1 : 0.65, fontWeight: isPrivacyActive ? 600 : 400 }}>{privacyScene}</span>
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* Custom Scene Selector Dropdown */}
                 {availableScenes.length > 0 && (
