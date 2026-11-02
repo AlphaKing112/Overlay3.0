@@ -75,7 +75,7 @@ function LowBitrateContent() {
   const initialMode = searchParams.get('mode') === 'overlay' ? 'overlay' : 'dashboard';
 
   const [mode, setMode] = useState<'dashboard' | 'overlay'>(initialMode);
-  const [activeTab, setActiveTab] = useState<'switcher' | 'chat_commands'>('switcher');
+  const [activeTab, setActiveTab] = useState<'switcher' | 'chat_commands' | 'switcher_options'>('switcher');
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -2303,7 +2303,27 @@ function LowBitrateContent() {
               gap: '8px',
             }}
           >
-            <span>💬</span> Chat & Commands ({activeCommandsList.length})
+            <span>💬</span> <span>Chat & Commands <span className="switcher-tab-badge">({activeCommandsList.length})</span></span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('switcher_options')}
+            style={{
+              padding: '10px 22px',
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              background: activeTab === 'switcher_options' ? 'rgba(56, 189, 248, 0.22)' : 'rgba(255, 255, 255, 0.04)',
+              color: activeTab === 'switcher_options' ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
+              border: activeTab === 'switcher_options' ? '1px solid rgba(56, 189, 248, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>⚙️</span> Switcher Options
           </button>
         </div>
 
@@ -2950,24 +2970,624 @@ function LowBitrateContent() {
                 </div>
               </section>
 
+              {/* Desktop View: Realtime Bitrate History Sparkline Chart */}
+              <div className="switcher-bitrate-desktop">
+                {renderBitrateHistoryCard(desktopCanvasRef)}
+              </div>
+
+              {/* Quick Navigation Banner to Switcher Options */}
+              <div style={{
+                background: 'rgba(56, 189, 248, 0.05)',
+                border: '1px solid rgba(56, 189, 248, 0.2)',
+                borderRadius: '12px',
+                padding: '16px 20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '1.5rem' }}>⚙️</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Configure Auto-Switch Triggers & Target Scenes</div>
+                    <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>Bitrate thresholds, latency triggers, scene names, and OBS connection settings are in Switcher Options.</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('switcher_options')}
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '0.82rem',
+                    padding: '8px 16px',
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                    color: '#38bdf8',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    borderRadius: '8px',
+                  }}
+                >
+                  Open Switcher Options →
+                </button>
+              </div>
+
+        </div>
+      )}
+
+            {/* =====================================================================
+          TAB 3: CHAT & COMMANDS (DIRECT INSPIRATION FROM USER SCREENSHOTS)
+          ===================================================================== */}
+      {activeTab === 'chat_commands' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          {/* Section Header */}
+          <div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
+              Chat & commands
+            </h2>
+            <p style={{ margin: 0, opacity: 0.7, fontSize: '0.9rem' }}>
+              What viewers and mods can do from chat.
+            </p>
+          </div>
+
+          {/* CARD 1: CHANNELS */}
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Channels</h3>
+            <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.85rem' }}>
+              Connect your channel to use chat commands with this switcher. Turn on alerts to have its automatic scene switches posted in chat.
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setAddingChannelType('twitch')}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.85rem', padding: '7px 14px' }}
+              >
+                + Add Twitch channel
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setAddingChannelType('kick')}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.85rem', padding: '7px 14px' }}
+              >
+                + Add Kick channel
+              </button>
+            </div>
+
+            {/* Modal / Inline Add Channel Prompt */}
+            {addingChannelType && (
+              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(145,70,255,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: '#c084fc' }}>Add {addingChannelType === 'twitch' ? 'Twitch' : 'Kick'} Username:</span>
+                <input
+                  type="text"
+                  value={channelInputText}
+                  onChange={(e) => setChannelInputText(e.target.value)}
+                  placeholder="channel username"
+                  style={{ flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff' }}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    if (channelInputText.trim()) {
+                      if (addingChannelType === 'twitch') {
+                        saveSettingsUpdates({ twitchUsername: channelInputText.trim() });
+                      } else {
+                        saveSettingsUpdates({ kickChannelName: channelInputText.trim() });
+                      }
+                      setAddingChannelType(null);
+                      setChannelInputText('');
+                    }
+                  }}
+                  style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+                >
+                  Save
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => { setAddingChannelType(null); setChannelInputText(''); }}
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Connected Channels List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Twitch Channel Item */}
+              {(settings.twitchToken || settings.twitchUsername) ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(145,70,255,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                      T
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
+                          @{settings.twitchUsername || 'Twitch Streamer'}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● CONNECTED
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Twitch Channel • Commands Active</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      onClick={() => saveSettingsUpdates({ twitchAlertsEnabled: !(settings.twitchAlertsEnabled ?? true) })}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: (settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.15)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${(settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        color: (settings.twitchAlertsEnabled ?? true) ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span>{(settings.twitchAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Disconnect Twitch account?')) {
+                          saveSettingsUpdates({ twitchUsername: '', twitchToken: '', twitchBroadcasterId: '' });
+                        }
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
+                      title="Disconnect Twitch"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', fontWeight: 'bold' }}>T</div>
+                    <span style={{ fontSize: '0.88rem', color: 'rgba(255,255,255,0.6)' }}>No Twitch channel connected</span>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => router.push('/twitch-auth')}
+                    style={{ fontSize: '0.82rem', padding: '6px 14px', background: '#9146FF', borderColor: '#7c25f8' }}
+                  >
+                    🔗 Connect Twitch
+                  </button>
+                </div>
+              )}
+
+              {/* Kick Channel Item (Only rendered if kickChannelName is configured) */}
+              {settings.kickChannelName ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(83,252,25,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                      K
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
+                          @{settings.kickChannelName}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● CONNECTED
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Kick Channel</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      onClick={() => saveSettingsUpdates({ kickAlertsEnabled: !(settings.kickAlertsEnabled ?? true) })}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: (settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.15)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${(settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        color: (settings.kickAlertsEnabled ?? true) ? '#53FC19' : 'rgba(255,255,255,0.5)',
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span>{(settings.kickAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
+                    </button>
+                    <button
+                      onClick={() => saveSettingsUpdates({ kickChannelName: '' })}
+                      style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
+                      title="Remove Kick channel"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* CARD 2: BOT */}
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Bot</h3>
+            <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.85rem' }}>
+              Who replies in chat, for every switcher in this workspace.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+              {/* Twitch Bot */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                    T
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Twitch Bot</span>
+                      {(settings.twitchToken || settings.twitchUsername) && (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● ACTIVE ON @{settings.twitchUsername || 'TWITCH'}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared chat bot</div>
+                  </div>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => showToast('Twitch bot ready and listening to chat commands', 'success')}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
+                >
+                  Use your own bot
+                </button>
+              </div>
+
+              {/* Kick Bot */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                    K
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Kick Bot</span>
+                      {settings.kickChannelName && (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ● ACTIVE ON @{settings.kickChannelName}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared chat bot</div>
+                  </div>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => showToast('Kick bot connection ready', 'info')}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
+                >
+                  Use your own bot
+                </button>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.5)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>ⓘ</span> Using your own bot? Sign in as the bot account when asked, not as yourself.
+            </div>
+          </div>
+
+          {/* OBS WebSocket Card in Settings Tab */}
+          {renderObsWebSocketCard()}
+
+          {/* CARD 3: SETTINGS (PREFIX, BOT LANGUAGE, REPLY MODE, TOGGLES) */}
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>Settings</h3>
+
+            {/* Inputs Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
+                  Command prefix
+                </label>
+                <input
+                  type="text"
+                  value={settings.obsCommandPrefix || '!'}
+                  onChange={(e) => saveSettingsUpdates({ obsCommandPrefix: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
+                  Bot language
+                </label>
+                <select
+                  value={settings.obsBotLanguage || 'English'}
+                  onChange={(e) => saveSettingsUpdates({ obsBotLanguage: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
+                >
+                  <option value="English">English</option>
+                  <option value="Spanish">Spanish</option>
+                  <option value="German">German</option>
+                  <option value="French">French</option>
+                  <option value="Portuguese">Portuguese</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
+                  Reply mode
+                </label>
+                <select
+                  value={settings.obsReplyMode || 'Reply'}
+                  onChange={(e) => saveSettingsUpdates({ obsReplyMode: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
+                >
+                  <option value="Reply">Reply</option>
+                  <option value="Mention">Mention (@user)</option>
+                  <option value="Plain">Plain chat</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Public Commands Toggle Row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#fff' }}>Public commands</div>
+                <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '2px' }}>
+                  Let everyone in chat use commands like !bitrate.
+                </div>
+              </div>
+              <PurpleToggle
+                checked={settings.obsCommandsPublicEnabled ?? true}
+                onChange={(v) => saveSettingsUpdates({ obsCommandsPublicEnabled: v })}
+              />
+            </div>
+
+            {/* Moderator Commands Toggle Row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#fff' }}>Moderator commands</div>
+                <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '2px' }}>
+                  Let your moderators run moderator commands.
+                </div>
+              </div>
+              <PurpleToggle
+                checked={settings.obsCommandsModEnabled ?? true}
+                onChange={(v) => saveSettingsUpdates({ obsCommandsModEnabled: v })}
+              />
+            </div>
+          </div>
+
+          {/* CARD 4: COMMANDS (FILTER TABS, ALIAS EDITORS, ROLE SELECTORS, TOGGLES) */}
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Commands</h3>
+            <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.84rem', lineHeight: 1.5 }}>
+              Turn commands on or off, choose who may use them and add shorter names. Roles build on each other (Everyone → Subscribers → VIPs → Moderators → Admins): a command for Subscribers also works for VIPs, moderators and admins. Admins are the channel owner and designated workspace administrators.
+            </p>
+
+            {/* Filter Tabs & Search Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[
+                  { key: 'All', label: `All ${countAll}` },
+                  { key: 'Admins', label: 'Admins' },
+                  { key: 'Moderators', label: 'Moderators' },
+                  { key: 'Everyone', label: 'Everyone' },
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setCommandsRoleFilter(tab.key as any)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '20px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: commandsRoleFilter === tab.key ? '1px solid #9146FF' : '1px solid rgba(255,255,255,0.1)',
+                      background: commandsRoleFilter === tab.key ? 'rgba(145, 70, 255, 0.25)' : 'rgba(255,255,255,0.03)',
+                      color: commandsRoleFilter === tab.key ? '#fff' : 'rgba(255,255,255,0.65)',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                value={commandSearchQuery}
+                onChange={(e) => setCommandSearchQuery(e.target.value)}
+                placeholder="Search commands..."
+                style={{ padding: '6px 14px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '0.82rem', width: '200px' }}
+              />
+            </div>
+
+            {/* Commands List Rows */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {filteredCommands.map((cmd, idx) => (
+                <div
+                  key={cmd.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '16px 0',
+                    borderTop: idx > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                    gap: '16px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  {/* Left: Command Name */}
+                  <div style={{ width: '130px', flexShrink: 0 }}>
+                    <code style={{ fontSize: '0.98rem', fontWeight: 800, color: '#fff', fontFamily: 'monospace' }}>
+                      {cmd.name}
+                    </code>
+                  </div>
+
+                  {/* Middle: Description & Aliases */}
+                  <div style={{ flex: 1, minWidth: '220px' }}>
+                    <div style={{ fontSize: '0.84rem', color: 'rgba(255,255,255,0.85)', marginBottom: '6px' }}>
+                      {cmd.description}
+                    </div>
+
+                    {/* Aliases Tags */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {(cmd.aliases || []).map(alias => (
+                        <span
+                          key={alias}
+                          style={{
+                            fontSize: '0.74rem',
+                            background: 'rgba(145, 70, 255, 0.15)',
+                            border: '1px solid rgba(145, 70, 255, 0.3)',
+                            color: '#c084fc',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          {alias}
+                          <button
+                            onClick={() => removeAliasFromCommand(cmd.id, alias)}
+                            style={{ background: 'transparent', border: 'none', color: '#c084fc', cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}
+                            title="Remove alias"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+
+                      {/* Add Alias Button / Input */}
+                      {editingAliasCmdId === cmd.id ? (
+                        <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={newAliasValue}
+                            onChange={(e) => setNewAliasValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') addAliasToCommand(cmd.id, newAliasValue);
+                              if (e.key === 'Escape') setEditingAliasCmdId(null);
+                            }}
+                            placeholder="!alias"
+                            autoFocus
+                            style={{ width: '80px', padding: '2px 6px', background: 'rgba(255,255,255,0.08)', border: '1px solid #9146FF', borderRadius: '4px', color: '#fff', fontSize: '0.74rem' }}
+                          />
+                          <button
+                            onClick={() => addAliasToCommand(cmd.id, newAliasValue)}
+                            style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#9146FF', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
+                          >
+                            Add
+                          </button>
+                          <button
+                            onClick={() => setEditingAliasCmdId(null)}
+                            style={{ fontSize: '0.7rem', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setEditingAliasCmdId(cmd.id); setNewAliasValue(''); }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'rgba(255, 255, 255, 0.45)',
+                            fontSize: '0.74rem',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                          }}
+                        >
+                          + Alias
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Role Dropdown & Enable/Disable Toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+                    <select
+                      value={cmd.role}
+                      onChange={(e) => updateCommandRole(cmd.id, e.target.value as any)}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="Everyone">Everyone {cmd.defaultRole === 'Everyone' ? '(default)' : ''}</option>
+                      <option value="Moderators">Moderators {cmd.defaultRole === 'Moderators' ? '(default)' : ''}</option>
+                      <option value="Admins">Admins {cmd.defaultRole === 'Admins' ? '(default)' : ''}</option>
+                    </select>
+
+                    <PurpleToggle
+                      checked={cmd.enabled}
+                      onChange={() => toggleCommandEnabled(cmd.id)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* =====================================================================
+          TAB 3: SWITCHER OPTIONS
+          ===================================================================== */}
+      {activeTab === 'switcher_options' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
           {/* Switching Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
               <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
-                Switching
+                ⚙️ Switcher Options
               </h2>
               <p style={{ margin: 0, opacity: 0.7, fontSize: '0.88rem' }}>
-                When and how the switcher transitions scenes for {settings.twitchUsername ? `@${settings.twitchUsername}` : 'your stream'}.
+                Configure auto-switching triggers, target scenes, and OBS automation rules for {settings.twitchUsername ? `@${settings.twitchUsername}` : 'your stream'}.
               </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : 'rgba(255,255,255,0.5)' }}>
-                Auto-Switch: {settings.obsAutoSwitchSceneToggle ? 'ACTIVE' : 'OFF'}
-              </span>
-              <PurpleToggle
-                checked={settings.obsAutoSwitchSceneToggle ?? false}
-                onChange={(v) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: v })}
-              />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setActiveTab('switcher')}
+                className="btn btn-secondary"
+                style={{
+                  fontSize: '0.82rem',
+                  padding: '7px 14px',
+                  background: 'rgba(34, 197, 94, 0.12)',
+                  border: '1px solid rgba(34, 197, 94, 0.35)',
+                  color: '#4ade80',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  borderRadius: '8px',
+                }}
+              >
+                ← Back to Scene Studio
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <span style={{ fontSize: '0.88rem', fontWeight: 700, color: settings.obsAutoSwitchSceneToggle ? '#4ade80' : 'rgba(255,255,255,0.5)' }}>
+                  Auto-Switch: {settings.obsAutoSwitchSceneToggle ? 'ACTIVE' : 'OFF'}
+                </span>
+                <PurpleToggle
+                  checked={settings.obsAutoSwitchSceneToggle ?? false}
+                  onChange={(v) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: v })}
+                />
+              </div>
             </div>
           </div>
 
@@ -3868,544 +4488,10 @@ function LowBitrateContent() {
               {/* CARD 4: OBS Studio WebSocket & Telemetry Diagnostics */}
               {renderObsWebSocketCard()}
 
-              {/* Desktop View: Realtime Bitrate History Sparkline Chart */}
-              <div className="switcher-bitrate-desktop">
-                {renderBitrateHistoryCard(desktopCanvasRef)}
-              </div>
-
             </div>
 
           </div>
 
-        </div>
-      )}
-
-      {/* =====================================================================
-          TAB 3: CHAT & COMMANDS (DIRECT INSPIRATION FROM USER SCREENSHOTS)
-          ===================================================================== */}
-      {activeTab === 'chat_commands' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
-          {/* Section Header */}
-          <div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
-              Chat & commands
-            </h2>
-            <p style={{ margin: 0, opacity: 0.7, fontSize: '0.9rem' }}>
-              What viewers and mods can do from chat.
-            </p>
-          </div>
-
-          {/* CARD 1: CHANNELS */}
-          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Channels</h3>
-            <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.85rem' }}>
-              Connect your channel to use chat commands with this switcher. Turn on alerts to have its automatic scene switches posted in chat.
-            </p>
-
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => setAddingChannelType('twitch')}
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.85rem', padding: '7px 14px' }}
-              >
-                + Add Twitch channel
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={() => setAddingChannelType('kick')}
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.85rem', padding: '7px 14px' }}
-              >
-                + Add Kick channel
-              </button>
-            </div>
-
-            {/* Modal / Inline Add Channel Prompt */}
-            {addingChannelType && (
-              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(145,70,255,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.85rem', color: '#c084fc' }}>Add {addingChannelType === 'twitch' ? 'Twitch' : 'Kick'} Username:</span>
-                <input
-                  type="text"
-                  value={channelInputText}
-                  onChange={(e) => setChannelInputText(e.target.value)}
-                  placeholder="channel username"
-                  style={{ flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff' }}
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    if (channelInputText.trim()) {
-                      if (addingChannelType === 'twitch') {
-                        saveSettingsUpdates({ twitchUsername: channelInputText.trim() });
-                      } else {
-                        saveSettingsUpdates({ kickChannelName: channelInputText.trim() });
-                      }
-                      setAddingChannelType(null);
-                      setChannelInputText('');
-                    }
-                  }}
-                  style={{ padding: '6px 14px', fontSize: '0.85rem' }}
-                >
-                  Save
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => { setAddingChannelType(null); setChannelInputText(''); }}
-                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-
-            {/* Connected Channels List */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* Twitch Channel Item */}
-              {(settings.twitchToken || settings.twitchUsername) ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(145,70,255,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
-                      T
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
-                          @{settings.twitchUsername || 'Twitch Streamer'}
-                        </span>
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          ● CONNECTED
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Twitch Channel • Commands Active</div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button
-                      onClick={() => saveSettingsUpdates({ twitchAlertsEnabled: !(settings.twitchAlertsEnabled ?? true) })}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        background: (settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.15)' : 'rgba(255,255,255,0.04)',
-                        border: `1px solid ${(settings.twitchAlertsEnabled ?? true) ? 'rgba(145, 70, 255, 0.4)' : 'rgba(255,255,255,0.1)'}`,
-                        color: (settings.twitchAlertsEnabled ?? true) ? '#c084fc' : 'rgba(255,255,255,0.5)',
-                        padding: '6px 14px',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontSize: '0.82rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <span>{(settings.twitchAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm('Disconnect Twitch account?')) {
-                          saveSettingsUpdates({ twitchUsername: '', twitchToken: '', twitchBroadcasterId: '' });
-                        }
-                      }}
-                      style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
-                      title="Disconnect Twitch"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', fontWeight: 'bold' }}>T</div>
-                    <span style={{ fontSize: '0.88rem', color: 'rgba(255,255,255,0.6)' }}>No Twitch channel connected</span>
-                  </div>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => router.push('/twitch-auth')}
-                    style={{ fontSize: '0.82rem', padding: '6px 14px', background: '#9146FF', borderColor: '#7c25f8' }}
-                  >
-                    🔗 Connect Twitch
-                  </button>
-                </div>
-              )}
-
-              {/* Kick Channel Item (Only rendered if kickChannelName is configured) */}
-              {settings.kickChannelName ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(83,252,25,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
-                      K
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
-                          @{settings.kickChannelName}
-                        </span>
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          ● CONNECTED
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Kick Channel</div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button
-                      onClick={() => saveSettingsUpdates({ kickAlertsEnabled: !(settings.kickAlertsEnabled ?? true) })}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        background: (settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.15)' : 'rgba(255,255,255,0.04)',
-                        border: `1px solid ${(settings.kickAlertsEnabled ?? true) ? 'rgba(83, 252, 25, 0.4)' : 'rgba(255,255,255,0.1)'}`,
-                        color: (settings.kickAlertsEnabled ?? true) ? '#53FC19' : 'rgba(255,255,255,0.5)',
-                        padding: '6px 14px',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontSize: '0.82rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <span>{(settings.kickAlertsEnabled ?? true) ? '🔔 Alerts on' : '🔕 Alerts off'}</span>
-                    </button>
-                    <button
-                      onClick={() => saveSettingsUpdates({ kickChannelName: '' })}
-                      style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1rem', padding: '4px' }}
-                      title="Remove Kick channel"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {/* CARD 2: BOT */}
-          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Bot</h3>
-            <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.85rem' }}>
-              Who replies in chat, for every switcher in this workspace.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-              {/* Twitch Bot */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                    T
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Twitch Bot</span>
-                      {(settings.twitchToken || settings.twitchUsername) && (
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          ● ACTIVE ON @{settings.twitchUsername || 'TWITCH'}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared chat bot</div>
-                  </div>
-                </div>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => showToast('Twitch bot ready and listening to chat commands', 'success')}
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
-                >
-                  Use your own bot
-                </button>
-              </div>
-
-              {/* Kick Bot */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                    K
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Kick Bot</span>
-                      {settings.kickChannelName && (
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          ● ACTIVE ON @{settings.kickChannelName}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared chat bot</div>
-                  </div>
-                </div>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => showToast('Kick bot connection ready', 'info')}
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
-                >
-                  Use your own bot
-                </button>
-              </div>
-            </div>
-
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.5)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>ⓘ</span> Using your own bot? Sign in as the bot account when asked, not as yourself.
-            </div>
-          </div>
-
-          {/* OBS WebSocket Card in Settings Tab */}
-          {renderObsWebSocketCard()}
-
-          {/* CARD 3: SETTINGS (PREFIX, BOT LANGUAGE, REPLY MODE, TOGGLES) */}
-          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>Settings</h3>
-
-            {/* Inputs Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-              <div>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
-                  Command prefix
-                </label>
-                <input
-                  type="text"
-                  value={settings.obsCommandPrefix || '!'}
-                  onChange={(e) => saveSettingsUpdates({ obsCommandPrefix: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
-                  Bot language
-                </label>
-                <select
-                  value={settings.obsBotLanguage || 'English'}
-                  onChange={(e) => saveSettingsUpdates({ obsBotLanguage: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
-                >
-                  <option value="English">English</option>
-                  <option value="Spanish">Spanish</option>
-                  <option value="German">German</option>
-                  <option value="French">French</option>
-                  <option value="Portuguese">Portuguese</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
-                  Reply mode
-                </label>
-                <select
-                  value={settings.obsReplyMode || 'Reply'}
-                  onChange={(e) => saveSettingsUpdates({ obsReplyMode: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
-                >
-                  <option value="Reply">Reply</option>
-                  <option value="Mention">Mention (@user)</option>
-                  <option value="Plain">Plain chat</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Public Commands Toggle Row */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#fff' }}>Public commands</div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '2px' }}>
-                  Let everyone in chat use commands like !bitrate.
-                </div>
-              </div>
-              <PurpleToggle
-                checked={settings.obsCommandsPublicEnabled ?? true}
-                onChange={(v) => saveSettingsUpdates({ obsCommandsPublicEnabled: v })}
-              />
-            </div>
-
-            {/* Moderator Commands Toggle Row */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#fff' }}>Moderator commands</div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '2px' }}>
-                  Let your moderators run moderator commands.
-                </div>
-              </div>
-              <PurpleToggle
-                checked={settings.obsCommandsModEnabled ?? true}
-                onChange={(v) => saveSettingsUpdates({ obsCommandsModEnabled: v })}
-              />
-            </div>
-          </div>
-
-          {/* CARD 4: COMMANDS (FILTER TABS, ALIAS EDITORS, ROLE SELECTORS, TOGGLES) */}
-          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Commands</h3>
-            <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.84rem', lineHeight: 1.5 }}>
-              Turn commands on or off, choose who may use them and add shorter names. Roles build on each other (Everyone → Subscribers → VIPs → Moderators → Admins): a command for Subscribers also works for VIPs, moderators and admins. Admins are the channel owner and designated workspace administrators.
-            </p>
-
-            {/* Filter Tabs & Search Bar */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {[
-                  { key: 'All', label: `All ${countAll}` },
-                  { key: 'Admins', label: 'Admins' },
-                  { key: 'Moderators', label: 'Moderators' },
-                  { key: 'Everyone', label: 'Everyone' },
-                ].map(tab => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setCommandsRoleFilter(tab.key as any)}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: '20px',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      border: commandsRoleFilter === tab.key ? '1px solid #9146FF' : '1px solid rgba(255,255,255,0.1)',
-                      background: commandsRoleFilter === tab.key ? 'rgba(145, 70, 255, 0.25)' : 'rgba(255,255,255,0.03)',
-                      color: commandsRoleFilter === tab.key ? '#fff' : 'rgba(255,255,255,0.65)',
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <input
-                type="text"
-                value={commandSearchQuery}
-                onChange={(e) => setCommandSearchQuery(e.target.value)}
-                placeholder="Search commands..."
-                style={{ padding: '6px 14px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '0.82rem', width: '200px' }}
-              />
-            </div>
-
-            {/* Commands List Rows */}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {filteredCommands.map((cmd, idx) => (
-                <div
-                  key={cmd.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '16px 0',
-                    borderTop: idx > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                    gap: '16px',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  {/* Left: Command Name */}
-                  <div style={{ width: '130px', flexShrink: 0 }}>
-                    <code style={{ fontSize: '0.98rem', fontWeight: 800, color: '#fff', fontFamily: 'monospace' }}>
-                      {cmd.name}
-                    </code>
-                  </div>
-
-                  {/* Middle: Description & Aliases */}
-                  <div style={{ flex: 1, minWidth: '220px' }}>
-                    <div style={{ fontSize: '0.84rem', color: 'rgba(255,255,255,0.85)', marginBottom: '6px' }}>
-                      {cmd.description}
-                    </div>
-
-                    {/* Aliases Tags */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      {(cmd.aliases || []).map(alias => (
-                        <span
-                          key={alias}
-                          style={{
-                            fontSize: '0.74rem',
-                            background: 'rgba(145, 70, 255, 0.15)',
-                            border: '1px solid rgba(145, 70, 255, 0.3)',
-                            color: '#c084fc',
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          {alias}
-                          <button
-                            onClick={() => removeAliasFromCommand(cmd.id, alias)}
-                            style={{ background: 'transparent', border: 'none', color: '#c084fc', cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}
-                            title="Remove alias"
-                          >
-                            ✕
-                          </button>
-                        </span>
-                      ))}
-
-                      {/* Add Alias Button / Input */}
-                      {editingAliasCmdId === cmd.id ? (
-                        <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
-                          <input
-                            type="text"
-                            value={newAliasValue}
-                            onChange={(e) => setNewAliasValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') addAliasToCommand(cmd.id, newAliasValue);
-                              if (e.key === 'Escape') setEditingAliasCmdId(null);
-                            }}
-                            placeholder="!alias"
-                            autoFocus
-                            style={{ width: '80px', padding: '2px 6px', background: 'rgba(255,255,255,0.08)', border: '1px solid #9146FF', borderRadius: '4px', color: '#fff', fontSize: '0.74rem' }}
-                          />
-                          <button
-                            onClick={() => addAliasToCommand(cmd.id, newAliasValue)}
-                            style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#9146FF', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
-                          >
-                            Add
-                          </button>
-                          <button
-                            onClick={() => setEditingAliasCmdId(null)}
-                            style={{ fontSize: '0.7rem', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setEditingAliasCmdId(cmd.id); setNewAliasValue(''); }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'rgba(255, 255, 255, 0.45)',
-                            fontSize: '0.74rem',
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                          }}
-                        >
-                          + Alias
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right: Role Dropdown & Enable/Disable Toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
-                    <select
-                      value={cmd.role}
-                      onChange={(e) => updateCommandRole(cmd.id, e.target.value as any)}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(255, 255, 255, 0.12)',
-                        borderRadius: '8px',
-                        color: '#fff',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <option value="Everyone">Everyone {cmd.defaultRole === 'Everyone' ? '(default)' : ''}</option>
-                      <option value="Moderators">Moderators {cmd.defaultRole === 'Moderators' ? '(default)' : ''}</option>
-                      <option value="Admins">Admins {cmd.defaultRole === 'Admins' ? '(default)' : ''}</option>
-                    </select>
-
-                    <PurpleToggle
-                      checked={cmd.enabled}
-                      onChange={() => toggleCommandEnabled(cmd.id)}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
 
         </div>
       )}

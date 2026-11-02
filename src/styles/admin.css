@@ -1964,15 +1964,16 @@ html, body {
   }
   .switcher-tabs-group {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     width: 100% !important;
-    gap: 8px !important;
+    gap: 6px !important;
   }
   .switcher-tabs-group button {
     width: 100% !important;
     justify-content: center !important;
-    padding: 10px 8px !important;
-    font-size: 0.85rem !important;
+    padding: 9px 4px !important;
+    font-size: 0.78rem !important;
+    white-space: nowrap !important;
   }
   .switcher-action-buttons {
     display: grid !important;
@@ -1985,6 +1986,22 @@ html, body {
     padding: 8px 4px !important;
     font-size: 0.78rem !important;
     justify-content: center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .switcher-tabs-group button {
+    font-size: 0.71rem !important;
+    padding: 8px 2px !important;
+    gap: 4px !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .switcher-tabs-group button {
+    font-size: 0.65rem !important;
+    padding: 7px 1px !important;
+    gap: 2px !important;
   }
 }
 
