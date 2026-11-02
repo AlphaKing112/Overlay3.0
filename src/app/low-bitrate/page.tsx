@@ -277,7 +277,9 @@ function LowBitrateContent() {
             lastManualSceneSwitchTimeRef.current = Date.now();
 
             if (isSpecialSceneName(sName, settingsRef.current)) {
-              if (sName.toLowerCase().includes('starting') && startingCheckStartRef.current > 0) {
+              const startSceneNorm = (settingsRef.current.obsStartingSceneName || 'starting').trim().toLowerCase();
+              const isStartingName = sName.trim().toLowerCase() === startSceneNorm || sName.toLowerCase().includes('starting');
+              if (isStartingName && startingCheckStartRef.current > 0) {
                 manualOverrideUntilRef.current = 0;
               } else {
                 manualOverrideUntilRef.current = Date.now() + 86400000;
@@ -346,6 +348,8 @@ function LowBitrateContent() {
               switchScene(startScene, 'Stream Started');
               startingCheckStartRef.current = Date.now();
               setIsCheckingStartingBelabox(true);
+              currentSceneRef.current = startScene;
+              setCurrentScene(startScene);
             }
           } else {
             startingCheckStartRef.current = 0;
@@ -754,9 +758,10 @@ function LowBitrateContent() {
     const isLiveTarget = isLiveSceneName(sceneName, settings);
     const isLowTarget = isLowSceneName(sceneName, settings);
     const isOfflineTarget = isOfflineSceneName(sceneName, settings);
-    const isStartingTarget = sceneName.toLowerCase().includes('starting');
+    const startSceneNorm = (settings.obsStartingSceneName || 'starting').trim().toLowerCase();
+    const isStartingTarget = sceneName.trim().toLowerCase() === startSceneNorm || sceneName.toLowerCase().includes('starting');
 
-    if (reason && (reason.includes('Stream Started') || reason.includes('Starting check'))) {
+    if (reason && (reason.includes('Stream Started') || reason.includes('Starting check') || reason.includes('Enforcing Starting Scene'))) {
       // Keep checking
     } else {
       startingCheckStartRef.current = 0;
@@ -1096,6 +1101,8 @@ function LowBitrateContent() {
           switchScene(startScene, 'Stream Started');
           startingCheckStartRef.current = Date.now();
           setIsCheckingStartingBelabox(true);
+          currentSceneRef.current = startScene;
+          setCurrentScene(startScene);
         } else if (!finalState) {
           startingCheckStartRef.current = 0;
           setIsCheckingStartingBelabox(false);
@@ -1193,8 +1200,14 @@ function LowBitrateContent() {
       const startSceneNorm = (currentSettings.obsStartingSceneName || 'starting').trim().toLowerCase();
       const isCurStarting = curScene === startSceneNorm || curScene === 'starting' || curScene.includes('starting');
 
-      // Belabox Go-Live Check while on Starting Scene (checks for min 1 min, switches to live or stops checking)
-      if (isCurStarting && startingCheckStartRef.current > 0) {
+      // Belabox Go-Live Check while starting stream (checks for min 1 min, switches to live or stops checking)
+      if (startingCheckStartRef.current > 0) {
+        const startScene = currentSettings.obsStartingSceneName || 'starting';
+        const startSceneNorm = startScene.trim().toLowerCase();
+        if (curScene && curScene !== startSceneNorm && !curScene.includes('starting')) {
+          switchScene(startScene, 'Enforcing Starting Scene on Go-Live');
+        }
+
         const checkWindowSec = Math.max(60, currentSettings.obsStartingSceneCheckSeconds ?? 60);
         const checkDurationMs = checkWindowSec * 1000;
         const elapsedMs = Date.now() - startingCheckStartRef.current;
@@ -1293,13 +1306,15 @@ function LowBitrateContent() {
       // 3. LIVE (Bitrate above LOW threshold, RTT below limit)
       const shouldBeLive = !shouldBeOffline && !shouldBeLow;
 
-      // A. Evaluate OFFLINE / BRB
+      const wasLiveOrLow = autoSwitchStateRef.current === 'LIVE' || autoSwitchStateRef.current === 'LOW' || isCurLive || isCurLow;
+
+      // A. Evaluate OFFLINE / BRB (Only when previously live or low)
       if (shouldBeOffline) {
         lowCountRef.current = 0;
         liveCountRef.current = 0;
         offlineCountRef.current += 1;
 
-        if (offlineCountRef.current >= offDelaySec && autoSwitchStateRef.current !== 'OFFLINE') {
+        if (wasLiveOrLow && offlineCountRef.current >= offDelaySec && autoSwitchStateRef.current !== 'OFFLINE') {
           setAutoSwitchState('OFFLINE');
           const reason = isBrbByRtt
             ? `Critical latency spike (RTT: ${rtt}ms >= ${rttBrbThreshold}ms)`
@@ -1307,13 +1322,13 @@ function LowBitrateContent() {
           switchScene(offlineScene, reason);
         }
       }
-      // B. Evaluate LOW BITRATE
+      // B. Evaluate LOW BITRATE (Only when previously live or low)
       else if (shouldBeLow) {
         offlineCountRef.current = 0;
         liveCountRef.current = 0;
         lowCountRef.current += 1;
 
-        if (lowCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LOW') {
+        if (wasLiveOrLow && lowCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LOW') {
           setAutoSwitchState('LOW');
           const reason = isLowByRtt
             ? `High latency detected (RTT: ${rtt}ms >= ${rttLowThreshold}ms)`
@@ -1327,12 +1342,16 @@ function LowBitrateContent() {
         lowCountRef.current = 0;
         liveCountRef.current += 1;
 
-        // Only recover to LIVE if OBS was previously in LOW or OFFLINE, and never while on a special scene
+        // Recover to LIVE if OBS was in LOW or OFFLINE, or activate LIVE from IDLE when healthy feed detected
         const needsRecovery = (autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || isCurLow || isCurOffline) && !isSpecialSceneName(curScene, currentSettings);
 
-        if (liveCountRef.current >= liveRecoveryDelay && needsRecovery) {
-          setAutoSwitchState('LIVE');
-          switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
+        if (liveCountRef.current >= liveRecoveryDelay && (needsRecovery || autoSwitchStateRef.current === 'IDLE')) {
+          if (autoSwitchStateRef.current !== 'LIVE') {
+            setAutoSwitchState('LIVE');
+            if (needsRecovery) {
+              switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
+            }
+          }
         }
       }
     };

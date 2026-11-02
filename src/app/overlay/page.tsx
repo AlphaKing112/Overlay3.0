@@ -2964,10 +2964,13 @@ function OverlayPage() {
                 body: JSON.stringify({ obsTelemetryEnabled: true })
               }).catch(() => {});
 
-              if (seSettingsRef.current.obsStartingSceneOnGoLive && seSettingsRef.current.obsStartingSceneName) {
-                appendObsLog('info', `[scene-manager] Stream started, switching to starting scene: '${seSettingsRef.current.obsStartingSceneName}'`);
-                safeObsSwitchScene(obs, seSettingsRef.current.obsStartingSceneName);
+              if (seSettingsRef.current.obsStartingSceneOnGoLive !== false) {
+                const pickedStartScene = seSettingsRef.current.obsStartingSceneName || 'starting';
+                appendObsLog('info', `[scene-manager] Stream started, switching to starting scene: '${pickedStartScene}'`);
+                safeObsSwitchScene(obs, pickedStartScene);
                 startingCheckStartRef.current = Date.now();
+                lastLoggedStateRef.current.currentScene = pickedStartScene;
+                lastBitrateStateRef.current = null;
               }
             } else if (wasStreaming) {
               startingCheckStartRef.current = 0;
@@ -3652,8 +3655,13 @@ function OverlayPage() {
       }
     };
 
-    const isStartingScene = activeScene === startingScene || activeScene === 'starting' || activeScene.includes('starting');
-    if (isStartingScene && startingCheckStartRef.current > 0) {
+    if (startingCheckStartRef.current > 0) {
+      const pickedStartScene = settings.obsStartingSceneName || 'starting';
+      const pickedStartNorm = pickedStartScene.trim().toLowerCase();
+      if (activeScene && activeScene !== pickedStartNorm && !activeScene.includes('starting')) {
+        switchSceneViaApi(pickedStartScene);
+      }
+
       const checkWindowSec = Math.max(60, settings.obsStartingSceneCheckSeconds ?? 60);
       const checkDurationMs = checkWindowSec * 1000;
       const elapsedMs = Date.now() - startingCheckStartRef.current;
@@ -3682,7 +3690,7 @@ function OverlayPage() {
         }
       }
 
-      // Still checking Belabox on starting scene
+      // Still checking Belabox on starting scene - NEVER auto-switch to offline or low
       return;
     }
 
@@ -3703,9 +3711,10 @@ function OverlayPage() {
       return;
     }
 
-    // Auto-switch to offline scene (only after stream was previously confirmed live)
+    // Auto-switch to offline scene (only after stream was previously confirmed live or low)
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
-      if (isOffline && lastBitrateStateRef.current !== 'offline') {
+      const wasLiveOrLow = lastBitrateStateRef.current === 'live' || lastBitrateStateRef.current === 'low';
+      if (isOffline && wasLiveOrLow && lastBitrateStateRef.current !== 'offline') {
         console.log(`📡 Stream went offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
         switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'offline';
@@ -3713,10 +3722,11 @@ function OverlayPage() {
       }
     }
 
-    // Auto-switch to low bitrate scene
+    // Auto-switch to low bitrate scene (only after stream was live or active on live scene)
     if (settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
       const lowScene = settings.obsLowSceneName || 'low';
-      if (isLow && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {
+      const wasLiveOrRecovering = lastBitrateStateRef.current === 'live' || isCurLive;
+      if (isLow && wasLiveOrRecovering && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {
         console.log(`📡 Low bitrate detected (bitrate=${currentBitrate} < ${lowThreshold}), switching to: ${lowScene}`);
         switchSceneViaApi(lowScene).then(success => {
           if (success) lastBitrateStateRef.current = 'low';

@@ -197,12 +197,14 @@ function startBackgroundService() {
       state.failures = !isOffline ? 0 : state.failures + 1;
       state.statusLog = `Polling: ${bitrateKbps} kbps, state=${state.lastState || 'null'}`;
 
-      if (isOffline && state.lastState !== 'offline') {
+      const wasLiveOrLow = state.lastState === 'live' || state.lastState === 'low';
+
+      if (isOffline && wasLiveOrLow && state.lastState !== 'offline') {
         if (state.settings.obsOfflineSceneName) {
           const success = await switchScene(state.settings.obsOfflineSceneName);
           if (success) state.lastState = 'offline';
         }
-      } else if (isLow && state.lastState !== 'low' && state.lastState !== 'offline') {
+      } else if (isLow && wasLiveOrLow && state.lastState !== 'low' && state.lastState !== 'offline') {
         const lowScene = state.settings.obsLowSceneName || 'low';
         const success = await switchScene(lowScene);
         if (success) state.lastState = 'low';
@@ -214,7 +216,8 @@ function startBackgroundService() {
       }
     } catch (err: any) {
       state.failures++;
-      if (state.failures >= 3 && state.lastState !== 'offline') {
+      const wasLiveOrLow = state.lastState === 'live' || state.lastState === 'low';
+      if (state.failures >= 3 && wasLiveOrLow && state.lastState !== 'offline') {
         if (state.settings?.obsOfflineSceneName) {
           const success = await switchScene(state.settings.obsOfflineSceneName);
           if (success) state.lastState = 'offline';
