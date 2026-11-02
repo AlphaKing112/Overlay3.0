@@ -450,6 +450,62 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 15b. !clip / !cliptheclip / !replay / !highlight
+    if (cmdName === '!clip' || cmdName.startsWith('!clip') || cmdName === '!cliptheclip' || cmdName === '!replay' || cmdName === '!highlight') {
+      const clipTitle = args.join(' ').trim();
+      const numMatch = cmdName.match(/^!clip(\d+)$/);
+      let duration = numMatch ? parseInt(numMatch[1], 10) : (settings.clipDefaultDuration || 60);
+
+      const broadcasterId = settings.twitchBroadcasterId;
+      const token = settings.twitchToken;
+      const clientId = settings.twitchClientId || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+
+      if (!token) {
+        return NextResponse.json({
+          success: false,
+          error: 'Twitch account is not connected. Connect Twitch in Settings to enable !clip.'
+        }, { status: 400 });
+      }
+
+      try {
+        const clipRes = await fetch(`${req.nextUrl.origin}/api/clip-command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create_twitch_clip',
+            broadcasterId,
+            token,
+            clientId,
+            title: clipTitle,
+            duration,
+            username: user || 'Viewer',
+            displayName: user || 'Viewer',
+            pointsCost: 0
+          })
+        });
+
+        const clipData = await clipRes.json();
+        if (clipData.success && clipData.clipUrl) {
+          const titleStr = clipTitle ? ` "${clipTitle}"` : '';
+          return NextResponse.json({
+            success: true,
+            message: `🎬 @${user || 'Viewer'} clipped the stream${titleStr}! ${clipData.clipUrl} 🎥`,
+            clipUrl: clipData.clipUrl
+          });
+        }
+
+        return NextResponse.json({
+          success: false,
+          error: clipData.error || 'Failed to create clip. Make sure the stream is live.'
+        }, { status: 400 });
+      } catch (err: any) {
+        return NextResponse.json({
+          success: false,
+          error: err?.message || 'Error processing clip request.'
+        }, { status: 500 });
+      }
+    }
+
     // 16. Existing overlay commands helpers
     if (cmdName === '!time') {
       const now = new Date();

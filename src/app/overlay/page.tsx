@@ -1991,14 +1991,30 @@ function OverlayPage() {
               return;
             }
 
-            // NOALBS Stream & Scene Commands (!bitrate, !status, !switch, !ss, !live, !low, !offline, !brb, !starting, !ending, !privacy, !pause, !fix, !f, !trigger, !otrigger, !rtrigger, !autoswitch, etc.)
+            // Stream & Scene Commands (!bitrate, !status, !switch, !ss, !live, !low, !offline, !brb, !starting, !ending, !privacy, !pause, !fix, !f, !trigger, !otrigger, !rtrigger, !autoswitch, etc.)
             const noalbsCmds = ['!bitrate', '!b', '!status', '!switch', '!ss', '!live', '!low', '!offline', '!brb', '!starting', '!ending', '!privacy', '!pause', '!trigger', '!otrigger', '!rtrigger', '!autoswitch', '!rec', '!bbb', '!bbs', '!bbm', '!bbsensor', '!bbstart', '!bbstop', '!autostop', '!alias', '!help', '!noalbs', '!source', '!server', '!map', '!weather', '!time', '!distance', '!calories', '!dono'];
             const firstCmdWord = lowerText.split(/\s+/)[0];
-            const isKnownNoalbsCmd = noalbsCmds.includes(firstCmdWord) || (seSettingsRef.current?.noalbsCommandsList || []).some((c: any) => {
+
+            // Commands with specialized dedicated handlers in overlay/page.tsx (do NOT proxy to switcher API)
+            const isSpecialOverlayCmd = (
+              firstCmdWord === '!clip' ||
+              firstCmdWord.startsWith('!clip') ||
+              firstCmdWord === '!cliptheclip' ||
+              firstCmdWord === '!replay' ||
+              firstCmdWord === '!highlight' ||
+              firstCmdWord === '!pic' ||
+              firstCmdWord === '!picture' ||
+              firstCmdWord === '!screenshot' ||
+              firstCmdWord === '!snap' ||
+              firstCmdWord === '!so' ||
+              firstCmdWord === '!shoutout'
+            );
+
+            const isKnownNoalbsCmd = !isSpecialOverlayCmd && (noalbsCmds.includes(firstCmdWord) || (seSettingsRef.current?.noalbsCommandsList || []).some((c: any) => {
               if (c.name?.toLowerCase() === firstCmdWord) return true;
               if (Array.isArray(c.aliases) && c.aliases.some((a: string) => a.toLowerCase() === firstCmdWord)) return true;
               return false;
-            });
+            }));
             if (isKnownNoalbsCmd) {
               if (seSettingsRef.current?.obsStreamCommandsEnabled !== false) {
                 const cmdCfg = getCommandConfig(firstCmdWord, 'Everyone');
@@ -2364,7 +2380,7 @@ function OverlayPage() {
 
               const clipDuration = Math.max(minDuration, Math.min(maxDuration, requestedDuration));
 
-              const cooldownSec = seSettingsRef.current.clipCooldownSeconds ?? 180;
+              const cooldownSec = seSettingsRef.current.clipCooldownSeconds ?? 30;
               const userClipKey = `clip_cmd_${(senderUser || 'anon').toLowerCase()}`;
               const remainingCooldownMs = getCommandCooldownRemaining(userClipKey, cooldownSec * 1000);
               if (remainingCooldownMs > 0) {
@@ -2375,22 +2391,18 @@ function OverlayPage() {
               }
               markCommandExecuted(userClipKey);
 
+              const clipMode = seSettingsRef.current.clipSourceMode || 'twitch';
               const seToken = seSettingsRef.current.streamElementsToken;
               const webhookUrl = seSettingsRef.current.discordClipWebhookUrl || seSettingsRef.current.discordPicWebhookUrl;
-              const clipPointsEnabled = seSettingsRef.current.clipPointsEnabled !== false;
-              const clipCost = clipPointsEnabled ? (seSettingsRef.current.clipPointsCost ?? 300) : 0;
+              const hasSeToken = Boolean(seToken && seToken.trim());
+              const clipPointsEnabled = seSettingsRef.current.clipPointsEnabled !== false && hasSeToken;
+              const clipCost = clipPointsEnabled ? (seSettingsRef.current.clipPointsCost ?? 0) : 0;
 
-              if (!webhookUrl || !webhookUrl.trim()) {
+              // Only require Discord webhook if using local OBS replay buffer mode (since local file has nowhere else to go)
+              if (clipMode === 'obs' && (!webhookUrl || !webhookUrl.trim())) {
                 clearCommandCooldown(userClipKey);
                 OverlayLogger.warn('!clip command failed: discordClipWebhookUrl is not configured');
                 sendChatReply(`⚠️ @${senderDisplayName || senderUser}, Discord clip channel webhook is not configured in Overlay Settings.`, { color: 'orange' });
-                return;
-              }
-
-              if (clipCost > 0 && (!seToken || !seToken.trim())) {
-                clearCommandCooldown(userClipKey);
-                OverlayLogger.warn('!clip command failed: streamElementsToken is not configured');
-                sendChatReply(`⚠️ @${senderDisplayName || senderUser}, StreamElements is not connected in Overlay Settings to verify points.`, { color: 'orange' });
                 return;
               }
 

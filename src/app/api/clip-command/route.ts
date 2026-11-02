@@ -275,7 +275,30 @@ export async function POST(request: NextRequest) {
       const { broadcasterId, token, clientId = 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw', username, displayName, sceneName, title, duration } = body;
       const targetWebhook = body.webhookUrl || webhookUrl;
 
-      if (!token || !broadcasterId) {
+      const effectiveToken = token || settings.twitchToken || '';
+      let effectiveBroadcasterId = broadcasterId || settings.twitchBroadcasterId || '';
+      const effectiveClientId = clientId || settings.twitchClientId || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+
+      // Auto-resolve broadcasterId if not directly stored
+      if (effectiveToken && !effectiveBroadcasterId) {
+        try {
+          const userRes = await fetch('https://api.twitch.tv/helix/users', {
+            headers: {
+              'Client-Id': effectiveClientId,
+              'Authorization': `Bearer ${effectiveToken}`
+            }
+          });
+          if (userRes.ok) {
+            const userData = await userRes.json();
+            const uId = userData?.data?.[0]?.id;
+            if (uId) {
+              effectiveBroadcasterId = uId;
+            }
+          }
+        } catch {}
+      }
+
+      if (!effectiveToken || !effectiveBroadcasterId) {
         return NextResponse.json({
           success: false,
           error: 'Twitch account is not connected. Please connect Twitch in Settings to enable Twitch clips.'
@@ -283,22 +306,22 @@ export async function POST(request: NextRequest) {
       }
 
       const name = displayName || username || 'Viewer';
-      OverlayLogger.overlay(`Triggering Twitch Helix Create Clip API for broadcaster ${broadcasterId}${title ? ` (Title: "${title}")` : ''}${duration ? ` (Duration: ${duration}s)` : ''}...`);
+      OverlayLogger.overlay(`Triggering Twitch Helix Create Clip API for broadcaster ${effectiveBroadcasterId}${title ? ` (Title: "${title}")` : ''}${duration ? ` (Duration: ${duration}s)` : ''}...`);
 
       try {
-        let twitchUrl = `https://api.twitch.tv/helix/clips?broadcaster_id=${encodeURIComponent(broadcasterId)}`;
+        let twitchUrl = `https://api.twitch.tv/helix/clips?broadcaster_id=${encodeURIComponent(effectiveBroadcasterId)}`;
         if (typeof duration === 'number' && duration >= 5 && duration <= 60) {
           twitchUrl += `&duration=${duration}`;
         }
         if (typeof title === 'string' && title.trim()) {
-          twitchUrl += `&title=${encodeURIComponent(title.trim().slice(0, 255))}`;
+          twitchUrl += `&title=${encodeURIComponent(title.trim().slice(0, 140))}`;
         }
 
         const twitchRes = await fetch(twitchUrl, {
           method: 'POST',
           headers: {
-            'Client-Id': clientId,
-            'Authorization': `Bearer ${token}`
+            'Client-Id': effectiveClientId,
+            'Authorization': `Bearer ${effectiveToken}`
           }
         });
 
