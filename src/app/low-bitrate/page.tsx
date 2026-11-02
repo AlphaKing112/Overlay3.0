@@ -73,7 +73,7 @@ function LowBitrateContent() {
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info'; timestamp: number }>>([]);
 
   // Bitrate and Stream Telemetry State
   const [currentBitrate, setCurrentBitrate] = useState<number | null>(null);
@@ -367,10 +367,35 @@ function LowBitrateContent() {
     autoSwitchStateRef.current = autoSwitchState;
   }, [autoSwitchState]);
 
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
+
+  const showToast = useCallback((rawMessage: string, type: 'success' | 'error' | 'info' = 'success', durationMs: number = 4500) => {
+    if (!rawMessage) return;
+    // Strip leading duplicate symbols so we never show duplicate icons like "[✓] [✓]"
+    const cleanMessage = rawMessage.replace(/^[✅❌ℹ️\s]+/, '').trim();
+    if (!cleanMessage) return;
+
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const newToast = {
+      id,
+      message: cleanMessage,
+      type,
+      timestamp: Date.now()
+    };
+
+    setToasts(prev => {
+      // Don't flood with identical duplicate messages in quick succession (<2s)
+      const recentDup = prev.find(t => t.message === cleanMessage && Date.now() - t.timestamp < 2000);
+      if (recentDup) return prev;
+      return [...prev.slice(-3), newToast];
+    });
+
+    setTimeout(() => {
+      removeToast(id);
+    }, durationMs);
+  }, [removeToast]);
 
   // 1. Fetch initial settings
   const fetchSettings = useCallback(async () => {
@@ -517,7 +542,7 @@ function LowBitrateContent() {
   };
 
   // 4. Save settings changes
-  const saveSettingsUpdates = async (updates: Partial<OverlaySettings>) => {
+  const saveSettingsUpdates = async (updates: Partial<OverlaySettings>, options?: { silent?: boolean }) => {
     setSaving(true);
     setSettings(prev => ({ ...prev, ...updates }));
     try {
@@ -527,12 +552,18 @@ function LowBitrateContent() {
         body: JSON.stringify({ settings: updates })
       });
       if (res.ok) {
-        showToast('Settings saved & synced to overlay!', 'success');
+        if (!options?.silent) {
+          showToast('Settings saved & synced to overlay!', 'success');
+        }
       } else {
-        showToast('Failed to save settings to cloud.', 'error');
+        if (!options?.silent) {
+          showToast('Failed to save settings to cloud.', 'error');
+        }
       }
     } catch (err: any) {
-      showToast(`Save error: ${err.message}`, 'error');
+      if (!options?.silent) {
+        showToast(`Save error: ${err.message}`, 'error');
+      }
     } finally {
       setSaving(false);
     }
@@ -563,7 +594,7 @@ function LowBitrateContent() {
 
     try {
       const now = Date.now();
-      saveSettingsUpdates({ obsSceneSwitchSignal: { sceneName, timestamp: now } });
+      saveSettingsUpdates({ obsSceneSwitchSignal: { sceneName, timestamp: now } }, { silent: true });
 
       if (localObsRef.current) {
         safeObsSwitchScene(localObsRef.current, sceneName).then(ok => {
@@ -629,7 +660,7 @@ function LowBitrateContent() {
     try {
       await saveSettingsUpdates({
         obsStreamCommandSignal: { action: 'fix', timestamp: Date.now() }
-      });
+      }, { silent: true });
 
       if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
@@ -690,7 +721,7 @@ function LowBitrateContent() {
     try {
       await saveSettingsUpdates({
         obsStreamCommandSignal: { action: willRecord ? 'start_record' : 'stop_record', timestamp: Date.now() }
-      });
+      }, { silent: true });
 
       if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
@@ -752,7 +783,7 @@ function LowBitrateContent() {
       const action = willStream ? 'start' : 'stop';
       await saveSettingsUpdates({
         obsStreamCommandSignal: { action, timestamp: Date.now() }
-      });
+      }, { silent: true });
 
       if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
@@ -1872,33 +1903,72 @@ function LowBitrateContent() {
   // =========================================================================
   return (
     <div className="admin-container" style={{ maxWidth: '1440px', margin: '0 auto', padding: '24px 20px 60px' }}>
-      {/* Toast Notification */}
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            top: '24px',
-            right: '24px',
-            zIndex: 9999,
-            padding: '12px 20px',
-            borderRadius: '8px',
-            background: toast.type === 'success' ? '#15803d' : toast.type === 'error' ? '#b91c1c' : '#0369a1',
-            color: '#fff',
-            fontWeight: '600',
-            fontSize: '0.92rem',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          {toast.type === 'info' && <span style={{ fontSize: '1.15em' }}>ℹ</span>}
-          {toast.type === 'success' && <span style={{ fontSize: '1.15em' }}>✅</span>}
-          {toast.type === 'error' && <span style={{ fontSize: '1.15em' }}>❌</span>}
-          <span>{toast.message}</span>
-        </div>
-      )}
+      {/* Stacked Toast Notifications Container */}
+      <div
+        style={{
+          position: 'fixed',
+          top: '24px',
+          right: '24px',
+          zIndex: 99999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          maxWidth: '420px',
+          pointerEvents: 'none'
+        }}
+      >
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            onClick={() => removeToast(t.id)}
+            style={{
+              padding: '12px 18px',
+              borderRadius: '8px',
+              background: t.type === 'success' ? '#15803d' : t.type === 'error' ? '#b91c1c' : '#0369a1',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: '0.92rem',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              pointerEvents: 'auto',
+              cursor: 'pointer',
+              animation: 'toastSlideIn 0.25s ease-out',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, wordBreak: 'break-word' }}>
+              {t.type === 'info' && <span style={{ fontSize: '1.15em' }}>ℹ️</span>}
+              {t.type === 'success' && <span style={{ fontSize: '1.15em' }}>✅</span>}
+              {t.type === 'error' && <span style={{ fontSize: '1.15em' }}>❌</span>}
+              <span>{t.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                removeToast(t.id);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.65)',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                lineHeight: 1,
+                padding: '2px 4px',
+                borderRadius: '4px'
+              }}
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
 
       {/* Top Header & Navigation */}
       <header
