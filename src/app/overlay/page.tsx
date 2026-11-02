@@ -2938,6 +2938,7 @@ function OverlayPage() {
             } else if (norm === (seSettingsRef.current.obsLiveSceneName || 'live').trim().toLowerCase() || norm.includes('live')) {
               manualOverrideUntilRef.current = 0;
               lastBitrateStateRef.current = 'live';
+              startingCheckStartRef.current = 0;
             }
 
             fetch('/api/obs-telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ online: true, currentScene: sceneName }) }).catch(() => {});
@@ -3325,7 +3326,8 @@ function OverlayPage() {
                             (norm.includes('refresh') && !norm.includes('live'));
 
           if (isSpecial) {
-            if (!(norm.includes('starting') && startingCheckStartRef.current > 0)) {
+            const isStarting = norm === starting || norm.includes('starting');
+            if (!(isStarting && startingCheckStartRef.current > 0)) {
               manualOverrideUntilRef.current = Date.now() + 86400000;
               lastBitrateStateRef.current = null;
             }
@@ -3656,10 +3658,12 @@ function OverlayPage() {
     };
 
     if (startingCheckStartRef.current > 0) {
-      const pickedStartScene = settings.obsStartingSceneName || 'starting';
-      const pickedStartNorm = pickedStartScene.trim().toLowerCase();
-      if (activeScene && activeScene !== pickedStartNorm && !activeScene.includes('starting')) {
-        switchSceneViaApi(pickedStartScene);
+      const liveScene = (settings.obsLiveSceneName || 'live').trim().toLowerCase();
+      // If OBS is already on the live scene, the transition already occurred!
+      if (activeScene && (activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical')))) {
+        startingCheckStartRef.current = 0;
+        lastBitrateStateRef.current = 'live';
+        return;
       }
 
       const checkWindowSec = Math.max(60, settings.obsStartingSceneCheckSeconds ?? 60);

@@ -288,6 +288,10 @@ function LowBitrateContent() {
               setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sName}" — Auto-switching PAUSED`);
             } else if (isLiveSceneName(sName, settingsRef.current)) {
               manualOverrideUntilRef.current = 0;
+              startingCheckStartRef.current = 0;
+              setIsCheckingStartingBelabox(false);
+              setStartingCheckRemainingSeconds(0);
+              setAutoSwitchState('LIVE');
             }
 
             fetch('/api/obs-telemetry', {
@@ -1095,14 +1099,18 @@ function LowBitrateContent() {
         }).catch(() => {});
         showToast(finalState ? 'OBS Stream is now LIVE!' : 'OBS Stream has ended.', 'success');
 
-        // Automatically switch scene on stream start or stream stop if enabled
-        if (finalState && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
-          const startScene = settingsRef.current.obsStartingSceneName || 'starting';
-          switchScene(startScene, 'Stream Started');
-          startingCheckStartRef.current = Date.now();
-          setIsCheckingStartingBelabox(true);
-          currentSceneRef.current = startScene;
-          setCurrentScene(startScene);
+        // Fallback starting scene trigger (only if StreamStateChanged didn't already fire it)
+        if (finalState && startingCheckStartRef.current === 0 && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
+          const cur = (currentSceneRef.current || '').trim().toLowerCase();
+          const liveNorm = (settingsRef.current.obsLiveSceneName || 'live').trim().toLowerCase();
+          if (cur !== liveNorm && !cur.includes('live')) {
+            const startScene = settingsRef.current.obsStartingSceneName || 'starting';
+            switchScene(startScene, 'Stream Started');
+            startingCheckStartRef.current = Date.now();
+            setIsCheckingStartingBelabox(true);
+            currentSceneRef.current = startScene;
+            setCurrentScene(startScene);
+          }
         } else if (!finalState) {
           startingCheckStartRef.current = 0;
           setIsCheckingStartingBelabox(false);
@@ -1202,10 +1210,15 @@ function LowBitrateContent() {
 
       // Belabox Go-Live Check while starting stream (checks for min 1 min, switches to live or stops checking)
       if (startingCheckStartRef.current > 0) {
-        const startScene = currentSettings.obsStartingSceneName || 'starting';
-        const startSceneNorm = startScene.trim().toLowerCase();
-        if (curScene && curScene !== startSceneNorm && !curScene.includes('starting')) {
-          switchScene(startScene, 'Enforcing Starting Scene on Go-Live');
+        const liveScene = currentSettings.obsLiveSceneName || 'live';
+        const liveSceneNorm = liveScene.trim().toLowerCase();
+        // If OBS is already on the live scene, the transition already occurred!
+        if (curScene && (curScene === liveSceneNorm || (curScene.includes('live') && !curScene.includes('vertical')))) {
+          startingCheckStartRef.current = 0;
+          setIsCheckingStartingBelabox(false);
+          setStartingCheckRemainingSeconds(0);
+          setAutoSwitchState('LIVE');
+          return;
         }
 
         const checkWindowSec = Math.max(60, currentSettings.obsStartingSceneCheckSeconds ?? 60);
