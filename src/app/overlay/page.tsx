@@ -2060,12 +2060,10 @@ function OverlayPage() {
               const cmdCfg = getCommandConfig('so', 'Moderators');
               if (!cmdCfg.enabled) {
                 OverlayLogger.overlay(`Twitch IRC !so command ignored (disabled in settings)`);
-                sendDisabledNotice('so');
                 return;
               }
               if (!cmdCfg.allowed || !isAllowed) {
                 OverlayLogger.overlay(`Twitch IRC !so command ignored (user lacks required role permission)`);
-                sendPermError('so', cmdCfg.role);
                 return;
               }
 
@@ -2118,12 +2116,10 @@ function OverlayPage() {
               const isEnabled = seSettingsRef.current.picCommandEnabled !== false && cmdCfg.enabled;
               if (!isEnabled) {
                 OverlayLogger.overlay('Twitch IRC !pic command ignored (picCommandEnabled is disabled)');
-                sendDisabledNotice('pic');
                 return;
               }
               if (!cmdCfg.allowed) {
                 OverlayLogger.overlay(`Twitch IRC !pic command ignored (user lacks ${cmdCfg.role} permission)`);
-                sendPermError('pic', cmdCfg.role);
                 return;
               }
 
@@ -2338,12 +2334,10 @@ function OverlayPage() {
               const isEnabled = seSettingsRef.current.clipCommandEnabled !== false && cmdCfg.enabled;
               if (!isEnabled) {
                 OverlayLogger.overlay('Twitch IRC !clip command ignored (clip command is disabled)');
-                sendDisabledNotice('clip');
                 return;
               }
               if (!cmdCfg.allowed) {
                 OverlayLogger.overlay(`Twitch IRC !clip command ignored (user lacks ${cmdCfg.role} permission)`);
-                sendPermError('clip', cmdCfg.role);
                 return;
               }
 

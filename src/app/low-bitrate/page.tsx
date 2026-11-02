@@ -1093,9 +1093,16 @@ function LowBitrateContent() {
 
   // Chat & Commands Helpers
   const activeCommandsList: CommandConfigItem[] = useMemo(() => {
-    const list = settings.noalbsCommandsList && settings.noalbsCommandsList.length > 0
+    const rawList = settings.noalbsCommandsList && settings.noalbsCommandsList.length > 0
       ? [...settings.noalbsCommandsList]
       : [...DEFAULT_NOALBS_COMMANDS];
+
+    // Exclude !clip, !pic, and !so from the switcher page
+    const list = rawList.filter(c =>
+      c.id !== 'clip' && c.name !== '!clip' &&
+      c.id !== 'pic' && c.name !== '!pic' &&
+      c.id !== 'so' && c.name !== '!so'
+    );
 
     // Ensure !fix command is always present
     if (!list.some(c => c.id === 'fix' || c.name === '!fix')) {
