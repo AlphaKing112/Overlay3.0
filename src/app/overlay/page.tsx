@@ -1627,11 +1627,30 @@ function OverlayPage() {
               (permMods && isMod) ||
               (permVips && isVip);
 
-            // Send direct Twitch Chat Reply to the user's command
+            // Send direct Twitch Chat message/reply respecting the streamer's configured Reply mode
             const sendChatReply = (message: string, options?: { replyId?: string; color?: 'primary' | 'green' | 'orange' }) => {
               const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
               const token = seSettingsRef.current.twitchToken;
               const clientId = API_KEYS.TWITCH_CLIENT_ID;
+              const replyMode = (seSettingsRef.current.obsReplyMode || 'Reply').trim().toLowerCase();
+
+              let finalMessage = message;
+              let finalReplyParentId: string | undefined = undefined;
+
+              if (replyMode === 'reply') {
+                finalReplyParentId = options?.replyId || msgId;
+              } else if (replyMode === 'mention') {
+                finalReplyParentId = undefined;
+                const mentionTag = `@${senderDisplayName || senderUser}`;
+                if (!finalMessage.toLowerCase().includes(mentionTag.toLowerCase())) {
+                  finalMessage = `${mentionTag} ${finalMessage}`;
+                }
+              } else if (replyMode === 'plain') {
+                finalReplyParentId = undefined;
+                // Strip leading @username mention if present (e.g. "🎬 @Lazesk, creating stream clip..." -> "🎬 Creating stream clip...")
+                finalMessage = finalMessage.replace(/^([\p{Emoji}\u2000-\u3300]\s*)@\S+[:,]?\s*/u, '$1');
+                finalMessage = finalMessage.replace(/^@\S+[:,]?\s*/, '');
+              }
 
               fetch('/api/twitch-announcement', {
                 method: 'POST',
@@ -1640,8 +1659,9 @@ function OverlayPage() {
                   broadcasterId,
                   token,
                   clientId,
-                  message,
-                  replyParentMessageId: options?.replyId || msgId,
+                  message: finalMessage,
+                  replyParentMessageId: finalReplyParentId,
+                  replyMode,
                   color: options?.color || 'primary',
                   asAnnouncement: false
                 })

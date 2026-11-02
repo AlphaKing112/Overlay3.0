@@ -23,7 +23,7 @@ async function getSettings(): Promise<any> {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    let { broadcasterId, message, token, clientId, color, asAnnouncement, replyParentMessageId, dedupKey } = body;
+    let { broadcasterId, message, token, clientId, color, asAnnouncement, replyParentMessageId, replyMode, dedupKey } = body;
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ success: false, reason: 'Message string is required' });
@@ -116,13 +116,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // Standard Twitch Chat Message API (replying directly to user command if replyParentMessageId provided)
+    // Resolve reply mode ('Reply' | 'Mention' | 'Plain')
+    const effectiveReplyMode = (replyMode || settings.obsReplyMode || 'Reply').trim().toLowerCase();
+
+    // Standard Twitch Chat Message API (only attach reply_parent_message_id if replyMode is 'reply')
     const chatPayload: Record<string, any> = {
       broadcaster_id: broadcasterId,
       sender_id: activeSenderId,
       message: cleanMessage
     };
-    if (replyParentMessageId) {
+    if (effectiveReplyMode === 'reply' && replyParentMessageId) {
       chatPayload.reply_parent_message_id = replyParentMessageId;
     }
 
