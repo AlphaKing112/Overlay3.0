@@ -124,6 +124,33 @@ function LowBitrateContent() {
   const [newAliasValue, setNewAliasValue] = useState<string>('');
   const [addingChannelType, setAddingChannelType] = useState<'twitch' | 'kick' | null>(null);
   const [channelInputText, setChannelInputText] = useState<string>('');
+  const [isTestingEndChat, setIsTestingEndChat] = useState<boolean>(false);
+
+  const handleTestEndStreamMessage = async () => {
+    const msg = (settings.obsEndingChatMessage || 'Thanks for watching everyone! Stream is now ending. See you next time! ❤️').trim();
+    if (!msg) {
+      showToast('Please enter an end stream message first.', 'error');
+      return;
+    }
+    setIsTestingEndChat(true);
+    try {
+      const res = await fetch('/api/twitch-announcement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        showToast('Test end-stream message posted to Twitch chat!', 'success');
+      } else {
+        showToast(`Could not send: ${data?.reason || data?.error || 'Check Twitch connection in Settings'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error sending test message: ${err.message}`, 'error');
+    } finally {
+      setIsTestingEndChat(false);
+    }
+  };
   const [showManualBotInput, setShowManualBotInput] = useState<boolean>(false);
   const [manualBotUsername, setManualBotUsername] = useState<string>('');
   const [manualBotToken, setManualBotToken] = useState<string>('');
@@ -316,9 +343,21 @@ function LowBitrateContent() {
             }
           } else {
             // Stream just stopped! ONLY switch to ending scene if stream was previously LIVE and setting is enabled
-            if (wasLiveBefore && (settingsRef.current.obsEndingSceneOnStreamStop ?? true)) {
-              const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
-              switchScene(targetScene, 'OBS Stream Stopped');
+            if (wasLiveBefore) {
+              if (settingsRef.current.obsEndingSceneOnStreamStop ?? true) {
+                const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
+                switchScene(targetScene, 'OBS Stream Stopped');
+              }
+              if (settingsRef.current.obsEndingChatMessageEnabled && settingsRef.current.obsEndingChatMessage) {
+                const endMsg = settingsRef.current.obsEndingChatMessage.trim();
+                if (endMsg) {
+                  fetch('/api/twitch-announcement', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: endMsg, dedupKey: 'end_stream_chat' })
+                  }).catch(() => {});
+                }
+              }
             }
           }
         });
@@ -4603,7 +4642,75 @@ function LowBitrateContent() {
                   </div>
                 </div>
 
-                {/* 3. Auto stop stream on raid */}
+                {/* 3. Custom Chat Message on End Stream */}
+                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>Post custom message on stream end</span>
+                        <span style={{ fontSize: '0.72rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.15)', border: '1px solid rgba(192, 132, 252, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                          Chat
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                        Write a custom message to automatically send to chat when your stream ends.
+                      </div>
+                    </div>
+                    <PurpleToggle
+                      checked={settings.obsEndingChatMessageEnabled ?? false}
+                      onChange={(v) => saveSettingsUpdates({ obsEndingChatMessageEnabled: v })}
+                    />
+                  </div>
+
+                  {/* Message Input Box & Test Button */}
+                  <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={settings.obsEndingChatMessage ?? ''}
+                        onChange={(e) => saveSettingsUpdates({ obsEndingChatMessage: e.target.value }, { silent: true })}
+                        placeholder="Thanks for watching everyone! Stream is now ending. See you next time! ❤️"
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.14)',
+                          borderRadius: '8px',
+                          color: '#ffffff',
+                          fontSize: '0.88rem'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTestEndStreamMessage}
+                        disabled={isTestingEndChat}
+                        title="Send a test message to Twitch chat right now"
+                        style={{
+                          padding: '8px 14px',
+                          background: 'rgba(145, 70, 255, 0.2)',
+                          border: '1px solid rgba(145, 70, 255, 0.45)',
+                          borderRadius: '8px',
+                          color: '#c084fc',
+                          fontSize: '0.82rem',
+                          fontWeight: 700,
+                          cursor: isTestingEndChat ? 'not-allowed' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <span>💬</span>
+                        <span>{isTestingEndChat ? 'Sending...' : 'Test in Chat'}</span>
+                      </button>
+                    </div>
+                    <span style={{ fontSize: '0.74rem', opacity: 0.55 }}>
+                      Sent to connected chat when broadcast stops in OBS, via Switcher Studio, or via !end / !stop command.
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Auto stop stream on raid */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>

@@ -1753,9 +1753,12 @@ function OverlayPage() {
               }
 
               // Step 4: Send direct reply message back to Twitch chat
+              const customEndMsg = (seSettingsRef.current?.obsEndingChatMessageEnabled && seSettingsRef.current?.obsEndingChatMessage)
+                ? seSettingsRef.current.obsEndingChatMessage.trim()
+                : '🔴 OBS Stream Ended! 🛑';
               const replyMsg = action === 'start'
                 ? (success ? '▶ OBS Stream Started! 🚀' : `❌ Failed to start stream: ${errorMsg || 'Could not connect to OBS WebSocket'}`)
-                : (success ? '🔴 OBS Stream Ended! 🛑' : `❌ Failed to stop stream: ${errorMsg || 'Could not connect to OBS WebSocket'}`);
+                : (success ? customEndMsg : `❌ Failed to stop stream: ${errorMsg || 'Could not connect to OBS WebSocket'}`);
 
               sendChatReply(replyMsg, { color: success ? 'primary' : 'orange' });
             };
@@ -2980,6 +2983,18 @@ function OverlayPage() {
                   appendObsLog('info', `[scene-manager] Stream stopped, switching immediately to '${stopScene}'`);
                   safeObsSwitchScene(obs, stopScene);
                   lastBitrateStateRef.current = 'offline';
+                }
+              }
+
+              // Post Custom End Stream Chat Message
+              if (seSettingsRef.current.obsEndingChatMessageEnabled && seSettingsRef.current.obsEndingChatMessage) {
+                const endMsg = seSettingsRef.current.obsEndingChatMessage.trim();
+                if (endMsg) {
+                  fetch('/api/twitch-announcement', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: endMsg, dedupKey: 'end_stream_chat' })
+                  }).catch(() => {});
                 }
               }
             }

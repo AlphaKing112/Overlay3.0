@@ -23,10 +23,21 @@ async function getSettings(): Promise<any> {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    let { broadcasterId, message, token, clientId, color, asAnnouncement, replyParentMessageId } = body;
+    let { broadcasterId, message, token, clientId, color, asAnnouncement, replyParentMessageId, dedupKey } = body;
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ success: false, reason: 'Message string is required' });
+    }
+
+    // Deduplication check (e.g. preventing duplicate end-stream messages within 10 seconds)
+    if (dedupKey && typeof dedupKey === 'string') {
+      const g = globalThis as any;
+      if (!g.__lastDedupChatMsg) g.__lastDedupChatMsg = {};
+      const lastTime = g.__lastDedupChatMsg[dedupKey] || 0;
+      if (Date.now() - lastTime < 10000) {
+        return NextResponse.json({ success: true, deduplicated: true, method: 'skipped_duplicate' });
+      }
+      g.__lastDedupChatMsg[dedupKey] = Date.now();
     }
 
     const settings = await getSettings();

@@ -257,6 +257,8 @@ export interface OverlaySettings {
   obsChecksBeforeSwitching?: number;
   obsStartingSceneOnGoLive?: boolean;
   obsEndingSceneOnStreamStop?: boolean;
+  obsEndingChatMessageEnabled?: boolean;
+  obsEndingChatMessage?: string;
   obsAutoStopStreamOnRaid?: boolean;
   twitchBotToken?: string;
   twitchBotUserId?: string;
@@ -562,6 +564,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsChecksBeforeSwitching: 5,
   obsStartingSceneOnGoLive: true,
   obsEndingSceneOnStreamStop: true,
+  obsEndingChatMessageEnabled: false,
+  obsEndingChatMessage: 'Thanks for watching everyone! Stream is now ending. See you next time! ❤️',
   obsAutoStopStreamOnRaid: false,
   twitchBotToken: '',
   twitchBotUserId: '',
@@ -815,6 +819,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsChecksBeforeSwitching: 'number',
   obsStartingSceneOnGoLive: 'boolean',
   obsEndingSceneOnStreamStop: 'boolean',
+  obsEndingChatMessageEnabled: 'boolean',
+  obsEndingChatMessage: 'string',
   obsAutoStopStreamOnRaid: 'boolean',
   twitchBotToken: 'string',
   twitchBotUserId: 'string',

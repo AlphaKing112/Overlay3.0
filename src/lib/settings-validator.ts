@@ -547,6 +547,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     obsChecksBeforeSwitching: typeof cleanSettings.obsChecksBeforeSwitching === 'number' ? Math.max(1, Math.min(60, cleanSettings.obsChecksBeforeSwitching)) : DEFAULT_OVERLAY_SETTINGS.obsChecksBeforeSwitching,
     obsStartingSceneOnGoLive: cleanSettings.obsStartingSceneOnGoLive ?? DEFAULT_OVERLAY_SETTINGS.obsStartingSceneOnGoLive,
     obsEndingSceneOnStreamStop: cleanSettings.obsEndingSceneOnStreamStop ?? DEFAULT_OVERLAY_SETTINGS.obsEndingSceneOnStreamStop,
+    obsEndingChatMessageEnabled: typeof cleanSettings.obsEndingChatMessageEnabled === 'boolean' ? cleanSettings.obsEndingChatMessageEnabled : DEFAULT_OVERLAY_SETTINGS.obsEndingChatMessageEnabled,
+    obsEndingChatMessage: typeof cleanSettings.obsEndingChatMessage === 'string' ? cleanSettings.obsEndingChatMessage.slice(0, 500) : DEFAULT_OVERLAY_SETTINGS.obsEndingChatMessage,
     obsAutoStopStreamOnRaid: cleanSettings.obsAutoStopStreamOnRaid ?? DEFAULT_OVERLAY_SETTINGS.obsAutoStopStreamOnRaid,
     twitchBotToken: cleanSettings.twitchBotToken ?? DEFAULT_OVERLAY_SETTINGS.twitchBotToken,
     twitchBotUserId: cleanSettings.twitchBotUserId ?? DEFAULT_OVERLAY_SETTINGS.twitchBotUserId,
