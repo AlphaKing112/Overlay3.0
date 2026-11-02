@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
@@ -9,8 +9,8 @@ import { API_KEYS } from '@/utils/overlay-constants';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
-// Reusable purple toggle switch
-function PurpleToggle({
+// Reusable purple toggle switch (memoized to prevent re-renders on ticker updates)
+const PurpleToggle = memo(function PurpleToggle({
   checked,
   onChange,
   disabled
@@ -62,6 +62,53 @@ function PurpleToggle({
       />
     </button>
   );
+});
+
+// Hoisted pure helper functions outside component body to prevent recreation on each render
+function cleanDisplayMessage(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/^[\s\u200B\uFE0F\u00A0]*(?:[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDC00-\uDFFF]|[\u2000-\u32FF]|\u2600-\u26FF|✅|✔|✓|☑|❌|ℹ|ℹ️|🔒|🎬|🔄|⚡|⚠️|🛑|🚨|[\?❓])+\s*/u, '')
+    .replace(/^(?:Program Scene is now: )*Program Scene is now: /g, 'Program Scene is now: ')
+    .trim();
+}
+
+function isSpecialSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  const starting = (s.obsStartingSceneName || 'starting').trim().toLowerCase();
+  const ending = (s.obsEndingSceneName || 'ending').trim().toLowerCase();
+  const privacy = (s.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+  const refresh = (s.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+
+  return n === starting || n === ending || n === privacy || n === refresh ||
+         n === 'starting' || n === 'ending' || n === 'privacy' || n === 'refresh' ||
+         n.includes('starting') || n.includes('ending') || n.includes('priv') || n.includes('pause') ||
+         (n.includes('refresh') && !n.includes('live'));
+}
+
+function isLiveSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  if (isSpecialSceneName(n, s)) return false;
+  const live = (s.obsLiveSceneName || 'live').trim().toLowerCase();
+  return n === live || (n.includes('live') && !n.includes('vertical'));
+}
+
+function isLowSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  if (isSpecialSceneName(n, s)) return false;
+  const low = (s.obsLowSceneName || 'low').trim().toLowerCase();
+  return n === low || n.includes('low');
+}
+
+function isOfflineSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  if (isSpecialSceneName(n, s)) return false;
+  const offline = (s.obsOfflineSceneName || 'offline').trim().toLowerCase();
+  return n === offline || (n.includes('offline') && !n.includes('vertical')) || n.includes('brb');
 }
 
 const DEFAULT_SCENE_PRESETS = [
@@ -90,6 +137,19 @@ function LowBitrateContent() {
   const [currentScene, setCurrentScene] = useState<string>('');
   const [availableScenes, setAvailableScenes] = useState<string[]>([]);
   const [telemetry, setTelemetry] = useState<ObsTelemetryStats | null>(null);
+  const telemetryRef = useRef<ObsTelemetryStats | null>(null);
+  telemetryRef.current = telemetry;
+
+  // Memoized scene updater with strict equality check to prevent needless re-renders
+  const updateAvailableScenes = useCallback((scenes: string[]) => {
+    if (!scenes || !Array.isArray(scenes)) return;
+    setAvailableScenes(prev => {
+      if (prev.length === scenes.length && prev.every((s, i) => s === scenes[i])) {
+        return prev;
+      }
+      return scenes;
+    });
+  }, []);
   const [isSwitchingScene, setIsSwitchingScene] = useState<boolean>(false);
   const [showObsLogs, setShowObsLogs] = useState<boolean>(false);
   const [isScanningScenes, setIsScanningScenes] = useState<boolean>(false);
@@ -219,37 +279,47 @@ function LowBitrateContent() {
           if (!isActive || !localObsRef.current) return;
           try {
             const streamData: any = await obs.call('GetStreamStatus').catch(() => null);
-            if (streamData !== null) {
-              const live = Boolean(streamData?.outputActive);
-              setLocalStreaming(live);
-              wasStreamingRef.current = live;
-              setTelemetry(prev => (prev ? {
-                ...prev,
-                streaming: live,
-                uptimeTimecode: streamData?.outputTimecode || prev.uptimeTimecode || '00:00:00'
-              } : {
-                online: true,
-                streaming: live,
-                recording: false,
-                scenes: [],
-                updatedAt: Date.now(),
-                uptimeTimecode: streamData?.outputTimecode || '00:00:00'
-              } as ObsTelemetryStats));
-            }
             const recordData: any = await obs.call('GetRecordStatus').catch(() => null);
-            if (recordData !== null) {
-              const rec = Boolean(recordData?.outputActive);
-              setLocalRecording(rec);
-              setTelemetry(prev => (prev ? {
-                ...prev,
-                recording: rec
-              } : {
-                online: true,
-                streaming: false,
-                recording: rec,
-                scenes: [],
-                updatedAt: Date.now()
-              } as ObsTelemetryStats));
+
+            const live = streamData !== null ? Boolean(streamData?.outputActive) : null;
+            const rec = recordData !== null ? Boolean(recordData?.outputActive) : null;
+            const uptime = streamData?.outputTimecode;
+
+            if (live !== null) {
+              setLocalStreaming(prev => prev === live ? prev : live);
+              wasStreamingRef.current = live;
+            }
+            if (rec !== null) {
+              setLocalRecording(prev => prev === rec ? prev : rec);
+            }
+
+            if (live !== null || rec !== null) {
+              setTelemetry(prev => {
+                const nextStreaming = live !== null ? live : (prev?.streaming ?? false);
+                const nextRecording = rec !== null ? rec : (prev?.recording ?? false);
+                const nextUptime = uptime || prev?.uptimeTimecode || '00:00:00';
+                if (
+                  prev &&
+                  prev.streaming === nextStreaming &&
+                  prev.recording === nextRecording &&
+                  prev.uptimeTimecode === nextUptime
+                ) {
+                  return prev;
+                }
+                return prev ? {
+                  ...prev,
+                  streaming: nextStreaming,
+                  recording: nextRecording,
+                  uptimeTimecode: nextUptime
+                } : {
+                  online: true,
+                  streaming: nextStreaming,
+                  recording: nextRecording,
+                  scenes: [],
+                  updatedAt: Date.now(),
+                  uptimeTimecode: nextUptime
+                } as ObsTelemetryStats;
+              });
             }
           } catch {}
         };
@@ -257,8 +327,8 @@ function LowBitrateContent() {
         const sceneData: any = await obs.call('GetSceneList').catch(() => null);
         const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
         const currentProg = sceneData?.currentProgramSceneName || '';
-        if (currentProg) setCurrentScene(currentProg);
-        if (scenes.length > 0) setAvailableScenes(scenes);
+        if (currentProg) setCurrentScene(prev => prev === currentProg ? prev : currentProg);
+        if (scenes.length > 0) updateAvailableScenes(scenes);
 
         await syncObsOutputStatus();
         const statusPollTimer = setInterval(syncObsOutputStatus, 1500);
@@ -272,7 +342,7 @@ function LowBitrateContent() {
         obs.on('CurrentProgramSceneChanged' as any, (data: any) => {
           const sName = data?.sceneName || data?.currentProgramSceneName;
           if (sName) {
-            setCurrentScene(sName);
+            setCurrentScene(prev => prev === sName ? prev : sName);
             currentSceneRef.current = sName;
             lastManualSceneSwitchTimeRef.current = Date.now();
 
@@ -307,7 +377,7 @@ function LowBitrateContent() {
             const rawScenes = d?.scenes || (await obs.call('GetSceneList'))?.scenes || [];
             const newScenes = rawScenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean);
             if (newScenes.length > 0) {
-              setAvailableScenes(newScenes);
+              updateAvailableScenes(newScenes);
               fetch('/api/obs-telemetry', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -510,14 +580,6 @@ function LowBitrateContent() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const cleanDisplayMessage = (raw: string): string => {
-    if (!raw) return '';
-    return raw
-      .replace(/^[\s\u200B\uFE0F\u00A0]*(?:[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDC00-\uDFFF]|[\u2000-\u32FF]|\u2600-\u26FF|✅|✔|✓|☑|❌|ℹ|ℹ️|🔒|🎬|🔄|⚡|⚠️|🛑|🚨|[\?❓])+\s*/u, '')
-      .replace(/^(?:Program Scene is now: )*Program Scene is now: /g, 'Program Scene is now: ')
-      .trim();
-  };
-
   const showToast = useCallback((rawMessage: string, type: 'success' | 'error' | 'info' = 'success', durationMs: number = 4500) => {
     if (!rawMessage) return;
     // Strip any leading icons, checkmarks or emoji symbols so toasts never double-render icons
@@ -569,27 +631,40 @@ function LowBitrateContent() {
       const res = await fetch('/api/obs-switch-scene');
       if (res.ok) {
         const data = await res.json();
-        setObsConnected(Boolean(data.connected));
+        const conn = Boolean(data.connected);
+        setObsConnected(prev => prev === conn ? prev : conn);
         if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
-          setAvailableScenes(data.scenes);
+          updateAvailableScenes(data.scenes);
         }
         // Protect against stale cloud KV overwriting fresh user scene choices
         const isRecentlySwitched = Date.now() - lastManualSceneSwitchTimeRef.current < 8000;
         if (data.currentScene && !localObsRef.current && !isRecentlySwitched) {
-          setCurrentScene(data.currentScene);
+          setCurrentScene(prev => prev === data.currentScene ? prev : data.currentScene);
         }
       } else {
-        setObsConnected(false);
+        setObsConnected(prev => prev === false ? prev : false);
       }
     } catch {
-      setObsConnected(false);
+      setObsConnected(prev => prev === false ? prev : false);
     }
-  }, []);
+  }, [updateAvailableScenes]);
 
   useEffect(() => {
-    refreshObsScenes();
-    const sceneInterval = setInterval(refreshObsScenes, 5000);
-    return () => clearInterval(sceneInterval);
+    let isCancelled = false;
+    let sceneTimer: NodeJS.Timeout;
+
+    const runSceneRefresh = async () => {
+      await refreshObsScenes();
+      if (isCancelled) return;
+      const delay = (typeof document !== 'undefined' && document.hidden) ? 12000 : 5000;
+      sceneTimer = setTimeout(runSceneRefresh, delay);
+    };
+
+    runSceneRefresh();
+    return () => {
+      isCancelled = true;
+      clearTimeout(sceneTimer);
+    };
   }, [refreshObsScenes]);
 
   // 3. Fetch OBS Telemetry (FPS, Dropped Frames, CPU, Scenes)
@@ -598,28 +673,60 @@ function LowBitrateContent() {
       const res = await fetch('/api/obs-telemetry');
       if (res.ok) {
         const data = await res.json();
-        setTelemetry(prev => ({
-          ...data,
-          streaming: localStreaming !== null ? localStreaming : Boolean(data.streaming),
-          recording: localRecording !== null ? localRecording : Boolean(data.recording),
-          uptimeTimecode: data.uptimeTimecode || prev?.uptimeTimecode || '00:00:00'
-        }));
+        const nextStreaming = localStreaming !== null ? localStreaming : Boolean(data.streaming);
+        const nextRecording = localRecording !== null ? localRecording : Boolean(data.recording);
+        setTelemetry(prev => {
+          const nextUptime = data.uptimeTimecode || prev?.uptimeTimecode || '00:00:00';
+          if (
+            prev &&
+            prev.online === data.online &&
+            prev.streaming === nextStreaming &&
+            prev.recording === nextRecording &&
+            prev.fps === data.fps &&
+            prev.cpuUsagePercent === data.cpuUsagePercent &&
+            prev.droppedFrames === data.droppedFrames &&
+            prev.outputBitrateKbps === data.outputBitrateKbps &&
+            prev.currentScene === data.currentScene &&
+            prev.uptimeTimecode === nextUptime &&
+            prev.scenes?.length === data.scenes?.length
+          ) {
+            return prev;
+          }
+          return {
+            ...data,
+            streaming: nextStreaming,
+            recording: nextRecording,
+            uptimeTimecode: nextUptime
+          };
+        });
         if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
-          setAvailableScenes(data.scenes);
+          updateAvailableScenes(data.scenes);
         }
         // Protect against stale cloud telemetry overwriting active user scene
         const isRecentlySwitched = Date.now() - lastManualSceneSwitchTimeRef.current < 8000;
         if (data.currentScene && !localObsRef.current && !isRecentlySwitched) {
-          setCurrentScene(data.currentScene);
+          setCurrentScene(prev => prev === data.currentScene ? prev : data.currentScene);
         }
       }
     } catch {}
-  }, [localStreaming, localRecording]);
+  }, [localStreaming, localRecording, updateAvailableScenes]);
 
   useEffect(() => {
-    fetchTelemetry();
-    const telInterval = setInterval(fetchTelemetry, 1500);
-    return () => clearInterval(telInterval);
+    let isCancelled = false;
+    let telTimer: NodeJS.Timeout;
+
+    const runTelemetryPoll = async () => {
+      await fetchTelemetry();
+      if (isCancelled) return;
+      const delay = (typeof document !== 'undefined' && document.hidden) ? 4000 : 1500;
+      telTimer = setTimeout(runTelemetryPoll, delay);
+    };
+
+    runTelemetryPoll();
+    return () => {
+      isCancelled = true;
+      clearTimeout(telTimer);
+    };
   }, [fetchTelemetry]);
 
   // On-demand manual scan of OBS scenes (directly asks local OBS WebSocket + fallback to telemetry)
@@ -632,8 +739,8 @@ function LowBitrateContent() {
           const sceneData: any = await localObsRef.current.call('GetSceneList');
           const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
           if (scenes.length > 0) {
-            setAvailableScenes(scenes);
-            if (sceneData?.currentProgramSceneName) setCurrentScene(sceneData.currentProgramSceneName);
+            updateAvailableScenes(scenes);
+            if (sceneData?.currentProgramSceneName) setCurrentScene(prev => prev === sceneData.currentProgramSceneName ? prev : sceneData.currentProgramSceneName);
             showToast(`Found ${scenes.length} scenes from OBS!`, 'success');
             setIsScanningScenes(false);
             return;
@@ -657,8 +764,8 @@ function LowBitrateContent() {
         const sceneData: any = await obs.call('GetSceneList').catch(() => null);
         const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
         if (scenes.length > 0) {
-          setAvailableScenes(scenes);
-          if (sceneData?.currentProgramSceneName) setCurrentScene(sceneData.currentProgramSceneName);
+          updateAvailableScenes(scenes);
+          if (sceneData?.currentProgramSceneName) setCurrentScene(prev => prev === sceneData.currentProgramSceneName ? prev : sceneData.currentProgramSceneName);
           fetch('/api/obs-telemetry', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -677,7 +784,7 @@ function LowBitrateContent() {
       if (res.ok) {
         const data = await res.json();
         if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
-          setAvailableScenes(data.scenes);
+          updateAvailableScenes(data.scenes);
           showToast(`Loaded ${data.scenes.length} scenes from OBS overlay telemetry!`, 'success');
           setIsScanningScenes(false);
           return;
@@ -722,45 +829,6 @@ function LowBitrateContent() {
 
   const manualOverrideUntilRef = useRef<number>(0);
 
-  // Helper functions for NOALBS scene category matching
-  const isSpecialSceneName = (name: string, s: OverlaySettings) => {
-    if (!name) return false;
-    const n = name.trim().toLowerCase();
-    const starting = (s.obsStartingSceneName || 'starting').trim().toLowerCase();
-    const ending = (s.obsEndingSceneName || 'ending').trim().toLowerCase();
-    const privacy = (s.obsPrivacySceneName || 'privacy').trim().toLowerCase();
-    const refresh = (s.obsRefreshSceneName || 'refresh').trim().toLowerCase();
-
-    return n === starting || n === ending || n === privacy || n === refresh ||
-           n === 'starting' || n === 'ending' || n === 'privacy' || n === 'refresh' ||
-           n.includes('starting') || n.includes('ending') || n.includes('priv') || n.includes('pause') ||
-           (n.includes('refresh') && !n.includes('live'));
-  };
-
-  const isLiveSceneName = (name: string, s: OverlaySettings) => {
-    if (!name) return false;
-    const n = name.trim().toLowerCase();
-    if (isSpecialSceneName(n, s)) return false;
-    const live = (s.obsLiveSceneName || 'live').trim().toLowerCase();
-    return n === live || (n.includes('live') && !n.includes('vertical'));
-  };
-
-  const isLowSceneName = (name: string, s: OverlaySettings) => {
-    if (!name) return false;
-    const n = name.trim().toLowerCase();
-    if (isSpecialSceneName(n, s)) return false;
-    const low = (s.obsLowSceneName || 'low').trim().toLowerCase();
-    return n === low || n.includes('low');
-  };
-
-  const isOfflineSceneName = (name: string, s: OverlaySettings) => {
-    if (!name) return false;
-    const n = name.trim().toLowerCase();
-    if (isSpecialSceneName(n, s)) return false;
-    const offline = (s.obsOfflineSceneName || 'offline').trim().toLowerCase();
-    return n === offline || (n.includes('offline') && !n.includes('vertical')) || n.includes('brb');
-  };
-
   // 5. Scene Switching Execution
   const switchScene = async (sceneName: string, reason: string = 'Manual') => {
     if (!sceneName) {
@@ -768,6 +836,7 @@ function LowBitrateContent() {
       return false;
     }
 
+    const currentSettings = settingsRef.current;
     const now = Date.now();
     lastManualSceneSwitchTimeRef.current = now;
 
@@ -781,11 +850,11 @@ function LowBitrateContent() {
     const logText = `Switching to: "${sceneName}" (${reason})...`;
     setLastSwitchLog(logText);
 
-    const isSpecial = isSpecialSceneName(sceneName, settings);
-    const isLiveTarget = isLiveSceneName(sceneName, settings);
-    const isLowTarget = isLowSceneName(sceneName, settings);
-    const isOfflineTarget = isOfflineSceneName(sceneName, settings);
-    const startSceneNorm = (settings.obsStartingSceneName || 'starting').trim().toLowerCase();
+    const isSpecial = isSpecialSceneName(sceneName, currentSettings);
+    const isLiveTarget = isLiveSceneName(sceneName, currentSettings);
+    const isLowTarget = isLowSceneName(sceneName, currentSettings);
+    const isOfflineTarget = isOfflineSceneName(sceneName, currentSettings);
+    const startSceneNorm = (currentSettings.obsStartingSceneName || 'starting').trim().toLowerCase();
     const isStartingTarget = sceneName.trim().toLowerCase() === startSceneNorm || sceneName.toLowerCase().includes('starting');
 
     if (reason && (reason.includes('Stream Started') || reason.includes('Starting check') || reason.includes('Enforcing Starting Scene'))) {
@@ -856,8 +925,8 @@ function LowBitrateContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sceneName,
-          obsUrl: settings.obsWebsocketUrl || `ws://127.0.0.1:${settings.obsWebsocketPort || 4455}`,
-          obsPassword: settings.obsWebsocketPassword
+          obsUrl: currentSettings.obsWebsocketUrl || `ws://127.0.0.1:${currentSettings.obsWebsocketPort || 4455}`,
+          obsPassword: currentSettings.obsWebsocketPassword
         })
       });
 
@@ -1200,7 +1269,7 @@ function LowBitrateContent() {
           }
         } catch {}
       } else {
-        const telBitrate = telemetry?.outputBitrateKbps;
+        const telBitrate = telemetryRef.current?.outputBitrateKbps;
         if (telBitrate) {
           bitrate = telBitrate;
         }
@@ -1208,8 +1277,8 @@ function LowBitrateContent() {
 
       if (isCancelled) return;
 
-      setCurrentBitrate(bitrate);
-      setCurrentRtt(rtt);
+      setCurrentBitrate(prev => prev === bitrate ? prev : bitrate);
+      setCurrentRtt(prev => prev === rtt ? prev : rtt);
       setBitrateHistory(prev => [...prev.slice(-59), bitrate]);
 
       const curScene = (currentSceneRef.current || '').trim().toLowerCase();
@@ -1276,7 +1345,8 @@ function LowBitrateContent() {
       }
 
       // "Only while streaming" setting: Leave OBS alone when you aren't live
-      if (currentSettings.obsSwitchOnlyWhileStreaming && telemetry && telemetry.online && !telemetry.streaming) {
+      const curTel = telemetryRef.current;
+      if (currentSettings.obsSwitchOnlyWhileStreaming && curTel && curTel.online && !curTel.streaming) {
         setAutoSwitchState('IDLE');
         return;
       }
@@ -1287,10 +1357,6 @@ function LowBitrateContent() {
       }
 
       // Check current scene: if OBS is on a Special Scene (starting, ending, privacy, refresh), NEVER auto-switch!
-      if (!curScene || isSpecialSceneName(curScene, currentSettings)) {
-        return;
-      }
-
       if (!curScene || isSpecialSceneName(curScene, currentSettings)) {
         return;
       }
@@ -1413,10 +1479,14 @@ function LowBitrateContent() {
       isCancelled = true;
       clearTimeout(pollTimer);
     };
-  }, [telemetry]);
+  }, []);
 
   // 9. Draw Realtime Bitrate History Sparkline Canvas (Desktop & Mobile)
   useEffect(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+
+    let animId: number;
+
     const drawSparkline = (canvas: HTMLCanvasElement | null) => {
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
@@ -1501,8 +1571,12 @@ function LowBitrateContent() {
       ctx.stroke();
     };
 
-    drawSparkline(desktopCanvasRef.current);
-    drawSparkline(mobileCanvasRef.current);
+    animId = requestAnimationFrame(() => {
+      drawSparkline(desktopCanvasRef.current);
+      drawSparkline(mobileCanvasRef.current);
+    });
+
+    return () => cancelAnimationFrame(animId);
   }, [bitrateHistory, settings.obsLowBitrateThreshold, settings.obsOfflineBitrateThreshold]);
 
   // Copy OBS Browser Source link helper
