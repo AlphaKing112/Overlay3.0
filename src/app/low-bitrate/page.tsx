@@ -298,13 +298,13 @@ function LowBitrateContent() {
 
           if (isLive) {
             // Stream just went live! Switch to configured starting scene if enabled
-            if (!wasLiveBefore && settingsRef.current.obsStartingSceneOnGoLive) {
+            if (!wasLiveBefore && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
               const startScene = settingsRef.current.obsStartingSceneName || 'starting';
               switchScene(startScene, 'Stream Started');
             }
           } else {
             // Stream just stopped! ONLY switch to ending scene if stream was previously LIVE and setting is enabled
-            if (wasLiveBefore && settingsRef.current.obsEndingSceneOnStreamStop) {
+            if (wasLiveBefore && (settingsRef.current.obsEndingSceneOnStreamStop ?? true)) {
               const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
               switchScene(targetScene, 'OBS Stream Stopped');
             }
@@ -421,10 +421,18 @@ function LowBitrateContent() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  const cleanDisplayMessage = (raw: string): string => {
+    if (!raw) return '';
+    return raw
+      .replace(/^[\s\u200B\uFE0F\u00A0]*(?:[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDC00-\uDFFF]|[\u2000-\u32FF]|\u2600-\u26FF|✅|✔|✓|☑|❌|ℹ|ℹ️|🔒|🎬|🔄|⚡|⚠️|🛑|🚨|[\?❓])+\s*/u, '')
+      .replace(/^(?:Program Scene is now: )*Program Scene is now: /g, 'Program Scene is now: ')
+      .trim();
+  };
+
   const showToast = useCallback((rawMessage: string, type: 'success' | 'error' | 'info' = 'success', durationMs: number = 4500) => {
     if (!rawMessage) return;
     // Strip any leading icons, checkmarks or emoji symbols so toasts never double-render icons
-    const cleanMessage = rawMessage.replace(/^(?:[\u2700-\u27BF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F\uDE80-\uDEFF]|\uD83E[\uDD00-\uDDFF]|[\u2139\uFE0F\s✅❌ℹ️])+/u, '').trim();
+    const cleanMessage = cleanDisplayMessage(rawMessage);
     if (!cleanMessage) return;
 
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -734,17 +742,8 @@ function LowBitrateContent() {
     // 3. Cloud synchronization & Browser Source relay (non-blocking in background)
     saveSettingsUpdates({ obsSceneSwitchSignal: { sceneName, timestamp: now } }, { silent: true }).catch(() => {});
 
-    // If already executed directly via local OBS WS, fire cloud relay without blocking UI
+    // If already executed directly via local OBS WS, do NOT re-trigger cloud switch API!
     if (directSuccess) {
-      fetch('/api/obs-switch-scene', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sceneName,
-          obsUrl: settings.obsWebsocketUrl || `ws://127.0.0.1:${settings.obsWebsocketPort || 4455}`,
-          obsPassword: settings.obsWebsocketPassword
-        })
-      }).catch(() => {});
       return true;
     }
 
@@ -806,12 +805,12 @@ function LowBitrateContent() {
       }
     }
 
-    try {
-      await saveSettingsUpdates({
-        obsStreamCommandSignal: { action: 'fix', timestamp: Date.now() }
-      }, { silent: true });
+    if (!executedDirectly) {
+      try {
+        await saveSettingsUpdates({
+          obsStreamCommandSignal: { action: 'fix', timestamp: Date.now() }
+        }, { silent: true });
 
-      if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -831,12 +830,11 @@ function LowBitrateContent() {
         } else {
           showToast(data.error || 'Fix feed failed.', 'error');
         }
+      } catch (err: any) {
+        showToast(`Fix feed error: ${err.message}`, 'error');
       }
-    } catch (err: any) {
-      if (!executedDirectly) showToast(`Fix feed error: ${err.message}`, 'error');
-    } finally {
-      setIsFixingFeed(false);
     }
+    setIsFixingFeed(false);
   };
 
   // 6b. Refresh Sequence (!refresh) — Switches to refresh scene for 6s then returns to live
@@ -865,12 +863,12 @@ function LowBitrateContent() {
       }
     }
 
-    try {
-      await saveSettingsUpdates({
-        obsStreamCommandSignal: { action: 'refresh', timestamp: Date.now() }
-      }, { silent: true });
+    if (!executedDirectly) {
+      try {
+        await saveSettingsUpdates({
+          obsStreamCommandSignal: { action: 'refresh', timestamp: Date.now() }
+        }, { silent: true });
 
-      if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -884,12 +882,11 @@ function LowBitrateContent() {
         } else {
           showToast(data.error || 'Refresh cycle failed.', 'error');
         }
+      } catch (err: any) {
+        showToast(`Refresh error: ${err.message}`, 'error');
       }
-    } catch (err: any) {
-      if (!executedDirectly) showToast(`Refresh error: ${err.message}`, 'error');
-    } finally {
-      setIsRefreshingFeed(false);
     }
+    setIsRefreshingFeed(false);
   };
 
   const triggerRefreshCycle = handleRefreshCycle;
@@ -920,12 +917,12 @@ function LowBitrateContent() {
       }
     }
 
-    try {
-      await saveSettingsUpdates({
-        obsStreamCommandSignal: { action: willRecord ? 'start_record' : 'stop_record', timestamp: Date.now() }
-      }, { silent: true });
+    if (!executedDirectly) {
+      try {
+        await saveSettingsUpdates({
+          obsStreamCommandSignal: { action: willRecord ? 'start_record' : 'stop_record', timestamp: Date.now() }
+        }, { silent: true });
 
-      if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -939,12 +936,11 @@ function LowBitrateContent() {
         } else {
           showToast(data.error || 'Failed to toggle recording.', 'error');
         }
+      } catch (err: any) {
+        showToast(`Record error: ${err.message}`, 'error');
       }
-    } catch (err: any) {
-      if (!executedDirectly) showToast(`Record error: ${err.message}`, 'error');
-    } finally {
-      setIsTogglingRecord(false);
     }
+    setIsTogglingRecord(false);
   };
 
   // 6c. Toggle Live Streaming Broadcast (!start / !stop)
@@ -972,14 +968,14 @@ function LowBitrateContent() {
       }
     }
 
-    // 2. Cloud signal fallback
-    try {
-      const action = willStream ? 'start' : 'stop';
-      await saveSettingsUpdates({
-        obsStreamCommandSignal: { action, timestamp: Date.now() }
-      }, { silent: true });
+    // 2. Cloud signal fallback ONLY if not executed directly via local WebSocket
+    if (!executedDirectly) {
+      try {
+        const action = willStream ? 'start' : 'stop';
+        await saveSettingsUpdates({
+          obsStreamCommandSignal: { action, timestamp: Date.now() }
+        }, { silent: true });
 
-      if (!executedDirectly) {
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -991,9 +987,7 @@ function LowBitrateContent() {
           setIsTogglingStream(false);
           return;
         }
-      }
-    } catch (err: any) {
-      if (!executedDirectly) {
+      } catch (err: any) {
         showToast(`Stream error: ${err.message}`, 'error');
         setIsTogglingStream(false);
         return;
@@ -1025,6 +1019,15 @@ function LowBitrateContent() {
           body: JSON.stringify({ online: true, streaming: finalState })
         }).catch(() => {});
         showToast(finalState ? 'OBS Stream is now LIVE!' : 'OBS Stream has ended.', 'success');
+
+        // Automatically switch scene on stream start or stream stop if enabled
+        if (finalState && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
+          const startScene = settingsRef.current.obsStartingSceneName || 'starting';
+          switchScene(startScene, 'Stream Started');
+        } else if (!finalState && (settingsRef.current.obsEndingSceneOnStreamStop ?? true)) {
+          const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
+          switchScene(targetScene, 'OBS Stream Stopped');
+        }
       }
     }, 400);
   };
@@ -2170,7 +2173,7 @@ function LowBitrateContent() {
               {t.type === 'info' && <span style={{ fontSize: '1.15em' }}>ℹ️</span>}
               {t.type === 'success' && <span style={{ fontSize: '1.15em' }}>✅</span>}
               {t.type === 'error' && <span style={{ fontSize: '1.15em' }}>❌</span>}
-              <span>{t.message}</span>
+              <span>{cleanDisplayMessage(t.message)}</span>
             </div>
             <button
               type="button"
@@ -2823,6 +2826,101 @@ function LowBitrateContent() {
                   );
                 })()}
 
+                {/* On Stream Start / Stop Scene Controls */}
+                <div style={{ marginTop: '12px', background: 'rgba(255,255,255,0.03)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {/* Row 1: Start Scene */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <PurpleToggle
+                        checked={settings.obsStartingSceneOnGoLive ?? true}
+                        onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
+                      />
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>🎬</span> Pick scene when starting stream:
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.6)' }}>
+                          Switches OBS to this scene when you start broadcasting
+                        </div>
+                      </div>
+                    </div>
+                    <select
+                      value={settings.obsStartingSceneName || 'starting'}
+                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(192, 132, 252, 0.4)',
+                        borderRadius: '8px',
+                        color: '#ffffff',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        minWidth: '140px'
+                      }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        availableScenes.map(sc => (
+                          <option key={sc} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                            {sc}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="starting">starting</option>
+                          <option value="live">live</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Row 2: Ending Scene */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <PurpleToggle
+                        checked={settings.obsEndingSceneOnStreamStop ?? true}
+                        onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
+                      />
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f43f5e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>🛑</span> Pick scene when ending stream:
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.6)' }}>
+                          Switches OBS to this scene when broadcast ends
+                        </div>
+                      </div>
+                    </div>
+                    <select
+                      value={settings.obsEndingSceneName || 'ending'}
+                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(244, 63, 94, 0.4)',
+                        borderRadius: '8px',
+                        color: '#ffffff',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        minWidth: '140px'
+                      }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        availableScenes.map(sc => (
+                          <option key={sc} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                            {sc}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="ending">ending</option>
+                          <option value="offline">offline</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
                 {/* Custom Scene Selector Dropdown */}
                 {availableScenes.length > 0 && (
                   <div style={{ marginTop: '12px', background: 'rgba(0,0,0,0.25)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -3330,11 +3428,11 @@ function LowBitrateContent() {
                         </select>
                       </div>
 
-                      {renderSceneSelect('Starting Scene:', null, settings.obsStartingSceneName || 'starting', (val) => saveSettingsUpdates({ obsStartingSceneName: val }))}
+                      {renderSceneSelect('Starting Scene:', '#c084fc', settings.obsStartingSceneName || 'starting', (val) => saveSettingsUpdates({ obsStartingSceneName: val }))}
 
-                      {renderSceneSelect('Ending Scene:', null, settings.obsEndingSceneName || 'ending', (val) => saveSettingsUpdates({ obsEndingSceneName: val }))}
+                      {renderSceneSelect('Ending Scene:', '#f43f5e', settings.obsEndingSceneName || 'ending', (val) => saveSettingsUpdates({ obsEndingSceneName: val }))}
 
-                      {renderSceneSelect('Privacy Scene:', null, settings.obsPrivacySceneName || 'privacy', (val) => saveSettingsUpdates({ obsPrivacySceneName: val }))}
+                      {renderSceneSelect('Privacy Scene:', '#eab308', settings.obsPrivacySceneName || 'privacy', (val) => saveSettingsUpdates({ obsPrivacySceneName: val }))}
                     </div>
                   </div>
                 );
@@ -3443,7 +3541,107 @@ function LowBitrateContent() {
                   />
                 </div>
 
-                {/* 6. OBS Stream Commands (!start, !end & !refresh) */}
+                {/* 6. Starting scene on go-live */}
+                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                        Starting scene on go-live
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                        Show the selected scene when the stream starts on OBS.
+                      </div>
+                    </div>
+                    <PurpleToggle
+                      checked={settings.obsStartingSceneOnGoLive ?? true}
+                      onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
+                    />
+                  </div>
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
+                      🎬 Pick scene when stream starts:
+                    </span>
+                    <select
+                      value={settings.obsStartingSceneName || 'starting'}
+                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(192, 132, 252, 0.4)',
+                        borderRadius: '6px',
+                        color: '#ffffff',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        availableScenes.map(sc => (
+                          <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                            {sc}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="starting">starting</option>
+                          <option value="live">live</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 7. Ending scene on stream stop */}
+                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                        Ending scene on stream stop
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                        Show the selected scene when you end the stream on OBS.
+                      </div>
+                    </div>
+                    <PurpleToggle
+                      checked={settings.obsEndingSceneOnStreamStop ?? true}
+                      onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
+                    />
+                  </div>
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f43f5e' }}>
+                      🛑 Pick scene when stream ends:
+                    </span>
+                    <select
+                      value={settings.obsEndingSceneName || 'ending'}
+                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#131924',
+                        border: '1px solid rgba(244, 63, 94, 0.4)',
+                        borderRadius: '6px',
+                        color: '#ffffff',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {availableScenes.length > 0 ? (
+                        availableScenes.map(sc => (
+                          <option key={sc} value={sc} style={{ background: '#1e293b' }}>
+                            {sc}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="ending">ending</option>
+                          <option value="offline">offline</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 8. OBS Stream Commands (!start, !end & !refresh) */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>

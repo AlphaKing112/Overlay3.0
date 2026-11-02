@@ -3175,27 +3175,33 @@ function OverlayPage() {
     if (isSpecial) {
       manualOverrideUntilRef.current = Date.now() + 86400000;
       lastBitrateStateRef.current = null;
+      lastLoggedStateRef.current.currentScene = signal.sceneName;
       appendObsLog('info', `[special-scene] Switched to '${signal.sceneName}'. Auto-switch PAUSED.`);
     } else if (isLiveTarget) {
       manualOverrideUntilRef.current = 0;
       lastBitrateStateRef.current = 'live';
+      lastLoggedStateRef.current.currentScene = signal.sceneName;
     } else if (isLowTarget) {
       manualOverrideUntilRef.current = Date.now() + 60000;
       lastBitrateStateRef.current = 'low';
+      lastLoggedStateRef.current.currentScene = signal.sceneName;
       appendObsLog('info', `[manual-override] Pausing auto-switch for 60s to stay on '${signal.sceneName}'`);
     } else if (isOfflineTarget) {
       manualOverrideUntilRef.current = Date.now() + 60000;
       lastBitrateStateRef.current = 'offline';
+      lastLoggedStateRef.current.currentScene = signal.sceneName;
       appendObsLog('info', `[manual-override] Pausing auto-switch for 60s to stay on '${signal.sceneName}'`);
     } else {
       manualOverrideUntilRef.current = Date.now() + 86400000;
       lastBitrateStateRef.current = null;
+      lastLoggedStateRef.current.currentScene = signal.sceneName;
       appendObsLog('info', `[custom-scene] Switched to '${signal.sceneName}'. Auto-switch PAUSED.`);
     }
 
     if (localObsRef.current) {
       safeObsSwitchScene(localObsRef.current, signal.sceneName).then(ok => {
         if (ok) {
+          lastLoggedStateRef.current.currentScene = signal.sceneName;
           appendObsLog('success', `[cloud-relay] Switched OBS program scene to '${signal.sceneName}'`);
         }
       });
@@ -3522,6 +3528,11 @@ function OverlayPage() {
     setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
 
     if (!obsConnected || !hasFetchedStats) {
+      return;
+    }
+
+    // Leave OBS alone when streamer isn't live ("Only while streaming" setting)
+    if (settings.obsSwitchOnlyWhileStreaming && !lastLoggedStateRef.current.isStreaming) {
       return;
     }
 

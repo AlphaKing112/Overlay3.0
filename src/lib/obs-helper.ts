@@ -641,6 +641,18 @@ export async function safeObsStreamControlResult(
   const isStart = action === 'start';
   let lastError: any = null;
 
+  // Check if error signifies that the stream is already in the requested state
+  const isAlreadyInState = (err: any): boolean => {
+    const text = String(err?.message || err?.error || err || '').toLowerCase();
+    if (isStart && (text.includes('already active') || text.includes('output is active') || text.includes('already running') || text.includes('busy'))) {
+      return true;
+    }
+    if (!isStart && (text.includes('not active') || text.includes('not running') || text.includes('already stopped') || text.includes('inactive'))) {
+      return true;
+    }
+    return false;
+  };
+
   // 1. Try OBS WebSocket v5 standard: StartStream / StopStream
   try {
     if (isStart) {
@@ -651,21 +663,15 @@ export async function safeObsStreamControlResult(
     console.log(`✅ [OBS] v5 ${action === 'start' ? 'StartStream' : 'StopStream'} executed successfully.`);
     return { success: true };
   } catch (err1: any) {
+    if (isAlreadyInState(err1)) {
+      console.log(`✅ [OBS] Stream is already ${isStart ? 'broadcasting' : 'stopped'}.`);
+      return { success: true };
+    }
     lastError = err1;
     console.warn(`⚠️ [OBS] v5 StartStream/StopStream failed: ${formatObsError(err1)}`, err1);
   }
 
-  // 2. Try OBS WebSocket v5 toggle: ToggleStream
-  try {
-    await obs.call('ToggleStream');
-    console.log(`✅ [OBS] v5 ToggleStream executed successfully.`);
-    return { success: true };
-  } catch (err2: any) {
-    if (!lastError) lastError = err2;
-    console.warn(`⚠️ [OBS] v5 ToggleStream failed: ${formatObsError(err2)}`, err2);
-  }
-
-  // 3. Try OBS WebSocket v4 standard: StartStreaming / StopStreaming
+  // 2. Try OBS WebSocket v4 standard: StartStreaming / StopStreaming
   try {
     if (isStart) {
       await obs.call('StartStreaming');
@@ -675,21 +681,15 @@ export async function safeObsStreamControlResult(
     console.log(`✅ [OBS] v4 ${action === 'start' ? 'StartStreaming' : 'StopStreaming'} executed successfully.`);
     return { success: true };
   } catch (err3: any) {
+    if (isAlreadyInState(err3)) {
+      console.log(`✅ [OBS] Stream is already ${isStart ? 'broadcasting' : 'stopped'} (v4).`);
+      return { success: true };
+    }
     if (!lastError) lastError = err3;
     console.warn(`⚠️ [OBS] v4 StartStreaming/StopStreaming failed: ${formatObsError(err3)}`, err3);
   }
 
-  // 4. Try OBS WebSocket v4 toggle: ToggleStreaming
-  try {
-    await obs.call('ToggleStreaming');
-    console.log(`✅ [OBS] v4 ToggleStreaming executed successfully.`);
-    return { success: true };
-  } catch (err4: any) {
-    if (!lastError) lastError = err4;
-    console.warn(`⚠️ [OBS] v4 ToggleStreaming failed: ${formatObsError(err4)}`, err4);
-  }
-
-  // 5. Try OBS Outputs API: StartOutput / StopOutput ('simple_stream')
+  // 3. Try OBS Outputs API: StartOutput / StopOutput ('simple_stream')
   try {
     if (isStart) {
       await obs.call('StartOutput', { outputName: 'simple_stream' });
@@ -699,11 +699,14 @@ export async function safeObsStreamControlResult(
     console.log(`✅ [OBS] Outputs simple_stream ${action} executed successfully.`);
     return { success: true };
   } catch (err5: any) {
+    if (isAlreadyInState(err5)) {
+      return { success: true };
+    }
     if (!lastError) lastError = err5;
     console.warn(`⚠️ [OBS] StartOutput simple_stream failed: ${formatObsError(err5)}`, err5);
   }
 
-  // 6. Try OBS Outputs API: StartOutput / StopOutput ('adv_stream')
+  // 4. Try OBS Outputs API: StartOutput / StopOutput ('adv_stream')
   try {
     if (isStart) {
       await obs.call('StartOutput', { outputName: 'adv_stream' });
@@ -713,11 +716,14 @@ export async function safeObsStreamControlResult(
     console.log(`✅ [OBS] Outputs adv_stream ${action} executed successfully.`);
     return { success: true };
   } catch (err6: any) {
+    if (isAlreadyInState(err6)) {
+      return { success: true };
+    }
     if (!lastError) lastError = err6;
     console.warn(`⚠️ [OBS] StartOutput adv_stream failed: ${formatObsError(err6)}`, err6);
   }
 
-  // 7. Direct raw WebSocket message if socket reference exists
+  // 5. Direct raw WebSocket message if socket reference exists
   try {
     const rawWs = obs.socket || obs._socket || obs.ws;
     if (rawWs && rawWs.readyState === 1) {
