@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle } from '@/lib/obs-helper';
+import { API_KEYS } from '@/utils/overlay-constants';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
@@ -123,6 +124,14 @@ function LowBitrateContent() {
   const [newAliasValue, setNewAliasValue] = useState<string>('');
   const [addingChannelType, setAddingChannelType] = useState<'twitch' | 'kick' | null>(null);
   const [channelInputText, setChannelInputText] = useState<string>('');
+
+  const handleConnectCustomBot = () => {
+    const clientId = API_KEYS?.TWITCH_CLIENT_ID || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
+    const redirectUri = window.location.origin + '/twitch-auth';
+    const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit');
+    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=bot&force_verify=true`;
+    window.location.href = authUrl;
+  };
 
   // OBS WebSocket inputs
   const [obsPortInput, setObsPortInput] = useState<string>(String(settings.obsWebsocketPort || 4455));
@@ -3225,30 +3234,94 @@ function LowBitrateContent() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
               {/* Twitch Bot */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px 16px', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                  <div style={{ width: '38px', height: '38px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
                     T
                   </div>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Twitch Bot</span>
-                      {(settings.twitchToken || settings.twitchUsername) && (
+                      {(settings.twitchUseCustomBot && settings.twitchBotUsername) ? (
+                        <>
+                          <span style={{ fontSize: '0.72rem', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            ● BOT: @{settings.twitchBotUsername}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            IN @{settings.twitchUsername || 'YOUR CHAT'}
+                          </span>
+                        </>
+                      ) : (settings.twitchToken || settings.twitchUsername) ? (
                         <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
                           ● ACTIVE ON @{settings.twitchUsername || 'TWITCH'}
                         </span>
+                      ) : (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(255, 255, 255, 0.1)', color: 'rgba(255, 255, 255, 0.5)', padding: '1px 6px', borderRadius: '4px' }}>
+                          NOT CONNECTED
+                        </span>
                       )}
                     </div>
-                    <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>Shared chat bot</div>
+                    <div style={{ fontSize: '0.78rem', opacity: 0.7, marginTop: '2px' }}>
+                      {(settings.twitchUseCustomBot && settings.twitchBotUsername)
+                        ? `Replies to chat commands as @${settings.twitchBotUsername} in @${settings.twitchUsername || 'your channel'}`
+                        : (settings.twitchToken || settings.twitchUsername)
+                          ? `Replies directly from @${settings.twitchUsername || 'your account'} in chat`
+                          : 'Shared chat bot (Connect account in Settings)'}
+                    </div>
                   </div>
                 </div>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => showToast('Twitch bot ready and listening to chat commands', 'success')}
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
-                >
-                  Use your own bot
-                </button>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {(settings.twitchUseCustomBot && settings.twitchBotUsername) ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          saveSettingsUpdates({ twitchUseCustomBot: false });
+                          showToast('Switched replies back to main streamer account', 'info');
+                        }}
+                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.8rem', padding: '6px 12px' }}
+                        title="Replies will come from your streamer account instead of the bot account"
+                      >
+                        Use main account
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleConnectCustomBot}
+                        style={{ background: 'rgba(145, 70, 255, 0.18)', border: '1px solid rgba(145, 70, 255, 0.45)', color: '#c084fc', fontSize: '0.8rem', padding: '6px 12px', fontWeight: 600 }}
+                      >
+                        Change bot account
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {settings.twitchBotUsername && !settings.twitchUseCustomBot && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => {
+                            saveSettingsUpdates({ twitchUseCustomBot: true });
+                            showToast(`Switched replies to bot @${settings.twitchBotUsername}`, 'success');
+                          }}
+                          style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.4)', color: '#38bdf8', fontSize: '0.8rem', padding: '6px 12px', fontWeight: 600 }}
+                        >
+                          Use @{settings.twitchBotUsername}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleConnectCustomBot}
+                        style={{ background: 'rgba(145, 70, 255, 0.15)', border: '1px solid rgba(145, 70, 255, 0.35)', color: '#c084fc', fontSize: '0.82rem', padding: '6px 14px', fontWeight: 600 }}
+                        title="Log in with your dedicated bot Twitch account"
+                      >
+                        Use your own bot
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Kick Bot */}
@@ -3279,8 +3352,11 @@ function LowBitrateContent() {
               </div>
             </div>
 
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.5)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>ⓘ</span> Using your own bot? Sign in as the bot account when asked, not as yourself.
+            <div style={{ fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.65)', display: 'flex', alignItems: 'flex-start', gap: '8px', background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', lineHeight: 1.45 }}>
+              <span style={{ color: '#38bdf8', fontSize: '1rem', marginTop: '-1px' }}>ⓘ</span>
+              <div>
+                <strong style={{ color: '#fff' }}>Using your own bot?</strong> Click <strong>"Use your own bot"</strong> and sign in as the <strong>bot account</strong> when asked (not yourself). Make sure your bot is a <strong>Moderator or VIP</strong> in your Twitch channel so it can reply in chat freely without slowmode or spam filtering.
+              </div>
             </div>
           </div>
 

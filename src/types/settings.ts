@@ -258,6 +258,10 @@ export interface OverlaySettings {
   obsStartingSceneOnGoLive?: boolean;
   obsEndingSceneOnStreamStop?: boolean;
   obsAutoStopStreamOnRaid?: boolean;
+  twitchBotToken?: string;
+  twitchBotUserId?: string;
+  twitchBotUsername?: string;
+  twitchUseCustomBot?: boolean;
   kickChannelName?: string;
   kickAlertsEnabled?: boolean;
   twitchAlertsEnabled?: boolean;
@@ -559,6 +563,10 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsStartingSceneOnGoLive: true,
   obsEndingSceneOnStreamStop: true,
   obsAutoStopStreamOnRaid: false,
+  twitchBotToken: '',
+  twitchBotUserId: '',
+  twitchBotUsername: '',
+  twitchUseCustomBot: false,
   kickChannelName: '',
   kickAlertsEnabled: true,
   twitchAlertsEnabled: true,
@@ -808,6 +816,10 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsStartingSceneOnGoLive: 'boolean',
   obsEndingSceneOnStreamStop: 'boolean',
   obsAutoStopStreamOnRaid: 'boolean',
+  twitchBotToken: 'string',
+  twitchBotUserId: 'string',
+  twitchBotUsername: 'string',
+  twitchUseCustomBot: 'boolean',
   kickChannelName: 'string',
   kickAlertsEnabled: 'boolean',
   twitchAlertsEnabled: 'boolean',

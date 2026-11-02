@@ -29,9 +29,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, reason: 'Message string is required' });
     }
 
+    const settings = await getSettings();
     // Auto-resolve credentials from KV if not supplied by caller
     if (!token || !broadcasterId) {
-      const settings = await getSettings();
       token = token || settings.twitchToken || '';
       broadcasterId = broadcasterId || settings.twitchBroadcasterId || '';
       clientId = clientId || settings.twitchClientId || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
@@ -56,6 +56,11 @@ export async function POST(request: Request) {
     if (!broadcasterId || !token || !clientId) {
       return NextResponse.json({ success: false, reason: 'Twitch integration token or broadcasterId not connected' });
     }
+
+    // Check if custom bot account is enabled and configured
+    const useCustomBot = Boolean(settings.twitchUseCustomBot && settings.twitchBotToken && settings.twitchBotUserId);
+    const activeSenderToken = useCustomBot ? settings.twitchBotToken : token;
+    const activeSenderId = useCustomBot ? settings.twitchBotUserId : broadcasterId;
 
     const cleanMessage = message.slice(0, 500);
 
@@ -86,22 +91,37 @@ export async function POST(request: Request) {
     // Standard Twitch Chat Message API (replying directly to user command if replyParentMessageId provided)
     const chatPayload: Record<string, any> = {
       broadcaster_id: broadcasterId,
-      sender_id: broadcasterId,
+      sender_id: activeSenderId,
       message: cleanMessage
     };
     if (replyParentMessageId) {
       chatPayload.reply_parent_message_id = replyParentMessageId;
     }
 
-    const chatRes = await fetch(`https://api.twitch.tv/helix/chat/messages`, {
+    let chatRes = await fetch(`https://api.twitch.tv/helix/chat/messages`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${activeSenderToken}`,
         'Client-Id': clientId,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(chatPayload)
     });
+
+    // If custom bot failed (e.g. token revoked or bot lacking chat permission), fallback to broadcaster account
+    if (!chatRes.ok && useCustomBot) {
+      console.warn('Twitch custom bot message failed, attempting fallback to broadcaster token...');
+      chatPayload.sender_id = broadcasterId;
+      chatRes = await fetch(`https://api.twitch.tv/helix/chat/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Client-Id': clientId,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(chatPayload)
+      });
+    }
 
     if (chatRes.ok) {
       return NextResponse.json({ success: true, method: 'chat_message' });

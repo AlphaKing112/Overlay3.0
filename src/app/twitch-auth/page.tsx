@@ -20,19 +20,22 @@ function TwitchAuthHandler() {
         }
 
         const params = new URLSearchParams(hash);
+        const searchParams = new URLSearchParams(window.location.search);
         const accessToken = params.get('access_token');
+        const state = params.get('state') || searchParams.get('state') || '';
+        const isBotAuth = state === 'bot';
 
         if (!accessToken) {
           setStatus('Error: Access token missing.');
-          setTimeout(() => router.push('/'), 3000);
+          setTimeout(() => router.push('/low-bitrate'), 3000);
           return;
         }
 
-        setStatus('Authenticating with Twitch...');
+        setStatus(isBotAuth ? 'Authenticating Bot Account with Twitch...' : 'Authenticating with Twitch...');
 
         const clientId = API_KEYS.TWITCH_CLIENT_ID;
 
-        // Fetch user data from Twitch to get Broadcaster ID and Username
+        // Fetch user data from Twitch to get Broadcaster/Bot ID and Username
         const res = await fetch('https://api.twitch.tv/helix/users', {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -51,33 +54,52 @@ function TwitchAuthHandler() {
         }
 
         const user = data.data[0];
-        const broadcasterId = user.id;
+        const userId = user.id;
         const username = user.display_name;
-
-        setStatus(`Connected as ${username}! Saving settings...`);
 
         // Get existing settings first to merge
         const settingsRes = await fetch('/api/get-settings');
         const currentSettings = await settingsRes.json();
 
-        // Save new settings
-        await fetch('/api/save-settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...currentSettings,
-            twitchToken: accessToken,
-            twitchBroadcasterId: broadcasterId,
-            twitchUsername: username,
-            twitchClientId: clientId
-          })
-        });
+        if (isBotAuth) {
+          setStatus(`Connected Bot as @${username}! Saving settings...`);
 
-        setStatus('Success! Redirecting back to dashboard...');
-        
-        // Clear hash and redirect
-        window.history.replaceState(null, '', window.location.pathname);
-        setTimeout(() => router.push('/'), 1000);
+          // Save custom bot credentials while keeping main channel settings intact
+          await fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...currentSettings,
+              twitchBotToken: accessToken,
+              twitchBotUserId: userId,
+              twitchBotUsername: username,
+              twitchUseCustomBot: true
+            })
+          });
+
+          setStatus(`Success! Bot @${username} is now connected. Replies will come from @${username}. Redirecting...`);
+          window.history.replaceState(null, '', window.location.pathname);
+          setTimeout(() => router.push('/low-bitrate'), 1200);
+        } else {
+          setStatus(`Connected as @${username}! Saving settings...`);
+
+          // Save main broadcaster channel settings
+          await fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...currentSettings,
+              twitchToken: accessToken,
+              twitchBroadcasterId: userId,
+              twitchUsername: username,
+              twitchClientId: clientId
+            })
+          });
+
+          setStatus('Success! Redirecting back to switcher...');
+          window.history.replaceState(null, '', window.location.pathname);
+          setTimeout(() => router.push('/low-bitrate'), 1000);
+        }
 
       } catch (error) {
         console.error('Twitch Auth Error:', error);
