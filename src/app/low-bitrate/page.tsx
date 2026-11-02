@@ -351,12 +351,7 @@ function LowBitrateContent() {
             startingCheckStartRef.current = 0;
             setIsCheckingStartingBelabox(false);
             setStartingCheckRemainingSeconds(0);
-            // Stream just stopped! ONLY switch to ending scene if stream was previously LIVE and setting is enabled
             if (wasLiveBefore) {
-              if (settingsRef.current.obsEndingSceneOnStreamStop ?? true) {
-                const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
-                switchScene(targetScene, 'OBS Stream Stopped');
-              }
               if (settingsRef.current.obsEndingChatMessageEnabled && settingsRef.current.obsEndingChatMessage) {
                 const endMsg = settingsRef.current.obsEndingChatMessage.trim();
                 if (endMsg) {
@@ -1105,10 +1100,6 @@ function LowBitrateContent() {
           startingCheckStartRef.current = 0;
           setIsCheckingStartingBelabox(false);
           setStartingCheckRemainingSeconds(0);
-          if (settingsRef.current.obsEndingSceneOnStreamStop ?? true) {
-            const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
-            switchScene(targetScene, 'OBS Stream Stopped');
-          }
         }
       }
     }, 400);
@@ -3020,101 +3011,6 @@ function LowBitrateContent() {
                   );
                 })()}
 
-                {/* On Stream Start / Stop Scene Controls */}
-                <div style={{ marginTop: '12px', background: 'rgba(255,255,255,0.03)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {/* Row 1: Start Scene */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <PurpleToggle
-                        checked={settings.obsStartingSceneOnGoLive ?? true}
-                        onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
-                      />
-                      <div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>🎬</span> Pick scene when starting stream:
-                        </div>
-                        <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.6)' }}>
-                          Switches OBS to this scene when you start broadcasting
-                        </div>
-                      </div>
-                    </div>
-                    <select
-                      value={settings.obsStartingSceneName || 'starting'}
-                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(192, 132, 252, 0.4)',
-                        borderRadius: '8px',
-                        color: '#ffffff',
-                        fontSize: '0.82rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        minWidth: '140px'
-                      }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        availableScenes.map(sc => (
-                          <option key={sc} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
-                            {sc}
-                          </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="starting">starting</option>
-                          <option value="live">live</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-
-                  {/* Row 2: Ending Scene */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <PurpleToggle
-                        checked={settings.obsEndingSceneOnStreamStop ?? true}
-                        onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
-                      />
-                      <div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f43f5e', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>🛑</span> Pick scene when ending stream:
-                        </div>
-                        <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.6)' }}>
-                          Switches OBS to this scene when broadcast ends
-                        </div>
-                      </div>
-                    </div>
-                    <select
-                      value={settings.obsEndingSceneName || 'ending'}
-                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(244, 63, 94, 0.4)',
-                        borderRadius: '8px',
-                        color: '#ffffff',
-                        fontSize: '0.82rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        minWidth: '140px'
-                      }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        availableScenes.map(sc => (
-                          <option key={sc} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
-                            {sc}
-                          </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="ending">ending</option>
-                          <option value="offline">offline</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                </div>
-
                 {/* Custom Scene Selector Dropdown */}
                 {availableScenes.length > 0 && (
                   <div style={{ marginTop: '12px', background: 'rgba(0,0,0,0.25)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -4532,56 +4428,6 @@ function LowBitrateContent() {
                   </div>
                 </div>
 
-                {/* 7. Ending scene on stream stop */}
-                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ paddingRight: '16px' }}>
-                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-                        Ending scene on stream stop
-                      </div>
-                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
-                        Show the selected scene when you end the stream on OBS.
-                      </div>
-                    </div>
-                    <PurpleToggle
-                      checked={settings.obsEndingSceneOnStreamStop ?? true}
-                      onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
-                    />
-                  </div>
-                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f43f5e' }}>
-                      🛑 Pick scene when stream ends:
-                    </span>
-                    <select
-                      value={settings.obsEndingSceneName || 'ending'}
-                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(244, 63, 94, 0.4)',
-                        borderRadius: '6px',
-                        color: '#ffffff',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        availableScenes.map(sc => (
-                          <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                            {sc}
-                          </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="ending">ending</option>
-                          <option value="offline">offline</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                </div>
-
                 {/* 8. OBS Stream Commands (!start, !end & !refresh) */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ paddingRight: '16px' }}>
@@ -4797,63 +4643,7 @@ function LowBitrateContent() {
                   </div>
                 </div>
 
-                {/* 2. Ending scene on stream stop */}
-                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ paddingRight: '16px' }}>
-                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-                        Ending scene on stream stop
-                      </div>
-                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
-                        Switch to the selected scene when the stream stops on OBS.
-                      </div>
-                    </div>
-                    <PurpleToggle
-                      checked={settings.obsEndingSceneOnStreamStop ?? false}
-                      onChange={(v) => saveSettingsUpdates({ obsEndingSceneOnStreamStop: v })}
-                    />
-                  </div>
-
-                  {/* Pick scene on stream stop dropdown */}
-                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f472b6' }}>
-                      🏁 Pick scene when stream stops:
-                    </span>
-                    <select
-                      value={settings.obsEndingSceneName || 'ending'}
-                      onChange={(e) => saveSettingsUpdates({ obsEndingSceneName: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(244, 114, 182, 0.4)',
-                        borderRadius: '6px',
-                        color: '#ffffff',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {availableScenes.length > 0 && (
-                        <optgroup label="Detected in OBS Studio" style={{ background: '#0f172a', color: '#38bdf8' }}>
-                          {availableScenes.map(sc => (
-                            <option key={`end-obs-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
-                              {sc}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                      <optgroup label="Preset Scenes" style={{ background: '#0f172a', color: '#94a3b8' }}>
-                        {DEFAULT_SCENE_PRESETS.map(sc => (
-                          <option key={`end-preset-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
-                            {sc}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                  </div>
-                </div>
-
-                {/* 3. Custom Chat Message on End Stream */}
+                {/* 2. Custom Chat Message on End Stream */}
                 <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ paddingRight: '16px' }}>

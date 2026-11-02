@@ -567,7 +567,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsStartingSceneOnGoLive: true,
   obsStartingSceneCheckSeconds: 60,
   obsStartingSceneMinDelaySeconds: 0,
-  obsEndingSceneOnStreamStop: true,
+  obsEndingSceneOnStreamStop: false,
   obsEndingChatMessageEnabled: false,
   obsEndingChatMessage: 'Thanks for watching everyone! Stream is now ending. See you next time! ❤️',
   obsAutoStopStreamOnRaid: false,

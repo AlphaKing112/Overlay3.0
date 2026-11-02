@@ -2979,16 +2979,6 @@ function OverlayPage() {
                 body: JSON.stringify({ obsTelemetryEnabled: false })
               }).catch(() => {});
 
-              // Stream stopped: ONLY switch if obsEndingSceneOnStreamStop is enabled!
-              if (seSettingsRef.current.obsEndingSceneOnStreamStop) {
-                const stopScene = seSettingsRef.current.obsEndingSceneName || seSettingsRef.current.obsOfflineSceneName || 'ending';
-                if (stopScene) {
-                  appendObsLog('info', `[scene-manager] Stream stopped, switching immediately to '${stopScene}'`);
-                  safeObsSwitchScene(obs, stopScene);
-                  lastBitrateStateRef.current = 'offline';
-                }
-              }
-
               // Post Custom End Stream Chat Message
               if (seSettingsRef.current.obsEndingChatMessageEnabled && seSettingsRef.current.obsEndingChatMessage) {
                 const endMsg = seSettingsRef.current.obsEndingChatMessage.trim();
