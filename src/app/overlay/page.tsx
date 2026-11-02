@@ -2444,9 +2444,6 @@ function OverlayPage() {
                 // CLOUD MODE: Twitch Native Clip (0 PC Storage / Direct Cloud)
                 // ============================================================
                 if (clipMode === 'twitch') {
-                  const titleHint = clipTitle ? ` "${clipTitle}"` : '';
-                  sendChatReply(`🎬 @${senderDisplayName || senderUser}, creating stream clip${titleHint}... Hang tight! ⏳`, { color: 'primary' });
-
                   try {
                     const broadcasterId = seSettingsRef.current.twitchBroadcasterId;
                     const token = seSettingsRef.current.twitchToken;
@@ -2520,8 +2517,6 @@ function OverlayPage() {
                 // ============================================================
                 // LOCAL MODE: OBS Studio Replay Buffer MP4
                 // ============================================================
-                const titleHint = clipTitle ? ` "${clipTitle}"` : '';
-                sendChatReply(`🎬 @${senderDisplayName || senderUser}, clipping the last ${clipDuration}s of the stream${titleHint} via OBS... Hang tight! ⏳`, { color: 'primary' });
                 // Step 3: Trigger OBS Replay Buffer
                 let replayRes: { success: boolean; replayPath?: string; sceneName?: string; error?: string } = { success: false };
 
