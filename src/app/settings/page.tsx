@@ -633,102 +633,23 @@ export default function SettingsConfigPage() {
                 </span>
               </div>
 
-              <div className="setting-group">
-                <label className="input-label" style={{ fontWeight: 'bold' }}>
-                  Belabox Bitrate Poll Interval: <span style={{ color: '#4ade80' }}>{settings.bitrateUpdateInterval ?? 10} seconds</span>
-                </label>
-                <input
-                  type="range"
-                  min="2"
-                  max="60"
-                  step="2"
-                  value={settings.bitrateUpdateInterval ?? 10}
-                  onChange={(e) => handleSettingsChange({ bitrateUpdateInterval: parseInt(e.target.value) })}
-                  className="slider"
-                  style={{ width: '100%', marginTop: '8px' }}
-                />
-                <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
-                  Polling interval for fetching SRT bitrate stats from Belabox server. (Default: 10s)
-                </span>
-              </div>
-
-              <div className="setting-group">
-                <label className="input-label" style={{ fontWeight: 'bold' }}>
-                  OBS Auto-Switch Polling Interval: <span style={{ color: '#fb923c' }}>{settings.autoSwitchPollInterval ?? 10} seconds</span>
-                </label>
-                <input
-                  type="range"
-                  min="3"
-                  max="60"
-                  step="1"
-                  value={settings.autoSwitchPollInterval ?? 10}
-                  onChange={(e) => handleSettingsChange({ autoSwitchPollInterval: parseInt(e.target.value) })}
-                  className="slider"
-                  style={{ width: '100%', marginTop: '8px' }}
-                />
-                <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
-                  Interval for checking bitrate health to trigger automatic OBS scene switching. (Default: 10s)
-                </span>
-              </div>
-
-              <div className="setting-group" style={{ gridColumn: '1 / -1', padding: '14px 18px', background: 'rgba(83, 252, 25, 0.05)', border: '1px solid rgba(83, 252, 25, 0.25)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div className="setting-group" style={{ gridColumn: '1 / -1', padding: '16px 20px', background: 'rgba(145, 70, 255, 0.07)', border: '1px solid rgba(145, 70, 255, 0.28)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
                 <div>
-                  <label className="input-label" style={{ margin: 0, fontWeight: 'bold', color: '#53FC19', fontSize: '0.95em' }}>
-                    ⚡ OBS Stream Commands (!start, !end & !refresh)
+                  <label className="input-label" style={{ margin: 0, fontWeight: 'bold', color: '#c084fc', fontSize: '0.98em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>⚡</span> Switcher & Bitrate Controls
                   </label>
-                  <span style={{ fontSize: '0.78em', opacity: 0.7, display: 'block', marginTop: '2px' }}>
-                    Allow remote chat & cloud signals to trigger broadcast start, stop, or refresh scene cycles.
+                  <span style={{ fontSize: '0.8em', opacity: 0.75, display: 'block', marginTop: '4px', maxWidth: '580px' }}>
+                    OBS scene switching triggers, auto-switch polling, Belabox bitrate interval, stream commands (!start, !end, !ref), and remote telemetry are now managed on the Switcher page.
                   </span>
                 </div>
-                <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.obsStreamCommandsEnabled ?? true}
-                    onChange={(e) => handleSettingsChange({ obsStreamCommandsEnabled: e.target.checked })}
-                    style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#53FC19' }}
-                  />
-                  <span style={{ fontSize: '0.85em', color: (settings.obsStreamCommandsEnabled ?? true) ? '#53FC19' : '#ef4444', fontWeight: 'bold' }}>
-                    {(settings.obsStreamCommandsEnabled ?? true) ? 'ENABLED' : 'DISABLED'}
-                  </span>
-                </label>
-              </div>
-
-              <div className="setting-group" style={{ gridColumn: '1 / -1', padding: '14px 18px', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-                <div style={{ maxWidth: '100%' }}>
-                  <label className="input-label" style={{ margin: 0, fontWeight: 'bold', color: '#38bdf8', fontSize: '0.95em' }}>
-                    📊 OBS Remote Health Telemetry (Dropped Frames, CPU, FPS)
-                  </label>
-                  <span style={{ fontSize: '0.78em', opacity: 0.7, display: 'block', marginTop: '2px' }}>
-                    Sync live OBS health metrics to your remote Admin Dashboard. Turn OFF for zero background telemetry requests.
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', maxWidth: '100%' }}>
-                  {settings.obsTelemetryEnabled && (
-                    <select
-                      className="text-input"
-                      value={settings.obsTelemetryInterval || 45}
-                      onChange={(e) => handleSettingsChange({ obsTelemetryInterval: parseInt(e.target.value, 10) || 45 })}
-                      style={{ padding: '4px 8px', fontSize: '0.8em', width: 'auto', maxWidth: '100%' }}
-                      title="Select Telemetry Sync Interval"
-                    >
-                      <option value={15}>⚡ Fast (15s)</option>
-                      <option value={30}>⏱️ Normal (30s)</option>
-                      <option value={45}>🍃 Eco (45s - Recommended)</option>
-                      <option value={60}>💤 Low Data (60s)</option>
-                    </select>
-                  )}
-                  <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.obsTelemetryEnabled || false}
-                      onChange={(e) => handleSettingsChange({ obsTelemetryEnabled: e.target.checked })}
-                      style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#38bdf8', flexShrink: 0 }}
-                    />
-                    <span style={{ fontSize: '0.85em', color: settings.obsTelemetryEnabled ? '#38bdf8' : 'rgba(255,255,255,0.4)', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                      {settings.obsTelemetryEnabled ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </label>
-                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => router.push('/low-bitrate')}
+                  style={{ background: 'rgba(145, 70, 255, 0.2)', borderColor: 'rgba(145, 70, 255, 0.45)', color: '#c084fc', fontWeight: 'bold', fontSize: '0.86em', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <span>⚡</span> Open Switcher Page →
+                </button>
               </div>
 
             </div>

@@ -75,7 +75,7 @@ function LowBitrateContent() {
   const initialMode = searchParams.get('mode') === 'overlay' ? 'overlay' : 'dashboard';
 
   const [mode, setMode] = useState<'dashboard' | 'overlay'>(initialMode);
-  const [activeTab, setActiveTab] = useState<'switching' | 'chat_commands'>('switching');
+  const [activeTab, setActiveTab] = useState<'switcher' | 'chat_commands'>('switcher');
   const [settings, setSettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -1458,7 +1458,7 @@ function LowBitrateContent() {
       </div>
 
       {/* Port & Password Inputs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 160px) 1fr', gap: '16px', marginBottom: '12px' }}>
+      <div className="obs-ws-inputs-grid">
         <div>
           <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#e2e8f0', marginBottom: '6px' }}>
             Port
@@ -2128,18 +2128,18 @@ function LowBitrateContent() {
   // MODE 1: STUDIO DASHBOARD & CONTROL CENTER
   // =========================================================================
   return (
-    <div className="admin-container" style={{ maxWidth: '1440px', margin: '0 auto', padding: '24px 20px 60px' }}>
+    <div className="admin-container low-bitrate-container">
       {/* Stacked Toast Notifications Container */}
       <div
         style={{
           position: 'fixed',
-          top: '24px',
-          right: '24px',
+          top: '20px',
+          right: '16px',
           zIndex: 99999,
           display: 'flex',
           flexDirection: 'column',
           gap: '10px',
-          maxWidth: '420px',
+          maxWidth: 'min(420px, calc(100vw - 32px))',
           pointerEvents: 'none'
         }}
       >
@@ -2234,14 +2234,14 @@ function LowBitrateContent() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="top-nav-header-buttons">
           <button
             className="btn btn-secondary"
             onClick={copyObsLink}
             title="Copy URL (https://overlay3.vercel.app/overlay) to paste as Browser Source in OBS"
             style={{ background: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.35)', color: '#4ade80', fontWeight: 'bold' }}
           >
-            📋 Copy OBS Link (/overlay)
+            📋 Copy OBS Link
           </button>
           <button
             className="btn btn-secondary"
@@ -2261,10 +2261,10 @@ function LowBitrateContent() {
       </header>
 
       {/* Navigation Sub-Tabs & Action Buttons Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+      <div className="switcher-subnav-bar">
+        <div className="switcher-tabs-group">
           <button
-            onClick={() => setActiveTab('switching')}
+            onClick={() => setActiveTab('switcher')}
             style={{
               padding: '10px 22px',
               borderRadius: '8px',
@@ -2272,15 +2272,15 @@ function LowBitrateContent() {
               fontWeight: 700,
               cursor: 'pointer',
               transition: 'all 0.2s',
-              background: activeTab === 'switching' ? 'rgba(34, 197, 94, 0.22)' : 'rgba(255, 255, 255, 0.04)',
-              color: activeTab === 'switching' ? '#4ade80' : 'rgba(255, 255, 255, 0.7)',
-              border: activeTab === 'switching' ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
+              background: activeTab === 'switcher' ? 'rgba(34, 197, 94, 0.22)' : 'rgba(255, 255, 255, 0.04)',
+              color: activeTab === 'switcher' ? '#4ade80' : 'rgba(255, 255, 255, 0.7)',
+              border: activeTab === 'switcher' ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
             }}
           >
-            <span>🔄</span> Switching
+            <span>⚡</span> Switcher
           </button>
 
           <button
@@ -2305,7 +2305,7 @@ function LowBitrateContent() {
         </div>
 
         {/* OBS Quick Control Action Buttons (Fix feed, Record, Start stream) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <div className="switcher-action-buttons">
           {/* Fix feed button */}
           <button
             type="button"
@@ -2445,19 +2445,12 @@ function LowBitrateContent() {
       </div>
 
       {/* =====================================================================
-          TAB 1: SWITCHING (COMPLETE NOALBS SWITCHING DASHBOARD & STUDIO)
+          TAB 1: SWITCHER (COMPLETE SWITCHING DASHBOARD, STUDIO & OPTIONS)
           ===================================================================== */}
-      {activeTab === 'switching' && (
+      {activeTab === 'switcher' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
           {/* Realtime Status Badges Bar */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '12px',
-              marginBottom: '10px',
-            }}
-          >
+          <div className="status-badges-grid">
             {/* OBS WebSocket Status */}
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
               <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>OBS WebSocket</div>
@@ -2593,7 +2586,7 @@ function LowBitrateContent() {
                   return (
                     <>
                       {/* Quick Switch Buttons */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                      <div className="scene-buttons-primary">
                         <button
                           className="btn"
                           onClick={() => switchScene(liveScene, 'Quick button')}
@@ -2692,7 +2685,7 @@ function LowBitrateContent() {
                       </div>
 
                       {/* Secondary Buttons Row */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
+                      <div className="scene-buttons-secondary">
                         <button
                           className="btn btn-secondary"
                           onClick={() => switchScene(refreshScene, 'Refresh button')}
@@ -2881,7 +2874,7 @@ function LowBitrateContent() {
           </div>
 
           {/* 2-Column Switching Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '22px', alignItems: 'start' }}>
+          <div className="switching-main-grid">
             
             {/* COLUMN 1: Triggers & Target Scenes */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2916,7 +2909,7 @@ function LowBitrateContent() {
                 </div>
 
                 {/* Sliders & Inputs: Switch to LOW / Switch to BRB */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '18px' }}>
+                <div className="trigger-sliders-grid">
                   {/* LOW Bitrate Slider & Input */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(250, 204, 21, 0.2)', borderRadius: '10px', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -2991,7 +2984,7 @@ function LowBitrateContent() {
                 </div>
 
                 {/* 3 Status Summary Boxes */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div className="status-summary-3box">
                   {/* LIVE */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', padding: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#4ade80', marginBottom: '4px' }}>
@@ -3068,7 +3061,7 @@ function LowBitrateContent() {
                 </div>
 
                 {/* Sliders & Inputs: Switch to LOW at or above / Switch to BRB at or above */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '18px' }}>
+                <div className="trigger-sliders-grid">
                   {/* LOW RTT Slider & Input */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(250, 204, 21, 0.2)', borderRadius: '10px', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -3143,7 +3136,7 @@ function LowBitrateContent() {
                 </div>
 
                 {/* 3 Status Summary Boxes for RTT */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div className="status-summary-3box">
                   {/* LIVE */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', padding: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 800, color: '#4ade80', marginBottom: '4px' }}>
@@ -3302,7 +3295,7 @@ function LowBitrateContent() {
                       </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+                    <div className="target-scenes-grid">
                       {/* LIVE SCENE */}
                       {renderSceneSelect('Live Scene:', '#22c55e', settings.obsLiveSceneName || 'live', (val) => saveSettingsUpdates({ obsLiveSceneName: val }))}
 
@@ -3317,7 +3310,7 @@ function LowBitrateContent() {
                     </div>
 
                     {/* Switch Delay & Secondary scenes */}
-                    <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+                    <div className="target-scenes-secondary-grid">
                       <div>
                         <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '6px' }}>
                           Switch Delay:
@@ -3352,10 +3345,10 @@ function LowBitrateContent() {
             {/* COLUMN 2: Switching Settings & Start/End/Raids */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
-              {/* CARD 1: Switching (Exact match to media_1793565718597_16d6a16a.png) */}
+              {/* CARD 1: Switching Options */}
               <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>
-                  Switching
+                  Switching Options
                 </h3>
 
                 {/* 1. Auto switch */}
@@ -3448,6 +3441,70 @@ function LowBitrateContent() {
                     }}
                     style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
                   />
+                </div>
+
+                {/* 6. OBS Stream Commands (!start, !end & !refresh) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      OBS Stream Commands (!start, !end & !refresh)
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Allow remote chat & cloud signals to trigger broadcast start, stop, or refresh scene cycles.
+                    </div>
+                  </div>
+                  <PurpleToggle
+                    checked={settings.obsStreamCommandsEnabled ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsStreamCommandsEnabled: v })}
+                  />
+                </div>
+
+                {/* 7. Auto-Switch Polling Interval */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Auto-Switch Polling Interval
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Interval for checking bitrate health to trigger automatic OBS scene switching.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="number"
+                      min={3}
+                      max={60}
+                      step={1}
+                      value={settings.autoSwitchPollInterval ?? 10}
+                      onChange={(e) => saveSettingsUpdates({ autoSwitchPollInterval: Number(e.target.value) || 10 })}
+                      style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
+                    />
+                    <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>sec</span>
+                  </div>
+                </div>
+
+                {/* 8. Belabox Bitrate Poll Interval */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+                      Belabox Bitrate Poll Interval
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
+                      Polling interval for fetching SRT ingest bitrate stats from server.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="number"
+                      min={2}
+                      max={60}
+                      step={2}
+                      value={settings.bitrateUpdateInterval ?? 10}
+                      onChange={(e) => saveSettingsUpdates({ bitrateUpdateInterval: Number(e.target.value) || 10 })}
+                      style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
+                    />
+                    <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>sec</span>
+                  </div>
                 </div>
               </div>
 
