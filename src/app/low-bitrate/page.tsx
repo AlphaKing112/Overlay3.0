@@ -875,9 +875,13 @@ function LowBitrateContent() {
       setAutoSwitchState('IDLE');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sceneName}" — Auto-switching PAUSED`);
     } else if (isLiveTarget) {
-      // Streamer explicitly chose LIVE: clear override & resume normal auto-switching
-      manualOverrideUntilRef.current = 0;
+      // Streamer manually chose LIVE: hold for 20s grace period so camera feed can connect before auto-evaluating
+      manualOverrideUntilRef.current = now + 20000;
+      offlineCountRef.current = 0;
+      lowCountRef.current = 0;
+      liveCountRef.current = 0;
       setAutoSwitchState('LIVE');
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🟢 Switched to LIVE (manual hold for 20s)`);
     } else if (isLowTarget) {
       manualOverrideUntilRef.current = now + 60000;
       setAutoSwitchState('LOW');
@@ -1346,7 +1350,11 @@ function LowBitrateContent() {
 
       // "Only while streaming" setting: Leave OBS alone when you aren't live
       const curTel = telemetryRef.current;
-      if (currentSettings.obsSwitchOnlyWhileStreaming && curTel && curTel.online && !curTel.streaming) {
+      const isObsStreaming = localStreaming !== null
+        ? localStreaming
+        : (curTel ? Boolean(curTel.streaming) : false);
+
+      if (currentSettings.obsSwitchOnlyWhileStreaming && !isObsStreaming) {
         setAutoSwitchState('IDLE');
         return;
       }

@@ -3211,9 +3211,10 @@ function OverlayPage() {
       lastLoggedStateRef.current.currentScene = signal.sceneName;
       appendObsLog('info', `[special-scene] Switched to '${signal.sceneName}'. Auto-switch PAUSED.`);
     } else if (isLiveTarget) {
-      manualOverrideUntilRef.current = 0;
+      manualOverrideUntilRef.current = Date.now() + 20000;
       lastBitrateStateRef.current = 'live';
       lastLoggedStateRef.current.currentScene = signal.sceneName;
+      appendObsLog('info', `[manual-override] Switched to LIVE (holding for 20s to let video feed connect)`);
     } else if (isLowTarget) {
       manualOverrideUntilRef.current = Date.now() + 60000;
       lastBitrateStateRef.current = 'low';
