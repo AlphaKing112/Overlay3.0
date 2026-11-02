@@ -15,8 +15,8 @@ export async function GET(): Promise<NextResponse> {
   const now = Date.now();
   let telemetry: ObsTelemetryStats | null = null;
 
-  // 1. Check in-memory cache (fresh within 10 seconds)
-  if (globalThis.__cachedObsTelemetry && (now - (globalThis.__cachedObsTelemetryTime || 0) < 10000)) {
+  // 1. Check in-memory cache (fresh within 1 second for instant state updates)
+  if (globalThis.__cachedObsTelemetry && (now - (globalThis.__cachedObsTelemetryTime || 0) < 1000)) {
     telemetry = globalThis.__cachedObsTelemetry;
   } else {
     // 2. Fetch from Upstash KV
@@ -77,9 +77,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const telemetry: ObsTelemetryStats = {
       online: Boolean(body.online !== false),
-      streaming: Boolean(body.streaming),
-      recording: Boolean(body.recording),
-      uptimeTimecode: body.uptimeTimecode || '00:00:00',
+      streaming: typeof body.streaming === 'boolean' ? body.streaming : Boolean(previousTelemetry?.streaming),
+      recording: typeof body.recording === 'boolean' ? body.recording : Boolean(previousTelemetry?.recording),
+      uptimeTimecode: body.uptimeTimecode || previousTelemetry?.uptimeTimecode || '00:00:00',
       uptimeDurationMs: typeof body.uptimeDurationMs === 'number' ? body.uptimeDurationMs : undefined,
       outputBytes: typeof body.outputBytes === 'number' ? body.outputBytes : undefined,
       outputBitrateKbps: typeof body.outputBitrateKbps === 'number' ? body.outputBitrateKbps : undefined,

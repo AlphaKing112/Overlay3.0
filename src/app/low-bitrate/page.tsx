@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
-import { safeObsSwitchScene } from '@/lib/obs-helper';
+import { safeObsSwitchScene, safeObsStreamControlResult } from '@/lib/obs-helper';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
@@ -89,8 +89,10 @@ function LowBitrateContent() {
   const [customSceneMode, setCustomSceneMode] = useState<boolean>(false);
 
   // OBS Action Controls State (Fix Feed, Record, Start Stream)
-  const isStreaming = Boolean(telemetry?.streaming);
-  const isRecording = Boolean(telemetry?.recording);
+  const [localStreaming, setLocalStreaming] = useState<boolean | null>(null);
+  const [localRecording, setLocalRecording] = useState<boolean | null>(null);
+  const isStreaming = localStreaming !== null ? localStreaming : Boolean(telemetry?.streaming);
+  const isRecording = localRecording !== null ? localRecording : Boolean(telemetry?.recording);
   const [isFixingFeed, setIsFixingFeed] = useState<boolean>(false);
   const [isTogglingRecord, setIsTogglingRecord] = useState<boolean>(false);
   const [isTogglingStream, setIsTogglingStream] = useState<boolean>(false);
@@ -166,11 +168,53 @@ function LowBitrateContent() {
         localObsRef.current = obs;
         setObsConnected(true);
 
+        // Ground-truth status poller directly from local OBS WebSocket
+        const syncObsOutputStatus = async () => {
+          if (!isActive || !localObsRef.current) return;
+          try {
+            const streamData: any = await obs.call('GetStreamStatus').catch(() => null);
+            if (streamData !== null) {
+              const live = Boolean(streamData?.outputActive);
+              setLocalStreaming(live);
+              setTelemetry(prev => (prev ? {
+                ...prev,
+                streaming: live,
+                uptimeTimecode: streamData?.outputTimecode || prev.uptimeTimecode || '00:00:00'
+              } : {
+                online: true,
+                streaming: live,
+                recording: false,
+                scenes: [],
+                updatedAt: Date.now(),
+                uptimeTimecode: streamData?.outputTimecode || '00:00:00'
+              } as ObsTelemetryStats));
+            }
+            const recordData: any = await obs.call('GetRecordStatus').catch(() => null);
+            if (recordData !== null) {
+              const rec = Boolean(recordData?.outputActive);
+              setLocalRecording(rec);
+              setTelemetry(prev => (prev ? {
+                ...prev,
+                recording: rec
+              } : {
+                online: true,
+                streaming: false,
+                recording: rec,
+                scenes: [],
+                updatedAt: Date.now()
+              } as ObsTelemetryStats));
+            }
+          } catch {}
+        };
+
         const sceneData: any = await obs.call('GetSceneList').catch(() => null);
         const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
         const currentProg = sceneData?.currentProgramSceneName || '';
         if (currentProg) setCurrentScene(currentProg);
         if (scenes.length > 0) setAvailableScenes(scenes);
+
+        await syncObsOutputStatus();
+        const statusPollTimer = setInterval(syncObsOutputStatus, 1500);
 
         fetch('/api/obs-telemetry', {
           method: 'POST',
@@ -207,7 +251,14 @@ function LowBitrateContent() {
 
         obs.on('StreamStateChanged' as any, (data: any) => {
           const isLive = Boolean(data?.outputActive);
+          setLocalStreaming(isLive);
           setTelemetry(prev => prev ? { ...prev, streaming: isLive } : { online: true, streaming: isLive } as any);
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ online: true, streaming: isLive })
+          }).catch(() => {});
+
           if (!isLive) {
             // OBS Stream stopped! Switch immediately to Ending scene or Offline scene (0-second delay)
             const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
@@ -217,13 +268,29 @@ function LowBitrateContent() {
           }
         });
 
+        obs.on('RecordStateChanged' as any, (data: any) => {
+          const isRec = Boolean(data?.outputActive);
+          setLocalRecording(isRec);
+          setTelemetry(prev => prev ? { ...prev, recording: isRec } : { online: true, recording: isRec } as any);
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ online: true, recording: isRec })
+          }).catch(() => {});
+        });
+
         obs.on('ConnectionClosed', () => {
+          clearInterval(statusPollTimer);
           localObsRef.current = null;
           setObsConnected(false);
+          setLocalStreaming(null);
+          setLocalRecording(null);
           if (isActive) retryTimer = setTimeout(connectLocalObs, 5000);
         });
       } catch {
         setObsConnected(false);
+        setLocalStreaming(null);
+        setLocalRecording(null);
         if (isActive) retryTimer = setTimeout(connectLocalObs, 5000);
       }
     };
@@ -357,7 +424,12 @@ function LowBitrateContent() {
       const res = await fetch('/api/obs-telemetry');
       if (res.ok) {
         const data = await res.json();
-        setTelemetry(data);
+        setTelemetry(prev => ({
+          ...data,
+          streaming: localStreaming !== null ? localStreaming : Boolean(data.streaming),
+          recording: localRecording !== null ? localRecording : Boolean(data.recording),
+          uptimeTimecode: data.uptimeTimecode || prev?.uptimeTimecode || '00:00:00'
+        }));
         if (data.scenes && Array.isArray(data.scenes) && data.scenes.length > 0) {
           setAvailableScenes(data.scenes);
         }
@@ -366,7 +438,7 @@ function LowBitrateContent() {
         }
       }
     } catch {}
-  }, []);
+  }, [localStreaming, localRecording]);
 
   useEffect(() => {
     fetchTelemetry();
@@ -539,32 +611,49 @@ function LowBitrateContent() {
     setLastSwitchLog(`🔧 Reconnecting stream sources on air ("${liveScene}")...`);
     showToast(`🔧 Reconnecting Belabox & stream sources on active scene...`, 'info');
 
+    let executedDirectly = false;
+    if (localObsRef.current) {
+      try {
+        const res = await safeObsStreamControlResult(localObsRef.current, 'fix', { liveScene });
+        if (res.success) {
+          executedDirectly = true;
+          showToast(res.message || 'Stream feed fixed successfully!', 'success');
+          setLastSwitchLog(res.message || 'Feed sources reconnected.');
+          refreshObsScenes();
+        }
+      } catch (err) {
+        console.warn('Direct OBS fix feed failed:', err);
+      }
+    }
+
     try {
       await saveSettingsUpdates({
         obsStreamCommandSignal: { action: 'fix', timestamp: Date.now() }
       });
 
-      const res = await fetch('/api/noalbs/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: '!fix', fromDashboard: true })
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (data.sources && data.sources.length > 0) {
-          showToast(data.message || `Reconnecting ${data.sources.join(', ')}`, 'success');
-        } else if (data.sources && data.sources.length === 0) {
-          showToast(data.message || `Nothing to fix: no stream source is playing on ${data.scene || liveScene}`, 'info');
+      if (!executedDirectly) {
+        const res = await fetch('/api/noalbs/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: '!fix', fromDashboard: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (data.sources && data.sources.length > 0) {
+            showToast(data.message || `Reconnecting ${data.sources.join(', ')}`, 'success');
+          } else if (data.sources && data.sources.length === 0) {
+            showToast(data.message || `Nothing to fix: no stream source is playing on ${data.scene || liveScene}`, 'info');
+          } else {
+            showToast(data.message || 'Stream feed fixed successfully!', 'success');
+          }
+          setLastSwitchLog(data.message || 'Feed sources reconnected.');
+          refreshObsScenes();
         } else {
-          showToast(data.message || 'Stream feed fixed successfully!', 'success');
+          showToast(data.error || 'Fix feed failed.', 'error');
         }
-        setLastSwitchLog(data.message || 'Feed sources reconnected.');
-        refreshObsScenes();
-      } else {
-        showToast(data.error || 'Fix feed failed.', 'error');
       }
     } catch (err: any) {
-      showToast(`Fix feed error: ${err.message}`, 'error');
+      if (!executedDirectly) showToast(`Fix feed error: ${err.message}`, 'error');
     } finally {
       setIsFixingFeed(false);
     }
@@ -578,25 +667,48 @@ function LowBitrateContent() {
     const willRecord = !isRecording;
     showToast(willRecord ? '⏺ Starting video recording in OBS...' : '⏹ Stopping video recording in OBS...', 'info');
 
+    let executedDirectly = false;
+    if (localObsRef.current) {
+      try {
+        const res = await safeObsStreamControlResult(localObsRef.current, willRecord ? 'start_record' : 'stop_record');
+        if (res.success) {
+          executedDirectly = true;
+          setLocalRecording(willRecord);
+          setTelemetry(prev => prev ? { ...prev, recording: willRecord } : { online: true, recording: willRecord } as any);
+          showToast(willRecord ? '⏺ OBS Recording started!' : '⏹ OBS Recording stopped.', 'success');
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ online: true, recording: willRecord })
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('Direct OBS record control failed:', err);
+      }
+    }
+
     try {
       await saveSettingsUpdates({
         obsStreamCommandSignal: { action: willRecord ? 'start_record' : 'stop_record', timestamp: Date.now() }
       });
 
-      const res = await fetch('/api/noalbs/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: '!rec', fromDashboard: true })
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(data.message || (willRecord ? '⏺ OBS Recording started!' : '⏹ OBS Recording stopped.'), 'success');
-        setTelemetry(prev => prev ? { ...prev, recording: willRecord } : null);
-      } else {
-        showToast(data.error || 'Failed to toggle recording.', 'error');
+      if (!executedDirectly) {
+        const res = await fetch('/api/noalbs/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: '!rec', fromDashboard: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setLocalRecording(willRecord);
+          showToast(data.message || (willRecord ? '⏺ OBS Recording started!' : '⏹ OBS Recording stopped.'), 'success');
+          setTelemetry(prev => prev ? { ...prev, recording: willRecord } : null);
+        } else {
+          showToast(data.error || 'Failed to toggle recording.', 'error');
+        }
       }
     } catch (err: any) {
-      showToast(`Record error: ${err.message}`, 'error');
+      if (!executedDirectly) showToast(`Record error: ${err.message}`, 'error');
     } finally {
       setIsTogglingRecord(false);
     }
@@ -612,26 +724,53 @@ function LowBitrateContent() {
     setIsTogglingStream(true);
     showToast(willStream ? '▷ Starting stream broadcast in OBS...' : '⏹ Stopping stream broadcast...', 'info');
 
+    let executedDirectly = false;
+    // 1. Send DIRECT command to local OBS Studio WebSocket (instant)
+    if (localObsRef.current) {
+      try {
+        const res = await safeObsStreamControlResult(localObsRef.current, willStream ? 'start' : 'stop');
+        if (res.success) {
+          executedDirectly = true;
+          setLocalStreaming(willStream);
+          setTelemetry(prev => prev ? { ...prev, streaming: willStream } : { online: true, streaming: willStream } as any);
+          showToast(willStream ? '🎬 OBS Stream started live!' : '⏹ OBS Stream stopped.', 'success');
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ online: true, streaming: willStream })
+          }).catch(() => {});
+        } else {
+          console.warn('Direct OBS stream control failed, falling back to cloud signal:', res.error);
+        }
+      } catch (err: any) {
+        console.warn('Direct OBS stream call error:', err);
+      }
+    }
+
+    // 2. Cloud signal fallback
     try {
       const action = willStream ? 'start' : 'stop';
       await saveSettingsUpdates({
         obsStreamCommandSignal: { action, timestamp: Date.now() }
       });
 
-      const res = await fetch('/api/noalbs/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: willStream ? '!start' : '!stop', fromDashboard: true })
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(data.message || (willStream ? '🎬 OBS Stream started live!' : '⏹ OBS Stream stopped.'), 'success');
-        setTelemetry(prev => prev ? { ...prev, streaming: willStream } : null);
-      } else {
-        showToast(data.error || 'Failed to control stream.', 'error');
+      if (!executedDirectly) {
+        const res = await fetch('/api/noalbs/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: willStream ? '!start' : '!stop', fromDashboard: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setLocalStreaming(willStream);
+          setTelemetry(prev => prev ? { ...prev, streaming: willStream } : null);
+          showToast(data.message || (willStream ? '🎬 OBS Stream started live!' : '⏹ OBS Stream stopped.'), 'success');
+        } else {
+          showToast(data.error || 'Failed to control stream.', 'error');
+        }
       }
     } catch (err: any) {
-      showToast(`Stream error: ${err.message}`, 'error');
+      if (!executedDirectly) showToast(`Stream error: ${err.message}`, 'error');
     } finally {
       setIsTogglingStream(false);
     }
@@ -1963,7 +2102,7 @@ function LowBitrateContent() {
               alignItems: 'center',
               gap: '8px',
               padding: '9px 18px',
-              background: isStreaming ? 'rgba(239, 68, 68, 0.85)' : '#5c54a4',
+              background: isStreaming ? '#dc2626' : '#5c54a4',
               border: `1px solid ${isStreaming ? '#ef4444' : 'rgba(145, 70, 255, 0.6)'}`,
               borderRadius: '8px',
               color: '#ffffff',
@@ -1971,20 +2110,34 @@ function LowBitrateContent() {
               fontWeight: 700,
               cursor: isTogglingStream ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s ease',
-              boxShadow: isStreaming ? '0 0 14px rgba(239, 68, 68, 0.4)' : '0 2px 10px rgba(92, 84, 164, 0.35)',
-              opacity: isTogglingStream ? 0.6 : 1,
+              boxShadow: isStreaming ? '0 0 16px rgba(220, 38, 38, 0.55)' : '0 2px 10px rgba(92, 84, 164, 0.35)',
+              opacity: isTogglingStream ? 0.75 : 1,
             }}
           >
             {isStreaming ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="5" y="5" width="14" height="14" rx="2" />
-              </svg>
+              <>
+                <span style={{
+                  width: '9px',
+                  height: '9px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 0 8px #ffffff',
+                  display: 'inline-block',
+                  animation: 'pulse 1.5s infinite'
+                }} />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="5" y="5" width="14" height="14" rx="2" />
+                </svg>
+                <span>{isTogglingStream ? 'Stopping stream...' : 'Stop stream'}</span>
+              </>
             ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="6 4 20 12 6 20 6 4" />
-              </svg>
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="6 4 20 12 6 20 6 4" />
+                </svg>
+                <span>{isTogglingStream ? 'Starting stream...' : 'Start stream'}</span>
+              </>
             )}
-            <span>{isTogglingStream ? 'Updating...' : isStreaming ? 'Stop stream' : 'Start stream'}</span>
           </button>
         </div>
       </div>
