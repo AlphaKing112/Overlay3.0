@@ -2919,6 +2919,23 @@ function OverlayPage() {
           if (sceneName && lastLoggedStateRef.current.currentScene !== sceneName) {
             lastLoggedStateRef.current.currentScene = sceneName;
             appendObsLog('info', `[scene-manager] Switched program scene to: '${sceneName}'`);
+
+            const norm = String(sceneName).trim().toLowerCase();
+            const starting = (seSettingsRef.current.obsStartingSceneName || 'starting').trim().toLowerCase();
+            const ending = (seSettingsRef.current.obsEndingSceneName || 'ending').trim().toLowerCase();
+            const privacy = (seSettingsRef.current.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+            const refresh = (seSettingsRef.current.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+            const isSpecial = norm === starting || norm === ending || norm === privacy || norm === refresh ||
+                              norm.includes('starting') || norm.includes('ending') || norm.includes('privacy') || norm.includes('refresh');
+
+            if (isSpecial) {
+              manualOverrideUntilRef.current = Date.now() + 86400000;
+              lastBitrateStateRef.current = null;
+            } else if (norm === (seSettingsRef.current.obsLiveSceneName || 'live').trim().toLowerCase() || norm.includes('live')) {
+              manualOverrideUntilRef.current = 0;
+              lastBitrateStateRef.current = 'live';
+            }
+
             fetch('/api/obs-telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ online: true, currentScene: sceneName }) }).catch(() => {});
           }
         });
@@ -3132,15 +3149,40 @@ function OverlayPage() {
 
     console.log(`🎬 [OBS Overlay] Received cloud scene switch signal for: "${signal.sceneName}"`);
 
-    // If switching to non-live scene (e.g. low, offline), pause auto-switching for 45s
-    const isLiveTarget = signal.sceneName.toLowerCase().includes('live');
-    if (!isLiveTarget) {
-      manualOverrideUntilRef.current = Date.now() + 45000;
-      lastBitrateStateRef.current = 'low';
-      appendObsLog('info', `[manual-override] Pausing auto-switch for 45s to stay on '${signal.sceneName}'`);
-    } else {
+    const targetNorm = (signal.sceneName || '').trim().toLowerCase();
+    const liveScene = (seSettingsRef.current.obsLiveSceneName || 'live').trim().toLowerCase();
+    const lowScene = (seSettingsRef.current.obsLowSceneName || 'low').trim().toLowerCase();
+    const offlineScene = (seSettingsRef.current.obsOfflineSceneName || 'offline').trim().toLowerCase();
+    const startingScene = (seSettingsRef.current.obsStartingSceneName || 'starting').trim().toLowerCase();
+    const endingScene = (seSettingsRef.current.obsEndingSceneName || 'ending').trim().toLowerCase();
+    const privacyScene = (seSettingsRef.current.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+    const refreshScene = (seSettingsRef.current.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+
+    const isSpecial = targetNorm === startingScene || targetNorm === endingScene || targetNorm === privacyScene || targetNorm === refreshScene ||
+                      targetNorm.includes('starting') || targetNorm.includes('ending') || targetNorm.includes('privacy') || targetNorm.includes('refresh');
+    const isLiveTarget = targetNorm === liveScene || targetNorm.includes('live');
+    const isLowTarget = targetNorm === lowScene || targetNorm.includes('low');
+    const isOfflineTarget = targetNorm === offlineScene || targetNorm.includes('offline') || targetNorm.includes('brb');
+
+    if (isSpecial) {
+      manualOverrideUntilRef.current = Date.now() + 86400000;
+      lastBitrateStateRef.current = null;
+      appendObsLog('info', `[special-scene] Switched to '${signal.sceneName}'. Auto-switch PAUSED.`);
+    } else if (isLiveTarget) {
       manualOverrideUntilRef.current = 0;
       lastBitrateStateRef.current = 'live';
+    } else if (isLowTarget) {
+      manualOverrideUntilRef.current = Date.now() + 60000;
+      lastBitrateStateRef.current = 'low';
+      appendObsLog('info', `[manual-override] Pausing auto-switch for 60s to stay on '${signal.sceneName}'`);
+    } else if (isOfflineTarget) {
+      manualOverrideUntilRef.current = Date.now() + 60000;
+      lastBitrateStateRef.current = 'offline';
+      appendObsLog('info', `[manual-override] Pausing auto-switch for 60s to stay on '${signal.sceneName}'`);
+    } else {
+      manualOverrideUntilRef.current = Date.now() + 86400000;
+      lastBitrateStateRef.current = null;
+      appendObsLog('info', `[custom-scene] Switched to '${signal.sceneName}'. Auto-switch PAUSED.`);
     }
 
     if (localObsRef.current) {
@@ -3462,6 +3504,41 @@ function OverlayPage() {
       console.log('[AUTO-SWITCH] Paused due to active manual scene switch override');
       return;
     }
+
+    // Skip auto-switch if OBS is currently on a special scene (Starting, Ending, Privacy, Refresh)
+    const activeScene = (lastLoggedStateRef.current.currentScene || '').trim().toLowerCase();
+    const startingScene = (settings.obsStartingSceneName || 'starting').trim().toLowerCase();
+    const endingScene = (settings.obsEndingSceneName || 'ending').trim().toLowerCase();
+    const privacyScene = (settings.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+    const refreshScene = (settings.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+
+    const isSpecialScene = !!activeScene && (
+      activeScene === startingScene ||
+      activeScene === endingScene ||
+      activeScene === privacyScene ||
+      activeScene === refreshScene ||
+      activeScene.includes('starting') ||
+      activeScene.includes('ending') ||
+      activeScene.includes('privacy') ||
+      activeScene.includes('refresh')
+    );
+
+    if (isSpecialScene) {
+      return;
+    }
+
+    const liveScene = (settings.obsLiveSceneName || 'live').trim().toLowerCase();
+    const lowScene = (settings.obsLowSceneName || 'low').trim().toLowerCase();
+    const offlineScene = (settings.obsOfflineSceneName || 'offline').trim().toLowerCase();
+
+    const isCurLive = activeScene === liveScene || activeScene.includes('live');
+    const isCurLow = activeScene === lowScene || activeScene.includes('low');
+    const isCurOffline = activeScene === offlineScene || activeScene.includes('offline') || activeScene.includes('brb');
+
+    // If activeScene is recognized as an unmanaged custom scene, leave OBS alone!
+    if (activeScene && !isCurLive && !isCurLow && !isCurOffline) {
+      return;
+    }
     
     // Switch scene via direct local WebSocket first, then fallback to API
     const switchSceneViaApi = async (sceneName: string): Promise<boolean> => {
@@ -3557,10 +3634,11 @@ function OverlayPage() {
       }
     }
 
-    // Auto-switch to live scene
+    // Auto-switch to live scene (ONLY when recovering from low or offline)
     if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
-      if (isLive && lastBitrateStateRef.current !== 'live') {
-        console.log(`📡 Stream is live (bitrate=${currentBitrate}), switching to: ${settings.obsLiveSceneName}`);
+      const needsRecovery = lastBitrateStateRef.current === 'low' || lastBitrateStateRef.current === 'offline' || isCurLow || isCurOffline;
+      if (isLive && needsRecovery && lastBitrateStateRef.current !== 'live') {
+        console.log(`📡 Stream is live (bitrate=${currentBitrate}), recovering to: ${settings.obsLiveSceneName}`);
         switchSceneViaApi(settings.obsLiveSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'live';
         });

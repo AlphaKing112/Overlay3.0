@@ -359,6 +359,7 @@ function LowBitrateContent() {
   const offlineCountRef = useRef<number>(0);
   const desktopCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mobileCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const currentSceneRef = useRef(currentScene);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -367,6 +368,10 @@ function LowBitrateContent() {
   useEffect(() => {
     autoSwitchStateRef.current = autoSwitchState;
   }, [autoSwitchState]);
+
+  useEffect(() => {
+    currentSceneRef.current = currentScene;
+  }, [currentScene]);
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -572,6 +577,40 @@ function LowBitrateContent() {
 
   const manualOverrideUntilRef = useRef<number>(0);
 
+  // Helper functions for NOALBS scene category matching
+  const isSpecialSceneName = (name: string, s: OverlaySettings) => {
+    if (!name) return false;
+    const n = name.trim().toLowerCase();
+    const starting = (s.obsStartingSceneName || 'starting').trim().toLowerCase();
+    const ending = (s.obsEndingSceneName || 'ending').trim().toLowerCase();
+    const privacy = (s.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+    const refresh = (s.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+
+    return n === starting || n === ending || n === privacy || n === refresh ||
+           n.includes('starting') || n.includes('ending') || n.includes('privacy') || n.includes('refresh');
+  };
+
+  const isLiveSceneName = (name: string, s: OverlaySettings) => {
+    if (!name) return false;
+    const n = name.trim().toLowerCase();
+    const live = (s.obsLiveSceneName || 'live').trim().toLowerCase();
+    return n === live || n.includes('live');
+  };
+
+  const isLowSceneName = (name: string, s: OverlaySettings) => {
+    if (!name) return false;
+    const n = name.trim().toLowerCase();
+    const low = (s.obsLowSceneName || 'low').trim().toLowerCase();
+    return n === low || n.includes('low');
+  };
+
+  const isOfflineSceneName = (name: string, s: OverlaySettings) => {
+    if (!name) return false;
+    const n = name.trim().toLowerCase();
+    const offline = (s.obsOfflineSceneName || 'offline').trim().toLowerCase();
+    return n === offline || n.includes('offline') || n.includes('brb');
+  };
+
   // 5. Scene Switching Execution
   const switchScene = async (sceneName: string, reason: string = 'Manual') => {
     if (!sceneName) {
@@ -582,15 +621,34 @@ function LowBitrateContent() {
     const logText = `Switching to: "${sceneName}" (${reason})...`;
     setLastSwitchLog(logText);
 
-    // If manual switch to a non-live scene (e.g. low, offline), pause auto-switching for 45s
-    const isLiveTarget = sceneName.toLowerCase().includes('live') || sceneName.toLowerCase() === (settings.obsLiveSceneName || 'live').toLowerCase();
-    if (!isLiveTarget) {
-      manualOverrideUntilRef.current = Date.now() + 45000;
-      setAutoSwitchState(sceneName.toLowerCase().includes('low') ? 'LOW' : 'OFFLINE');
-      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏸️ Pausing auto-switch for 45s to stay on: "${sceneName}"`);
-    } else {
+    const isSpecial = isSpecialSceneName(sceneName, settings);
+    const isLiveTarget = isLiveSceneName(sceneName, settings);
+    const isLowTarget = isLowSceneName(sceneName, settings);
+    const isOfflineTarget = isOfflineSceneName(sceneName, settings);
+
+    if (isSpecial) {
+      // Special scene (Starting, Ending, Privacy, Refresh):
+      // Hold indefinitely so auto-switching NEVER forces user back to LIVE!
+      manualOverrideUntilRef.current = Date.now() + 86400000;
+      setAutoSwitchState('IDLE');
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sceneName}" — Auto-switching PAUSED`);
+    } else if (isLiveTarget) {
+      // Streamer explicitly chose LIVE: clear override & resume normal auto-switching
       manualOverrideUntilRef.current = 0;
       setAutoSwitchState('LIVE');
+    } else if (isLowTarget) {
+      manualOverrideUntilRef.current = Date.now() + 60000;
+      setAutoSwitchState('LOW');
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏸️ Switched to Low Bitrate (holding for 60s)`);
+    } else if (isOfflineTarget) {
+      manualOverrideUntilRef.current = Date.now() + 60000;
+      setAutoSwitchState('OFFLINE');
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏸️ Switched to BRB/Offline (holding for 60s)`);
+    } else {
+      // Custom detected OBS scene: pause auto-switching so streamer stays on it
+      manualOverrideUntilRef.current = Date.now() + 86400000;
+      setAutoSwitchState('IDLE');
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Custom Scene "${sceneName}" — Auto-switching PAUSED`);
     }
 
     try {
@@ -694,6 +752,7 @@ function LowBitrateContent() {
   // 6b. Refresh Sequence (!refresh) — Switches to refresh scene for 6s then returns to live
   const handleRefreshCycle = async () => {
     setIsRefreshingFeed(true);
+    manualOverrideUntilRef.current = Date.now() + 15000;
     const refreshScene = settings.obsRefreshSceneName || 'refresh';
     const liveScene = settings.obsLiveSceneName || 'live';
     setLastSwitchLog(`🔄 Executing refresh cycle: "${refreshScene}" -> "${liveScene}" (6s reload)...`);
@@ -942,6 +1001,21 @@ function LowBitrateContent() {
         return;
       }
 
+      // Check current scene: if OBS is on a Special Scene (starting, ending, privacy, refresh), NEVER auto-switch!
+      const curScene = (currentSceneRef.current || '').trim().toLowerCase();
+      if (curScene && isSpecialSceneName(curScene, currentSettings)) {
+        return;
+      }
+
+      const isCurLow = isLowSceneName(curScene, currentSettings);
+      const isCurOffline = isOfflineSceneName(curScene, currentSettings);
+      const isCurLive = isLiveSceneName(curScene, currentSettings);
+
+      // If OBS is on an unmanaged custom scene (e.g. Chatting or Intermission), leave OBS alone!
+      if (curScene && !isCurLow && !isCurOffline && !isCurLive) {
+        return;
+      }
+
       const lowThreshold = currentSettings.obsLowBitrateThreshold ?? 1100;
       const offThreshold = currentSettings.obsOfflineBitrateThreshold ?? 400;
       const rttLowThreshold = currentSettings.obsRttThreshold ?? 2500;
@@ -1020,7 +1094,10 @@ function LowBitrateContent() {
         lowCountRef.current = 0;
         liveCountRef.current += 1;
 
-        if (liveCountRef.current >= liveRecoveryDelay && autoSwitchStateRef.current !== 'LIVE') {
+        // Only recover to LIVE if OBS was previously in LOW or OFFLINE
+        const needsRecovery = autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || isCurLow || isCurOffline;
+
+        if (liveCountRef.current >= liveRecoveryDelay && needsRecovery) {
           setAutoSwitchState('LIVE');
           switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
         }

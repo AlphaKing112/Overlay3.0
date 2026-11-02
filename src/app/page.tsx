@@ -1366,23 +1366,10 @@ export default function AdminPage() {
                 handleSettingsChange({ obsTelemetryEnabled: true });
               }
 
-              // If OBS WebSocket is connected and auto-switch is enabled, switch to Live Scene
-              if (settings.obsAutoSwitchSceneToggle && obsStatus === 'connected' && obsRef.current) {
-                const targetScene = settings.obsLiveSceneName;
-                if (targetScene && (obsCurrentScene !== targetScene || lastAutoSwitchState !== 'live')) {
-                  try {
-                    await obsRef.current.call('SetCurrentProgramScene', { sceneName: targetScene });
-                    setObsCurrentScene(targetScene);
-                    lastAutoSwitchState = 'live';
-                    setAutoSwitchStatus(`✅ LIVE (${stats.bitrateKbps} kbps) → Switched OBS to: "${targetScene}"`);
-                  } catch (obsErr: any) {
-                    console.warn('Failed to switch OBS scene:', obsErr);
-                    setAutoSwitchStatus(`⚠️ OBS Switch Error: ${obsErr?.message || 'Scene not found'}`);
-                  }
-                } else {
-                  setAutoSwitchStatus(`✅ OBS Connected (LIVE ${stats.bitrateKbps} kbps) → Scene: "${obsCurrentScene || targetScene}"`);
-                }
-              } else if (obsStatus !== 'connected') {
+              // Report status (scene switching is handled by dedicated NOALBS engine)
+              if (obsStatus === 'connected') {
+                setAutoSwitchStatus(`✅ OBS Connected (LIVE ${stats.bitrateKbps} kbps) → Scene: "${obsCurrentScene || settings.obsLiveSceneName || 'live'}"`);
+              } else {
                 setAutoSwitchStatus(`🟢 Stream is LIVE (${stats.bitrateKbps} kbps from Belabox)`);
               }
             } else {
@@ -1396,23 +1383,9 @@ export default function AdminPage() {
                   handleSettingsChange({ obsTelemetryEnabled: false });
                 }
 
-                // If OBS WebSocket is connected and auto-switch is enabled, switch to Offline Scene
-                if (settings.obsAutoSwitchSceneToggle && obsStatus === 'connected' && obsRef.current) {
-                  const targetScene = settings.obsOfflineSceneName;
-                  if (targetScene && (obsCurrentScene !== targetScene || lastAutoSwitchState !== 'offline')) {
-                    try {
-                      await obsRef.current.call('SetCurrentProgramScene', { sceneName: targetScene });
-                      setObsCurrentScene(targetScene);
-                      lastAutoSwitchState = 'offline';
-                      setAutoSwitchStatus(`🔴 OFFLINE (0 kbps) → Switched OBS to: "${targetScene}"`);
-                    } catch (obsErr: any) {
-                      console.warn('Failed to switch OBS scene:', obsErr);
-                      setAutoSwitchStatus(`⚠️ OBS Switch Error: ${obsErr?.message || 'Scene not found'}`);
-                    }
-                  } else {
-                    setAutoSwitchStatus(`🔴 OBS Connected (OFFLINE) → Scene: "${obsCurrentScene || targetScene}"`);
-                  }
-                } else if (obsStatus !== 'connected') {
+                if (obsStatus === 'connected') {
+                  setAutoSwitchStatus(`🔴 OBS Connected (OFFLINE) → Scene: "${obsCurrentScene || settings.obsOfflineSceneName || 'offline'}"`);
+                } else {
                   setAutoSwitchStatus('⚪ Stream is OFFLINE (0 kbps from Belabox)');
                 }
               } else {
