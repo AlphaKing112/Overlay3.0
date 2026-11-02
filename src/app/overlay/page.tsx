@@ -168,6 +168,7 @@ function OverlayPage() {
   const [lastSwitchLog, setLastSwitchLog] = useState<string>('No action yet');
   const previousBitrateRef = useRef<number | null>(null);
   const lastBitrateStateRef = useRef<'live' | 'low' | 'offline' | null>(null);
+  const startingCheckStartRef = useRef<number>(0);
 
   const [totalDistanceTracked, setTotalDistanceTracked] = useState(0); // In meters
   const [currentGpsCoords, setCurrentGpsCoords] = useState<[number, number] | null>(null);
@@ -2966,8 +2967,10 @@ function OverlayPage() {
               if (seSettingsRef.current.obsStartingSceneOnGoLive && seSettingsRef.current.obsStartingSceneName) {
                 appendObsLog('info', `[scene-manager] Stream started, switching to starting scene: '${seSettingsRef.current.obsStartingSceneName}'`);
                 safeObsSwitchScene(obs, seSettingsRef.current.obsStartingSceneName);
+                startingCheckStartRef.current = Date.now();
               }
             } else if (wasStreaming) {
+              startingCheckStartRef.current = 0;
               appendObsLog('warn', `[rtmp stream: 'simple_stream'] User stopped the stream`);
               appendObsLog('warn', `==== Streaming Stop ====`);
               fetch('/api/save-settings', {
@@ -3329,8 +3332,10 @@ function OverlayPage() {
                             (norm.includes('refresh') && !norm.includes('live'));
 
           if (isSpecial) {
-            manualOverrideUntilRef.current = Date.now() + 86400000;
-            lastBitrateStateRef.current = null;
+            if (!(norm.includes('starting') && startingCheckStartRef.current > 0)) {
+              manualOverrideUntilRef.current = Date.now() + 86400000;
+              lastBitrateStateRef.current = null;
+            }
           }
         }
 
@@ -3584,23 +3589,6 @@ function OverlayPage() {
       (activeScene.includes('refresh') && !activeScene.includes('live'))
     );
 
-    if (isSpecialScene) {
-      return;
-    }
-
-    const liveScene = (settings.obsLiveSceneName || 'live').trim().toLowerCase();
-    const lowScene = (settings.obsLowSceneName || 'low').trim().toLowerCase();
-    const offlineScene = (settings.obsOfflineSceneName || 'offline').trim().toLowerCase();
-
-    const isCurLive = !isSpecialScene && (activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical')));
-    const isCurLow = !isSpecialScene && (activeScene === lowScene || activeScene.includes('low'));
-    const isCurOffline = !isSpecialScene && (activeScene === offlineScene || (activeScene.includes('offline') && !activeScene.includes('vertical')) || activeScene.includes('brb'));
-
-    // If activeScene is recognized as an unmanaged custom scene, leave OBS alone!
-    if (activeScene && !isCurLive && !isCurLow && !isCurOffline) {
-      return;
-    }
-    
     // Switch scene via direct local WebSocket first, then fallback to API
     const switchSceneViaApi = async (sceneName: string): Promise<boolean> => {
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔄 Switching scene to: ${sceneName}`);
@@ -3673,6 +3661,57 @@ function OverlayPage() {
         return false;
       }
     };
+
+    const isStartingScene = activeScene === startingScene || activeScene === 'starting' || activeScene.includes('starting');
+    if (isStartingScene && startingCheckStartRef.current > 0) {
+      const checkWindowSec = Math.max(60, settings.obsStartingSceneCheckSeconds ?? 60);
+      const checkDurationMs = checkWindowSec * 1000;
+      const elapsedMs = Date.now() - startingCheckStartRef.current;
+
+      if (elapsedMs >= checkDurationMs) {
+        startingCheckStartRef.current = 0;
+        appendObsLog('warn', `[scene-manager] Belabox did not go live within ${checkWindowSec}s check window. Stopped checking.`);
+        return;
+      }
+
+      const recThreshold = settings.obsRecoveryBitrateThreshold ?? 2000;
+      const rttThreshold = settings.obsRttThreshold ?? 2500;
+      const rttOk = !settings.rttTriggerEnabled || currentRtt === null || currentRtt < rttThreshold;
+      const isBelaboxLive = currentBitrate !== null && currentBitrate >= recThreshold && rttOk && !isStale;
+
+      if (isBelaboxLive) {
+        const minDelayMs = (settings.obsStartingSceneMinDelaySeconds ?? 0) * 1000;
+        if (elapsedMs >= minDelayMs) {
+          startingCheckStartRef.current = 0;
+          manualOverrideUntilRef.current = 0;
+          lastBitrateStateRef.current = 'live';
+          const targetLive = settings.obsLiveSceneName || 'live';
+          appendObsLog('success', `[scene-manager] Belabox is LIVE (${currentBitrate} kbps)! Switching from starting scene to '${targetLive}'.`);
+          switchSceneViaApi(targetLive);
+          return;
+        }
+      }
+
+      // Still checking Belabox on starting scene
+      return;
+    }
+
+    if (isSpecialScene) {
+      return;
+    }
+
+    const liveScene = (settings.obsLiveSceneName || 'live').trim().toLowerCase();
+    const lowScene = (settings.obsLowSceneName || 'low').trim().toLowerCase();
+    const offlineScene = (settings.obsOfflineSceneName || 'offline').trim().toLowerCase();
+
+    const isCurLive = !isSpecialScene && (activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical')));
+    const isCurLow = !isSpecialScene && (activeScene === lowScene || activeScene.includes('low'));
+    const isCurOffline = !isSpecialScene && (activeScene === offlineScene || (activeScene.includes('offline') && !activeScene.includes('vertical')) || activeScene.includes('brb'));
+
+    // If activeScene is recognized as an unmanaged custom scene, leave OBS alone!
+    if (activeScene && !isCurLive && !isCurLow && !isCurOffline) {
+      return;
+    }
 
     // Auto-switch to offline scene (only after stream was previously confirmed live)
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {

@@ -256,6 +256,8 @@ export interface OverlaySettings {
   obsInstantRecovery?: boolean;
   obsChecksBeforeSwitching?: number;
   obsStartingSceneOnGoLive?: boolean;
+  obsStartingSceneCheckSeconds?: number;
+  obsStartingSceneMinDelaySeconds?: number;
   obsEndingSceneOnStreamStop?: boolean;
   obsEndingChatMessageEnabled?: boolean;
   obsEndingChatMessage?: string;
@@ -563,6 +565,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsInstantRecovery: true,
   obsChecksBeforeSwitching: 5,
   obsStartingSceneOnGoLive: true,
+  obsStartingSceneCheckSeconds: 60,
+  obsStartingSceneMinDelaySeconds: 0,
   obsEndingSceneOnStreamStop: true,
   obsEndingChatMessageEnabled: false,
   obsEndingChatMessage: 'Thanks for watching everyone! Stream is now ending. See you next time! ❤️',
@@ -818,6 +822,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   obsInstantRecovery: 'boolean',
   obsChecksBeforeSwitching: 'number',
   obsStartingSceneOnGoLive: 'boolean',
+  obsStartingSceneCheckSeconds: 'number',
+  obsStartingSceneMinDelaySeconds: 'number',
   obsEndingSceneOnStreamStop: 'boolean',
   obsEndingChatMessageEnabled: 'boolean',
   obsEndingChatMessage: 'string',

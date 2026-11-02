@@ -277,7 +277,11 @@ function LowBitrateContent() {
             lastManualSceneSwitchTimeRef.current = Date.now();
 
             if (isSpecialSceneName(sName, settingsRef.current)) {
-              manualOverrideUntilRef.current = Date.now() + 86400000;
+              if (sName.toLowerCase().includes('starting') && startingCheckStartRef.current > 0) {
+                manualOverrideUntilRef.current = 0;
+              } else {
+                manualOverrideUntilRef.current = Date.now() + 86400000;
+              }
               setAutoSwitchState('IDLE');
               setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sName}" — Auto-switching PAUSED`);
             } else if (isLiveSceneName(sName, settingsRef.current)) {
@@ -340,8 +344,13 @@ function LowBitrateContent() {
             if (!wasLiveBefore && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
               const startScene = settingsRef.current.obsStartingSceneName || 'starting';
               switchScene(startScene, 'Stream Started');
+              startingCheckStartRef.current = Date.now();
+              setIsCheckingStartingBelabox(true);
             }
           } else {
+            startingCheckStartRef.current = 0;
+            setIsCheckingStartingBelabox(false);
+            setStartingCheckRemainingSeconds(0);
             // Stream just stopped! ONLY switch to ending scene if stream was previously LIVE and setting is enabled
             if (wasLiveBefore) {
               if (settingsRef.current.obsEndingSceneOnStreamStop ?? true) {
@@ -455,6 +464,9 @@ function LowBitrateContent() {
   const currentSceneRef = useRef(currentScene);
   const lastManualSceneSwitchTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef<boolean>(false);
+  const startingCheckStartRef = useRef<number>(0);
+  const [isCheckingStartingBelabox, setIsCheckingStartingBelabox] = useState<boolean>(false);
+  const [startingCheckRemainingSeconds, setStartingCheckRemainingSeconds] = useState<number>(0);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -747,11 +759,23 @@ function LowBitrateContent() {
     const isLiveTarget = isLiveSceneName(sceneName, settings);
     const isLowTarget = isLowSceneName(sceneName, settings);
     const isOfflineTarget = isOfflineSceneName(sceneName, settings);
+    const isStartingTarget = sceneName.toLowerCase().includes('starting');
+
+    if (reason && (reason.includes('Stream Started') || reason.includes('Starting check'))) {
+      // Keep checking
+    } else {
+      startingCheckStartRef.current = 0;
+      setIsCheckingStartingBelabox(false);
+      setStartingCheckRemainingSeconds(0);
+    }
 
     if (isSpecial) {
       // Special scene (Starting, Ending, Privacy, Refresh):
-      // Hold indefinitely so auto-switching NEVER forces user back to LIVE!
-      manualOverrideUntilRef.current = now + 86400000;
+      if (isStartingTarget && startingCheckStartRef.current > 0) {
+        manualOverrideUntilRef.current = 0;
+      } else {
+        manualOverrideUntilRef.current = now + 86400000;
+      }
       setAutoSwitchState('IDLE');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔒 On Special Scene "${sceneName}" — Auto-switching PAUSED`);
     } else if (isLiveTarget) {
@@ -1075,9 +1099,16 @@ function LowBitrateContent() {
         if (finalState && (settingsRef.current.obsStartingSceneOnGoLive ?? true)) {
           const startScene = settingsRef.current.obsStartingSceneName || 'starting';
           switchScene(startScene, 'Stream Started');
-        } else if (!finalState && (settingsRef.current.obsEndingSceneOnStreamStop ?? true)) {
-          const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
-          switchScene(targetScene, 'OBS Stream Stopped');
+          startingCheckStartRef.current = Date.now();
+          setIsCheckingStartingBelabox(true);
+        } else if (!finalState) {
+          startingCheckStartRef.current = 0;
+          setIsCheckingStartingBelabox(false);
+          setStartingCheckRemainingSeconds(0);
+          if (settingsRef.current.obsEndingSceneOnStreamStop ?? true) {
+            const targetScene = settingsRef.current.obsEndingSceneName || settingsRef.current.obsOfflineSceneName || 'ending';
+            switchScene(targetScene, 'OBS Stream Stopped');
+          }
         }
       }
     }, 400);
@@ -1168,6 +1199,52 @@ function LowBitrateContent() {
 
       // Check current scene: if OBS is on a Special Scene (starting, ending, privacy, refresh), NEVER auto-switch!
       const curScene = (currentSceneRef.current || '').trim().toLowerCase();
+      const startSceneNorm = (currentSettings.obsStartingSceneName || 'starting').trim().toLowerCase();
+      const isCurStarting = curScene === startSceneNorm || curScene === 'starting' || curScene.includes('starting');
+
+      // Belabox Go-Live Check while on Starting Scene (checks for min 1 min, switches to live or stops checking)
+      if (isCurStarting && startingCheckStartRef.current > 0) {
+        const checkWindowSec = Math.max(60, currentSettings.obsStartingSceneCheckSeconds ?? 60);
+        const checkDurationMs = checkWindowSec * 1000;
+        const elapsedMs = Date.now() - startingCheckStartRef.current;
+        const remainingSec = Math.max(0, Math.ceil((checkDurationMs - elapsedMs) / 1000));
+        setStartingCheckRemainingSeconds(remainingSec);
+
+        if (elapsedMs >= checkDurationMs) {
+          // Timeout reached: "if not it stops checking"
+          startingCheckStartRef.current = 0;
+          setIsCheckingStartingBelabox(false);
+          setStartingCheckRemainingSeconds(0);
+          setAutoSwitchState('IDLE');
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏹️ Belabox did not go live within ${checkWindowSec}s. Stopped checking.`);
+          showToast(`Belabox did not go live within ${Math.round(checkWindowSec / 60)} min. Auto-check stopped.`, 'info');
+          return;
+        }
+
+        const recThreshold = currentSettings.obsRecoveryBitrateThreshold ?? 2000;
+        const rttThreshold = currentSettings.obsRttThreshold ?? 2500;
+        const rttOk = !currentSettings.rttTriggerEnabled || rtt === null || rtt < rttThreshold;
+        const isBelaboxLive = bitrate !== null && bitrate >= recThreshold && rttOk;
+
+        if (isBelaboxLive) {
+          const minDelayMs = (currentSettings.obsStartingSceneMinDelaySeconds ?? 0) * 1000;
+          if (elapsedMs >= minDelayMs) {
+            startingCheckStartRef.current = 0;
+            setIsCheckingStartingBelabox(false);
+            setStartingCheckRemainingSeconds(0);
+            manualOverrideUntilRef.current = 0;
+            const liveScene = currentSettings.obsLiveSceneName || 'live';
+            setAutoSwitchState('LIVE');
+            switchScene(liveScene, `Belabox is LIVE (${bitrate} kbps)! Transitioned from starting scene`);
+            showToast(`Belabox is LIVE! Switched to '${liveScene}'`, 'success');
+            return;
+          }
+        }
+
+        // Still checking Belabox on starting scene, do not auto-switch to low or offline
+        return;
+      }
+
       if (!curScene || isSpecialSceneName(curScene, currentSettings)) {
         return;
       }
@@ -2575,21 +2652,67 @@ function LowBitrateContent() {
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
               <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>Auto-Switch State</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <span
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: '6px',
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    background: autoSwitchState === 'LIVE' ? 'rgba(34, 197, 94, 0.2)' : autoSwitchState === 'LOW' ? 'rgba(245, 158, 11, 0.2)' : autoSwitchState === 'OFFLINE' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-                    color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255, 255, 255, 0.6)',
-                  }}
-                >
-                  {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW' : autoSwitchState === 'OFFLINE' ? '🔴 BRB' : 'IDLE'}
-                </span>
+                {isCheckingStartingBelabox ? (
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      background: 'rgba(192, 132, 252, 0.25)',
+                      color: '#c084fc',
+                      border: '1px solid rgba(192, 132, 252, 0.4)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <span>⏱️</span>
+                    <span>CHECKING BELABOX ({startingCheckRemainingSeconds}s)</span>
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      background: autoSwitchState === 'LIVE' ? 'rgba(34, 197, 94, 0.2)' : autoSwitchState === 'LOW' ? 'rgba(245, 158, 11, 0.2)' : autoSwitchState === 'OFFLINE' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                      color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255, 255, 255, 0.6)',
+                    }}
+                  >
+                    {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW' : autoSwitchState === 'OFFLINE' ? '🔴 BRB' : 'IDLE'}
+                  </span>
+                )}
               </div>
-              <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px' }}>
-                {settings.obsAutoSwitchSceneToggle ? 'Auto-Switching is ACTIVE' : 'Switcher is DISABLED'}
+              <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span>
+                  {isCheckingStartingBelabox
+                    ? `Waiting for feed to go live (${startingCheckRemainingSeconds}s left)`
+                    : settings.obsAutoSwitchSceneToggle ? 'Auto-Switching is ACTIVE' : 'Switcher is DISABLED'}
+                </span>
+                {isCheckingStartingBelabox && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      startingCheckStartRef.current = 0;
+                      setIsCheckingStartingBelabox(false);
+                      setStartingCheckRemainingSeconds(0);
+                      showToast('Belabox check stopped.', 'info');
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      color: '#ffaaaa',
+                      fontSize: '0.7rem',
+                      borderRadius: '4px',
+                      padding: '1px 6px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Stop Check
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -4547,42 +4670,130 @@ function LowBitrateContent() {
                     />
                   </div>
 
-                  {/* Pick scene on stream start dropdown */}
-                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
-                      🎬 Pick scene when stream starts:
-                    </span>
-                    <select
-                      value={settings.obsStartingSceneName || 'starting'}
-                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(192, 132, 252, 0.4)',
-                        borderRadius: '6px',
-                        color: '#ffffff',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {availableScenes.length > 0 && (
-                        <optgroup label="Detected in OBS Studio" style={{ background: '#0f172a', color: '#38bdf8' }}>
-                          {availableScenes.map(sc => (
-                            <option key={`start-obs-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                  {/* Pick scene on stream start dropdown & Belabox go-live check settings */}
+                  <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
+                        🎬 Pick scene when stream starts:
+                      </span>
+                      <select
+                        value={settings.obsStartingSceneName || 'starting'}
+                        onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
+                        style={{
+                          padding: '6px 12px',
+                          background: '#131924',
+                          border: '1px solid rgba(192, 132, 252, 0.4)',
+                          borderRadius: '6px',
+                          color: '#ffffff',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {availableScenes.length > 0 && (
+                          <optgroup label="Detected in OBS Studio" style={{ background: '#0f172a', color: '#38bdf8' }}>
+                            {availableScenes.map(sc => (
+                              <option key={`start-obs-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
+                                {sc}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        <optgroup label="Preset Scenes" style={{ background: '#0f172a', color: '#94a3b8' }}>
+                          {DEFAULT_SCENE_PRESETS.map(sc => (
+                            <option key={`start-preset-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
                               {sc}
                             </option>
                           ))}
                         </optgroup>
-                      )}
-                      <optgroup label="Preset Scenes" style={{ background: '#0f172a', color: '#94a3b8' }}>
-                        {DEFAULT_SCENE_PRESETS.map(sc => (
-                          <option key={`start-preset-${sc}`} value={sc} style={{ background: '#1e293b', color: '#fff' }}>
-                            {sc}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
+                      </select>
+                    </div>
+
+                    {/* Belabox Go-Live Check Timeout */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8' }}>
+                        ⏱️ Belabox go-live check timeout:
+                      </span>
+                      <select
+                        value={settings.obsStartingSceneCheckSeconds ?? 60}
+                        onChange={(e) => saveSettingsUpdates({ obsStartingSceneCheckSeconds: Number(e.target.value) || 60 })}
+                        style={{
+                          padding: '6px 12px',
+                          background: '#131924',
+                          border: '1px solid rgba(56, 189, 248, 0.4)',
+                          borderRadius: '6px',
+                          color: '#ffffff',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value={60} style={{ background: '#1e293b', color: '#fff' }}>1 minute (Default &amp; Minimum)</option>
+                        <option value={120} style={{ background: '#1e293b', color: '#fff' }}>2 minutes</option>
+                        <option value={180} style={{ background: '#1e293b', color: '#fff' }}>3 minutes</option>
+                        <option value={300} style={{ background: '#1e293b', color: '#fff' }}>5 minutes</option>
+                      </select>
+                    </div>
+
+                    {/* Minimum Starting Scene Delay */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'rgba(255, 255, 255, 0.75)' }}>
+                        ⏳ Minimum delay on starting scene:
+                      </span>
+                      <select
+                        value={settings.obsStartingSceneMinDelaySeconds ?? 0}
+                        onChange={(e) => saveSettingsUpdates({ obsStartingSceneMinDelaySeconds: Number(e.target.value) || 0 })}
+                        style={{
+                          padding: '6px 12px',
+                          background: '#131924',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '6px',
+                          color: '#ffffff',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value={0} style={{ background: '#1e293b', color: '#fff' }}>0s (Switch to Live immediately when Belabox is live)</option>
+                        <option value={60} style={{ background: '#1e293b', color: '#fff' }}>1 minute (Hold starting scene for at least 60s)</option>
+                        <option value={120} style={{ background: '#1e293b', color: '#fff' }}>2 minutes</option>
+                      </select>
+                    </div>
+
+                    <div style={{ fontSize: '0.74rem', opacity: 0.65, lineHeight: 1.4 }}>
+                      When you start streaming on OBS, the switcher stays on your starting scene and checks for a minimum of 1 minute if Belabox goes live. If Belabox is detected, it automatically switches to your Live scene. If Belabox does not go live within the check timeout, it stops checking.
+                    </div>
+
+                    {/* Active check indicator banner if checking right now */}
+                    {isCheckingStartingBelabox && (
+                      <div style={{ marginTop: '4px', padding: '8px 12px', background: 'rgba(192, 132, 252, 0.12)', border: '1px solid rgba(192, 132, 252, 0.3)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#c084fc', fontWeight: 600 }}>
+                          <span>⏱️</span>
+                          <span>Currently checking if Belabox goes live ({startingCheckRemainingSeconds}s remaining)...</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            startingCheckStartRef.current = 0;
+                            setIsCheckingStartingBelabox(false);
+                            setStartingCheckRemainingSeconds(0);
+                            showToast('Belabox check stopped.', 'info');
+                          }}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.2)',
+                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                            color: '#fca5a5',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Stop Checking
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 

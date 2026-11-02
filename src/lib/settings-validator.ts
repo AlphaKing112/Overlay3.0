@@ -546,6 +546,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     obsInstantRecovery: cleanSettings.obsInstantRecovery ?? DEFAULT_OVERLAY_SETTINGS.obsInstantRecovery,
     obsChecksBeforeSwitching: typeof cleanSettings.obsChecksBeforeSwitching === 'number' ? Math.max(1, Math.min(60, cleanSettings.obsChecksBeforeSwitching)) : DEFAULT_OVERLAY_SETTINGS.obsChecksBeforeSwitching,
     obsStartingSceneOnGoLive: cleanSettings.obsStartingSceneOnGoLive ?? DEFAULT_OVERLAY_SETTINGS.obsStartingSceneOnGoLive,
+    obsStartingSceneCheckSeconds: typeof cleanSettings.obsStartingSceneCheckSeconds === 'number' ? Math.max(60, Math.min(600, cleanSettings.obsStartingSceneCheckSeconds)) : DEFAULT_OVERLAY_SETTINGS.obsStartingSceneCheckSeconds,
+    obsStartingSceneMinDelaySeconds: typeof cleanSettings.obsStartingSceneMinDelaySeconds === 'number' ? Math.max(0, Math.min(300, cleanSettings.obsStartingSceneMinDelaySeconds)) : DEFAULT_OVERLAY_SETTINGS.obsStartingSceneMinDelaySeconds,
     obsEndingSceneOnStreamStop: cleanSettings.obsEndingSceneOnStreamStop ?? DEFAULT_OVERLAY_SETTINGS.obsEndingSceneOnStreamStop,
     obsEndingChatMessageEnabled: typeof cleanSettings.obsEndingChatMessageEnabled === 'boolean' ? cleanSettings.obsEndingChatMessageEnabled : DEFAULT_OVERLAY_SETTINGS.obsEndingChatMessageEnabled,
     obsEndingChatMessage: typeof cleanSettings.obsEndingChatMessage === 'string' ? cleanSettings.obsEndingChatMessage.slice(0, 500) : DEFAULT_OVERLAY_SETTINGS.obsEndingChatMessage,
