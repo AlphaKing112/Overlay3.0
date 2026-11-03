@@ -553,20 +553,10 @@ export async function POST(req: NextRequest) {
       const tzLabel = tzAbbr ? ` ${tzAbbr}` : (tz ? ` (${tz})` : '');
       const dateLabel = body.timeDate ? ` | 📅 ${body.timeDate}` : '';
 
-      // Broadcast signal to overlay so it reveals and displays on screen
-      await saveSettingsPatch({
-        obsStreamCommandSignal: { action: 'time', timestamp: Date.now() }
-      }).catch(() => {});
-
       return NextResponse.json({ success: true, message: `⏰ Current Time: ${timeStr}${tzLabel}${dateLabel}` });
     }
 
     if (cmdName === '!weather') {
-      // Broadcast signal to overlay so it reveals and displays on screen
-      await saveSettingsPatch({
-        obsStreamCommandSignal: { action: 'weather', timestamp: Date.now() }
-      }).catch(() => {});
-
       const weatherData = (body.weather && typeof body.weather === 'object') ? body.weather : cachedTelemetry?.weather;
       let weatherMsg = '';
 

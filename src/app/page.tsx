@@ -1892,33 +1892,11 @@ export default function AdminPage() {
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
-                    checked={settings.showWeatherOnCommand ?? true}
-                    onChange={(e) => handleSettingsChange({ showWeatherOnCommand: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">💬 Show Weather on Overlay when !weather is used</span>
-                </label>
-              </div>
-              <div className="checkbox-group" style={{ marginTop: '10px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
                     checked={settings.showTime ?? true}
                     onChange={(e) => handleSettingsChange({ showTime: e.target.checked })}
                     className="checkbox-input"
                   />
                   <span className="checkbox-text">🕒 Show Time on Overlay</span>
-                </label>
-              </div>
-              <div className="checkbox-group" style={{ marginTop: '10px' }}>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showTimeOnCommand ?? true}
-                    onChange={(e) => handleSettingsChange({ showTimeOnCommand: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">💬 Show Time on Overlay when !time is used</span>
                 </label>
               </div>
               <div className="checkbox-group" style={{ marginTop: '10px' }}>

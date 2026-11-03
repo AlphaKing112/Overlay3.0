@@ -166,8 +166,6 @@ function OverlayPage() {
     timezoneRef.current = timezone;
   }, [timezone]);
 
-  const [commandShowTimeUntil, setCommandShowTimeUntil] = useState<number>(0);
-  const [commandShowWeatherUntil, setCommandShowWeatherUntil] = useState<number>(0);
   const [sunriseSunset, setSunriseSunset] = useState<SunriseSunsetData | null>(null);
   const [mapCoords, setMapCoords] = useState<[number, number] | null>(null);
   const [currentSpeed, setCurrentSpeed] = useState(0);
@@ -2074,17 +2072,8 @@ function OverlayPage() {
                   sendPermError(firstCmdWord, cmdCfg.role);
                   return;
                 }
-                if (firstCmdWord === '!bitrate' || firstCmdWord === '!b' || firstCmdWord === '!status') {
+                if (firstCmdWord === '!bitrate' || firstCmdWord === '!b' || firstCmdWord === '!status' || firstCmdWord === '!time' || firstCmdWord === '!weather') {
                   if (isCommandRateLimited(firstCmdWord, 4000)) return;
-                }
-                if (firstCmdWord === '!time' || firstCmdWord === '!weather') {
-                  if (isCommandRateLimited(firstCmdWord, 4000)) return;
-                  if (firstCmdWord === '!time' && seSettingsRef.current?.showTimeOnCommand !== false) {
-                    setCommandShowTimeUntil(Date.now() + 15000);
-                  }
-                  if (firstCmdWord === '!weather' && seSettingsRef.current?.showWeatherOnCommand !== false) {
-                    setCommandShowWeatherUntil(Date.now() + 15000);
-                  }
                 }
                 const formattedLocation = locationDisplayRef.current
                   ? [locationDisplayRef.current.primary, locationDisplayRef.current.secondary].filter(Boolean).join(', ')
@@ -3548,19 +3537,6 @@ function OverlayPage() {
     lastProcessedSignalRef.current = signal.timestamp;
     OverlayLogger.overlay(`📡 Received cloud stream command signal: ${signal.action}`);
 
-    if (signal.action === 'time') {
-      if (settings.showTimeOnCommand !== false) {
-        setCommandShowTimeUntil(Date.now() + 15000);
-      }
-      return;
-    }
-    if (signal.action === 'weather') {
-      if (settings.showWeatherOnCommand !== false) {
-        setCommandShowWeatherUntil(Date.now() + 15000);
-      }
-      return;
-    }
-
     const obsAction = signal.action;
 
     const runSignalCommand = async () => {
@@ -4955,7 +4931,7 @@ function OverlayPage() {
       )}
 
       {/* Weather section */}
-      {weatherDisplay && ((settings.showWeather ?? true) || (settings.showWeatherOnCommand && commandShowWeatherUntil > Date.now())) && (
+      {weatherDisplay && settings.showWeather && (
         <div className="weather weather-line">
           <div className="weather-text-group">
             <div className="weather-temperature">
@@ -4992,9 +4968,8 @@ function OverlayPage() {
   );
 
   const showTimeWeatherLocation = settings.showTimeWeatherLocation !== false;
-  const isWeatherVisible = ((settings.showWeather ?? true) || (settings.showWeatherOnCommand && commandShowWeatherUntil > Date.now())) && !!weatherDisplay;
-  const showLocationWeather = showTimeWeatherLocation && (settings.locationDisplay !== 'hidden' || isWeatherVisible) && (!!locationDisplay || isWeatherVisible || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
-  const isTimeVisible = ((settings.showTime ?? true) || (settings.showTimeOnCommand && commandShowTimeUntil > Date.now())) && isValidTimezone(timezone) && !!timeDisplay.time;
+  const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
+  const isTimeVisible = (settings.showTime ?? true) && isValidTimezone(timezone) && !!timeDisplay.time;
   const isDateVisible = (settings.showDate ?? true) && isValidTimezone(timezone) && !!timeDisplay.date;
   const showTimeDate = showTimeWeatherLocation && (isTimeVisible || isDateVisible || !!API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && !!bitrateJSX));
 
