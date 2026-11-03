@@ -100,6 +100,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       obsWebSocketVersion: body.obsWebSocketVersion || previousTelemetry?.obsWebSocketVersion || undefined,
       platform: body.platform || previousTelemetry?.platform || undefined,
       logs: mergedLogs.length > 0 ? mergedLogs : undefined,
+      weather: (body.weather && typeof body.weather === 'object') ? body.weather : previousTelemetry?.weather,
+      location: (body.location && typeof body.location === 'object') ? body.location : previousTelemetry?.location,
+      timezone: typeof body.timezone === 'string' ? body.timezone : previousTelemetry?.timezone,
       error: body.error || undefined,
       updatedAt: now,
     };

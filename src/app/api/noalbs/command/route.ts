@@ -507,13 +507,123 @@ export async function POST(req: NextRequest) {
     }
 
     // 16. Existing overlay commands helpers
+    const cachedTelemetry = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsTelemetry : null);
+
     if (cmdName === '!time') {
+      const tz = body.timezone || cachedTelemetry?.timezone || (settings as any).timezone || (settings as any).customTimezone;
+      let timeStr = '';
+      let tzAbbr = '';
+
       const now = new Date();
-      return NextResponse.json({ success: true, message: `⏰ Current Time: ${now.toLocaleTimeString()}` });
+      if (tz) {
+        try {
+          timeStr = now.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true,
+            timeZone: tz
+          });
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            timeZoneName: 'short'
+          }).formatToParts(now);
+          const tzPart = parts.find(p => p.type === 'timeZoneName');
+          if (tzPart && tzPart.value) {
+            tzAbbr = tzPart.value;
+          }
+        } catch {
+          // Timezone formatting fallback
+        }
+      }
+
+      if (!timeStr && body.timeDisplay) {
+        timeStr = body.timeDisplay;
+      }
+
+      if (!timeStr) {
+        timeStr = now.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        });
+      }
+
+      const tzLabel = tzAbbr ? ` ${tzAbbr}` : (tz ? ` (${tz})` : '');
+      const dateLabel = body.timeDate ? ` | 📅 ${body.timeDate}` : '';
+
+      // Broadcast signal to overlay so it reveals and displays on screen
+      await saveSettingsPatch({
+        obsStreamCommandSignal: { action: 'time', timestamp: Date.now() }
+      }).catch(() => {});
+
+      return NextResponse.json({ success: true, message: `⏰ Current Time: ${timeStr}${tzLabel}${dateLabel}` });
     }
 
     if (cmdName === '!weather') {
-      return NextResponse.json({ success: true, message: `🌤️ Weather: ${settings.weatherConditionDisplay || 'Clear'} | Temp: Available on Overlay HUD` });
+      // Broadcast signal to overlay so it reveals and displays on screen
+      await saveSettingsPatch({
+        obsStreamCommandSignal: { action: 'weather', timestamp: Date.now() }
+      }).catch(() => {});
+
+      const weatherData = (body.weather && typeof body.weather === 'object') ? body.weather : cachedTelemetry?.weather;
+      let weatherMsg = '';
+
+      if (weatherData && typeof weatherData === 'object') {
+        const rawDesc = weatherData.desc || '';
+        const desc = rawDesc ? rawDesc.replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Clear';
+
+        const unit = settings.temperatureUnit || 'both';
+        let tempFormatted = '';
+        if (typeof weatherData.temp === 'number') {
+          const tempC = Math.round(weatherData.temp);
+          const tempF = Math.round((weatherData.temp * 9) / 5 + 32);
+          if (unit === 'F') {
+            tempFormatted = `${tempF}°F`;
+          } else if (unit === 'C') {
+            tempFormatted = `${tempC}°C`;
+          } else {
+            tempFormatted = `${tempF}°F (${tempC}°C)`;
+          }
+        } else if (weatherData.formatted) {
+          tempFormatted = weatherData.formatted;
+        }
+
+        let feelsLikeStr = '';
+        if (typeof weatherData.feelsLike === 'number') {
+          const flC = Math.round(weatherData.feelsLike);
+          const flF = Math.round((weatherData.feelsLike * 9) / 5 + 32);
+          if (unit === 'F') {
+            feelsLikeStr = ` (Feels like ${flF}°F)`;
+          } else if (unit === 'C') {
+            feelsLikeStr = ` (Feels like ${flC}°C)`;
+          } else {
+            feelsLikeStr = ` (Feels like ${flF}°F / ${flC}°C)`;
+          }
+        }
+
+        const locationObj = cachedTelemetry?.location;
+        const cachedLocStr = locationObj ? [locationObj.primary, locationObj.secondary].filter(Boolean).join(', ') : '';
+        const loc = body.location || cachedLocStr || settings.customLocation;
+        const locStr = loc ? ` | 📍 ${loc}` : '';
+
+        let icon = '🌤️';
+        const d = rawDesc.toLowerCase();
+        if (d.includes('clear') || d.includes('sun')) icon = '☀️';
+        else if (d.includes('rain') || d.includes('drizzle')) icon = '🌧️';
+        else if (d.includes('thunder')) icon = '⛈️';
+        else if (d.includes('snow') || d.includes('ice') || d.includes('sleet')) icon = '❄️';
+        else if (d.includes('fog') || d.includes('mist') || d.includes('haze')) icon = '🌫️';
+        else if (d.includes('cloud')) icon = '⛅';
+
+        weatherMsg = `${icon} Weather: ${desc}, ${tempFormatted}${feelsLikeStr}${locStr}`;
+      } else {
+        const loc = settings.customLocation ? ` for 📍 ${settings.customLocation}` : '';
+        weatherMsg = `🌤️ Weather: Currently loading live stream weather from overlay GPS${loc}...`;
+      }
+
+      return NextResponse.json({ success: true, message: weatherMsg });
     }
 
     if (cmdName === '!distance') {

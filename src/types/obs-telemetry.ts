@@ -31,6 +31,9 @@ export interface ObsTelemetryStats {
   platform?: string;
   error?: string;
   logs?: ObsTelemetryLogEntry[];
+  weather?: { temp: number; desc: string; feelsLike?: number; id?: number };
+  location?: { primary: string; secondary?: string };
+  timezone?: string;
   updatedAt: number;
 }
 

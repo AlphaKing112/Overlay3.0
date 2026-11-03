@@ -877,8 +877,8 @@ function LowBitrateContent() {
     } else if (isLiveTarget) {
       // Streamer manually chose LIVE: hold for 20s grace period so camera feed can connect before auto-evaluating
       manualOverrideUntilRef.current = now + 20000;
-      offlineCountRef.current = 0;
       lowCountRef.current = 0;
+      offlineCountRef.current = 0;
       liveCountRef.current = 0;
       setAutoSwitchState('LIVE');
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🟢 Switched to LIVE (manual hold for 20s)`);
@@ -3258,7 +3258,7 @@ function LowBitrateContent() {
           TAB 3: CHAT & COMMANDS (DIRECT INSPIRATION FROM USER SCREENSHOTS)
           ===================================================================== */}
       {activeTab === 'chat_commands' && (
-        <div className="switcher-tab-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
           {/* Section Header */}
           <div>
@@ -3271,13 +3271,13 @@ function LowBitrateContent() {
           </div>
 
           {/* CARD 1: CHANNELS */}
-          <div className="switcher-card">
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Channels</h3>
             <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.85rem' }}>
               Connect your channel to use chat commands with this switcher. Turn on alerts to have its automatic scene switches posted in chat.
             </p>
 
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
               <button
                 className="btn btn-secondary"
                 onClick={() => setAddingChannelType('twitch')}
@@ -3296,14 +3296,14 @@ function LowBitrateContent() {
 
             {/* Modal / Inline Add Channel Prompt */}
             {addingChannelType && (
-              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(145,70,255,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(145,70,255,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.85rem', color: '#c084fc' }}>Add {addingChannelType === 'twitch' ? 'Twitch' : 'Kick'} Username:</span>
                 <input
                   type="text"
                   value={channelInputText}
                   onChange={(e) => setChannelInputText(e.target.value)}
                   placeholder="channel username"
-                  style={{ flex: 1, minWidth: '140px', padding: '6px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff' }}
+                  style={{ flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff' }}
                 />
                 <button
                   className="btn btn-primary"
@@ -3336,17 +3336,17 @@ function LowBitrateContent() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {/* Twitch Channel Item */}
               {(settings.twitchToken || settings.twitchUsername) ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(145,70,255,0.25)', borderRadius: '8px', padding: '12px 16px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flex: 1 }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(145,70,255,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#9146FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
                       T
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
                           @{settings.twitchUsername || 'Twitch Streamer'}
                         </span>
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
                           ● CONNECTED
                         </span>
                       </div>
@@ -3354,7 +3354,7 @@ function LowBitrateContent() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button
                       onClick={() => saveSettingsUpdates({ twitchAlertsEnabled: !(settings.twitchAlertsEnabled ?? true) })}
                       style={{
@@ -3387,7 +3387,7 @@ function LowBitrateContent() {
                   </div>
                 </div>
               ) : (
-                <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', fontWeight: 'bold' }}>T</div>
                     <span style={{ fontSize: '0.88rem', color: 'rgba(255,255,255,0.6)' }}>No Twitch channel connected</span>
@@ -3404,17 +3404,17 @@ function LowBitrateContent() {
 
               {/* Kick Channel Item (Only rendered if kickChannelName is configured) */}
               {settings.kickChannelName ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(83,252,25,0.25)', borderRadius: '8px', padding: '12px 16px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flex: 1 }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(83,252,25,0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>
                       K
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
                           @{settings.kickChannelName}
                         </span>
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
                           ● CONNECTED
                         </span>
                       </div>
@@ -3422,7 +3422,7 @@ function LowBitrateContent() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button
                       onClick={() => saveSettingsUpdates({ kickAlertsEnabled: !(settings.kickAlertsEnabled ?? true) })}
                       style={{
@@ -3455,7 +3455,7 @@ function LowBitrateContent() {
           </div>
 
           {/* CARD 2: BOT */}
-          <div className="switcher-card">
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Bot</h3>
             <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.85rem' }}>
               Who replies in chat, for every switcher in this workspace.
@@ -3634,16 +3634,16 @@ function LowBitrateContent() {
               )}
 
               {/* Kick Bot */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px', flexWrap: 'wrap', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#53FC19', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                     K
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>Kick Bot</span>
                       {settings.kickChannelName && (
-                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(83, 252, 25, 0.15)', color: '#53FC19', border: '1px solid rgba(83, 252, 25, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
                           ● ACTIVE ON @{settings.kickChannelName}
                         </span>
                       )}
@@ -3654,7 +3654,7 @@ function LowBitrateContent() {
                 <button
                   className="btn btn-secondary"
                   onClick={() => showToast('Kick bot connection ready', 'info')}
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px', flexShrink: 0 }}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', padding: '6px 14px' }}
                 >
                   Use your own bot
                 </button>
@@ -3670,11 +3670,11 @@ function LowBitrateContent() {
           </div>
 
           {/* CARD 3: SETTINGS (PREFIX, BOT LANGUAGE, REPLY MODE, TOGGLES) */}
-          <div className="switcher-card">
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>Settings</h3>
 
             {/* Inputs Row */}
-            <div className="chat-settings-inputs-grid">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
               <div>
                 <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'rgba(255,255,255,0.8)' }}>
                   Command prefix
@@ -3683,7 +3683,7 @@ function LowBitrateContent() {
                   type="text"
                   value={settings.obsCommandPrefix || '!'}
                   onChange={(e) => saveSettingsUpdates({ obsCommandPrefix: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
                 />
               </div>
 
@@ -3694,7 +3694,7 @@ function LowBitrateContent() {
                 <select
                   value={settings.obsBotLanguage || 'English'}
                   onChange={(e) => saveSettingsUpdates({ obsBotLanguage: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
                 >
                   <option value="English">English</option>
                   <option value="Spanish">Spanish</option>
@@ -3711,7 +3711,7 @@ function LowBitrateContent() {
                 <select
                   value={settings.obsReplyMode || 'Reply'}
                   onChange={(e) => saveSettingsUpdates({ obsReplyMode: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 12px', background: '#131924', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem' }}
                 >
                   <option value="Reply">Reply</option>
                   <option value="Mention">Mention (@user)</option>
@@ -3721,40 +3721,36 @@ function LowBitrateContent() {
             </div>
 
             {/* Public Commands Toggle Row */}
-            <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div className="switcher-option-text">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div>
                 <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#fff' }}>Public commands</div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '2px' }}>
                   Let everyone in chat use commands like !bitrate.
                 </div>
               </div>
-              <div className="switcher-option-control">
-                <PurpleToggle
-                  checked={settings.obsCommandsPublicEnabled ?? true}
-                  onChange={(v) => saveSettingsUpdates({ obsCommandsPublicEnabled: v })}
-                />
-              </div>
+              <PurpleToggle
+                checked={settings.obsCommandsPublicEnabled ?? true}
+                onChange={(v) => saveSettingsUpdates({ obsCommandsPublicEnabled: v })}
+              />
             </div>
 
             {/* Moderator Commands Toggle Row */}
-            <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div className="switcher-option-text">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div>
                 <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#fff' }}>Moderator commands</div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '2px' }}>
                   Let your moderators run moderator commands.
                 </div>
               </div>
-              <div className="switcher-option-control">
-                <PurpleToggle
-                  checked={settings.obsCommandsModEnabled ?? true}
-                  onChange={(v) => saveSettingsUpdates({ obsCommandsModEnabled: v })}
-                />
-              </div>
+              <PurpleToggle
+                checked={settings.obsCommandsModEnabled ?? true}
+                onChange={(v) => saveSettingsUpdates({ obsCommandsModEnabled: v })}
+              />
             </div>
           </div>
 
           {/* CARD 4: COMMANDS (FILTER TABS, ALIAS EDITORS, ROLE SELECTORS, TOGGLES) */}
-          <div className="switcher-card">
+          <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '24px' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>Commands</h3>
             <p style={{ margin: '0 0 16px', opacity: 0.7, fontSize: '0.84rem', lineHeight: 1.5 }}>
               Turn commands on or off, choose who may use them and add shorter names. Roles build on each other (Everyone → Subscribers → VIPs → Moderators → Admins): a command for Subscribers also works for VIPs, moderators and admins. Admins are the channel owner and designated workspace administrators.
@@ -3762,7 +3758,7 @@ function LowBitrateContent() {
 
             {/* Filter Tabs & Search Bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-              <div className="commands-filter-pills">
+              <div style={{ display: 'flex', gap: '6px' }}>
                 {[
                   { key: 'All', label: `All ${countAll}` },
                   { key: 'Admins', label: 'Admins' },
@@ -3793,8 +3789,7 @@ function LowBitrateContent() {
                 value={commandSearchQuery}
                 onChange={(e) => setCommandSearchQuery(e.target.value)}
                 placeholder="Search commands..."
-                className="commands-search-input"
-                style={{ padding: '6px 14px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '0.82rem' }}
+                style={{ padding: '6px 14px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '0.82rem', width: '200px' }}
               />
             </div>
 
@@ -3803,20 +3798,25 @@ function LowBitrateContent() {
               {filteredCommands.map((cmd, idx) => (
                 <div
                   key={cmd.id}
-                  className="command-item-row"
                   style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '16px 0',
                     borderTop: idx > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                    gap: '16px',
+                    flexWrap: 'wrap',
                   }}
                 >
                   {/* Left: Command Name */}
-                  <div className="command-name-col">
+                  <div style={{ width: '130px', flexShrink: 0 }}>
                     <code style={{ fontSize: '0.98rem', fontWeight: 800, color: '#fff', fontFamily: 'monospace' }}>
                       {cmd.name}
                     </code>
                   </div>
 
                   {/* Middle: Description & Aliases */}
-                  <div className="command-desc-col">
+                  <div style={{ flex: 1, minWidth: '220px' }}>
                     <div style={{ fontSize: '0.84rem', color: 'rgba(255,255,255,0.85)', marginBottom: '6px' }}>
                       {cmd.description}
                     </div>
@@ -3896,7 +3896,7 @@ function LowBitrateContent() {
                   </div>
 
                   {/* Right: Role Dropdown & Enable/Disable Toggle */}
-                  <div className="command-actions-col">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
                     <select
                       value={cmd.role}
                       onChange={(e) => updateCommandRole(cmd.id, e.target.value as any)}
@@ -3908,8 +3908,6 @@ function LowBitrateContent() {
                         color: '#fff',
                         fontSize: '0.8rem',
                         cursor: 'pointer',
-                        maxWidth: '100%',
-                        boxSizing: 'border-box',
                       }}
                     >
                       <option value="Everyone">Everyone {cmd.defaultRole === 'Everyone' ? '(default)' : ''}</option>
@@ -3934,7 +3932,7 @@ function LowBitrateContent() {
           TAB 3: SWITCHER OPTIONS
           ===================================================================== */}
       {activeTab === 'switcher_options' && (
-        <div className="switcher-tab-content" style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
           {/* Switching Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
@@ -3979,10 +3977,10 @@ function LowBitrateContent() {
           <div className="switching-main-grid">
             
             {/* COLUMN 1: Triggers & Target Scenes */}
-            <div className="switching-grid-col">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
               {/* CARD 1: Bitrate triggers */}
-              <div className="switcher-card">
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 6px', color: '#fff' }}>
                   Bitrate triggers
                 </h3>
@@ -4335,7 +4333,7 @@ function LowBitrateContent() {
                 };
 
                 return (
-                  <div className="switcher-card">
+                  <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
                       <div>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>
@@ -4445,17 +4443,17 @@ function LowBitrateContent() {
             </div>
 
             {/* COLUMN 2: Switching Settings & Start/End/Raids */}
-            <div className="switching-grid-col">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
               {/* CARD 1: Switching Options */}
-              <div className="switcher-card">
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>
                   Switching Options
                 </h3>
 
                 {/* 1. Auto switch */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Auto switch
                     </div>
@@ -4463,17 +4461,15 @@ function LowBitrateContent() {
                       Switch scenes automatically using the triggers.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <PurpleToggle
-                      checked={settings.obsAutoSwitchSceneToggle ?? false}
-                      onChange={(v) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: v })}
-                    />
-                  </div>
+                  <PurpleToggle
+                    checked={settings.obsAutoSwitchSceneToggle ?? false}
+                    onChange={(v) => saveSettingsUpdates({ obsAutoSwitchSceneToggle: v })}
+                  />
                 </div>
 
                 {/* 2. Only while streaming */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Only while streaming
                     </div>
@@ -4481,17 +4477,15 @@ function LowBitrateContent() {
                       Leave OBS alone when you aren&apos;t live.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <PurpleToggle
-                      checked={settings.obsSwitchOnlyWhileStreaming ?? true}
-                      onChange={(v) => saveSettingsUpdates({ obsSwitchOnlyWhileStreaming: v })}
-                    />
-                  </div>
+                  <PurpleToggle
+                    checked={settings.obsSwitchOnlyWhileStreaming ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsSwitchOnlyWhileStreaming: v })}
+                  />
                 </div>
 
                 {/* 3. Instant recovery */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Instant recovery
                     </div>
@@ -4499,18 +4493,16 @@ function LowBitrateContent() {
                       Go back to LIVE the moment the feed recovers.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <PurpleToggle
-                      checked={settings.obsInstantRecovery ?? true}
-                      onChange={(v) => saveSettingsUpdates({ obsInstantRecovery: v })}
-                    />
-                  </div>
+                  <PurpleToggle
+                    checked={settings.obsInstantRecovery ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsInstantRecovery: v })}
+                  />
                 </div>
 
                 {/* 4. Chat notification */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
                       <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff' }}>
                         Chat notification
                       </span>
@@ -4522,17 +4514,15 @@ function LowBitrateContent() {
                       Post in chat when a scene switches automatically. Pick the channels on the Chat page.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <PurpleToggle
-                      checked={settings.obsChatAlertsEnabled ?? true}
-                      onChange={(v) => saveSettingsUpdates({ obsChatAlertsEnabled: v })}
-                    />
-                  </div>
+                  <PurpleToggle
+                    checked={settings.obsChatAlertsEnabled ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsChatAlertsEnabled: v })}
+                  />
                 </div>
 
                 {/* 5. Checks before switching */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Checks before switching
                     </div>
@@ -4540,25 +4530,23 @@ function LowBitrateContent() {
                       Bad checks in a row before leaving LIVE; one check per second.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <input
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={settings.obsChecksBeforeSwitching ?? settings.obsSwitchDelaySeconds ?? 3}
-                      onChange={(e) => {
-                        const val = Number(e.target.value) || 3;
-                        saveSettingsUpdates({ obsChecksBeforeSwitching: val, obsSwitchDelaySeconds: val });
-                      }}
-                      style={{ width: '60px', padding: '6px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center', boxSizing: 'border-box' }}
-                    />
-                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={settings.obsChecksBeforeSwitching ?? settings.obsSwitchDelaySeconds ?? 3}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 3;
+                      saveSettingsUpdates({ obsChecksBeforeSwitching: val, obsSwitchDelaySeconds: val });
+                    }}
+                    style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
+                  />
                 </div>
 
                 {/* 6. Starting scene on go-live */}
                 <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-row">
-                    <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
                       <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                         Starting scene on go-live
                       </div>
@@ -4566,15 +4554,13 @@ function LowBitrateContent() {
                         Show the selected scene when the stream starts on OBS.
                       </div>
                     </div>
-                    <div className="switcher-option-control">
-                      <PurpleToggle
-                        checked={settings.obsStartingSceneOnGoLive ?? true}
-                        onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
-                      />
-                    </div>
+                    <PurpleToggle
+                      checked={settings.obsStartingSceneOnGoLive ?? true}
+                      onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
+                    />
                   </div>
-                  <div className="start-end-dropdown-row" style={{ marginTop: '10px' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc', flexShrink: 0 }}>
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
                       🎬 Pick scene when stream starts:
                     </span>
                     <select
@@ -4588,9 +4574,7 @@ function LowBitrateContent() {
                         color: '#ffffff',
                         fontSize: '0.85rem',
                         fontWeight: 600,
-                        cursor: 'pointer',
-                        maxWidth: '100%',
-                        boxSizing: 'border-box',
+                        cursor: 'pointer'
                       }}
                     >
                       {availableScenes.length > 0 ? (
@@ -4610,8 +4594,8 @@ function LowBitrateContent() {
                 </div>
 
                 {/* 8. OBS Stream Commands (!start, !end & !refresh) */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       OBS Stream Commands (!start, !end & !refresh)
                     </div>
@@ -4619,17 +4603,15 @@ function LowBitrateContent() {
                       Allow remote chat & cloud signals to trigger broadcast start, stop, or refresh scene cycles.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <PurpleToggle
-                      checked={settings.obsStreamCommandsEnabled ?? true}
-                      onChange={(v) => saveSettingsUpdates({ obsStreamCommandsEnabled: v })}
-                    />
-                  </div>
+                  <PurpleToggle
+                    checked={settings.obsStreamCommandsEnabled ?? true}
+                    onChange={(v) => saveSettingsUpdates({ obsStreamCommandsEnabled: v })}
+                  />
                 </div>
 
                 {/* 7. Auto-Switch Polling Interval */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Auto-Switch Polling Interval
                     </div>
@@ -4637,7 +4619,7 @@ function LowBitrateContent() {
                       Interval for checking bitrate health to trigger automatic OBS scene switching.
                     </div>
                   </div>
-                  <div className="switcher-option-control" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <input
                       type="number"
                       min={3}
@@ -4645,15 +4627,15 @@ function LowBitrateContent() {
                       step={1}
                       value={settings.autoSwitchPollInterval ?? 10}
                       onChange={(e) => saveSettingsUpdates({ autoSwitchPollInterval: Number(e.target.value) || 10 })}
-                      style={{ width: '60px', padding: '6px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center', boxSizing: 'border-box' }}
+                      style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
                     />
                     <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>sec</span>
                   </div>
                 </div>
 
                 {/* 8. Belabox Bitrate Poll Interval */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Belabox Bitrate Poll Interval
                     </div>
@@ -4661,7 +4643,7 @@ function LowBitrateContent() {
                       Polling interval for fetching SRT ingest bitrate stats from server.
                     </div>
                   </div>
-                  <div className="switcher-option-control" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <input
                       type="number"
                       min={2}
@@ -4669,7 +4651,7 @@ function LowBitrateContent() {
                       step={2}
                       value={settings.bitrateUpdateInterval ?? 10}
                       onChange={(e) => saveSettingsUpdates({ bitrateUpdateInterval: Number(e.target.value) || 10 })}
-                      style={{ width: '60px', padding: '6px 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center', boxSizing: 'border-box' }}
+                      style={{ width: '64px', padding: '6px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.95rem', fontWeight: 700, textAlign: 'center' }}
                     />
                     <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>sec</span>
                   </div>
@@ -4677,15 +4659,15 @@ function LowBitrateContent() {
               </div>
 
               {/* CARD 2: Start, end & raids (Exact match to media_1793565680806_64deaffe.jpg) */}
-              <div className="switcher-card">
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px', color: '#fff' }}>
                   Start, end & raids
                 </h3>
 
                 {/* 1. Starting scene on go-live */}
                 <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-row">
-                    <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
                       <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                         Starting scene on go-live
                       </div>
@@ -4693,18 +4675,16 @@ function LowBitrateContent() {
                         Show the selected scene when the stream starts on OBS.
                       </div>
                     </div>
-                    <div className="switcher-option-control">
-                      <PurpleToggle
-                        checked={settings.obsStartingSceneOnGoLive ?? false}
-                        onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
-                      />
-                    </div>
+                    <PurpleToggle
+                      checked={settings.obsStartingSceneOnGoLive ?? false}
+                      onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
+                    />
                   </div>
 
                   {/* Pick scene on stream start dropdown & Belabox go-live check settings */}
                   <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div className="start-end-dropdown-row">
-                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
                         🎬 Pick scene when stream starts:
                       </span>
                       <select
@@ -4718,9 +4698,7 @@ function LowBitrateContent() {
                           color: '#ffffff',
                           fontSize: '0.85rem',
                           fontWeight: 600,
-                          cursor: 'pointer',
-                          maxWidth: '100%',
-                          boxSizing: 'border-box'
+                          cursor: 'pointer'
                         }}
                       >
                         {availableScenes.length > 0 && (
@@ -4743,8 +4721,8 @@ function LowBitrateContent() {
                     </div>
 
                     {/* Belabox Go-Live Check Timeout */}
-                    <div className="start-end-dropdown-row">
-                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#38bdf8' }}>
                         ⏱️ Belabox go-live check timeout:
                       </span>
                       <select
@@ -4758,9 +4736,7 @@ function LowBitrateContent() {
                           color: '#ffffff',
                           fontSize: '0.85rem',
                           fontWeight: 600,
-                          cursor: 'pointer',
-                          maxWidth: '100%',
-                          boxSizing: 'border-box'
+                          cursor: 'pointer'
                         }}
                       >
                         <option value={60} style={{ background: '#1e293b', color: '#fff' }}>1 minute (Default &amp; Minimum)</option>
@@ -4771,8 +4747,8 @@ function LowBitrateContent() {
                     </div>
 
                     {/* Minimum Starting Scene Delay */}
-                    <div className="start-end-dropdown-row">
-                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'rgba(255, 255, 255, 0.75)', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'rgba(255, 255, 255, 0.75)' }}>
                         ⏳ Minimum delay on starting scene:
                       </span>
                       <select
@@ -4786,9 +4762,7 @@ function LowBitrateContent() {
                           color: '#ffffff',
                           fontSize: '0.85rem',
                           fontWeight: 600,
-                          cursor: 'pointer',
-                          maxWidth: '100%',
-                          boxSizing: 'border-box'
+                          cursor: 'pointer'
                         }}
                       >
                         <option value={0} style={{ background: '#1e293b', color: '#fff' }}>0s (Switch to Live immediately when Belabox is live)</option>
@@ -4803,7 +4777,7 @@ function LowBitrateContent() {
 
                     {/* Active check indicator banner if checking right now */}
                     {isCheckingStartingBelabox && (
-                      <div style={{ marginTop: '4px', padding: '8px 12px', background: 'rgba(192, 132, 252, 0.12)', border: '1px solid rgba(192, 132, 252, 0.3)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                      <div style={{ marginTop: '4px', padding: '8px 12px', background: 'rgba(192, 132, 252, 0.12)', border: '1px solid rgba(192, 132, 252, 0.3)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#c084fc', fontWeight: 600 }}>
                           <span>⏱️</span>
                           <span>Currently checking if Belabox goes live ({startingCheckRemainingSeconds}s remaining)...</span>
@@ -4824,8 +4798,7 @@ function LowBitrateContent() {
                             borderRadius: '6px',
                             fontSize: '0.75rem',
                             fontWeight: 700,
-                            cursor: 'pointer',
-                            flexShrink: 0
+                            cursor: 'pointer'
                           }}
                         >
                           Stop Checking
@@ -4837,9 +4810,9 @@ function LowBitrateContent() {
 
                 {/* 2. Custom Chat Message on End Stream */}
                 <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-row">
-                    <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
-                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ paddingRight: '16px' }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span>Post custom message on stream end</span>
                         <span style={{ fontSize: '0.72rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.15)', border: '1px solid rgba(192, 132, 252, 0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
                           Chat
@@ -4849,17 +4822,15 @@ function LowBitrateContent() {
                         Write a custom message to automatically send to chat when your stream ends.
                       </div>
                     </div>
-                    <div className="switcher-option-control">
-                      <PurpleToggle
-                        checked={settings.obsEndingChatMessageEnabled ?? false}
-                        onChange={(v) => saveSettingsUpdates({ obsEndingChatMessageEnabled: v })}
-                      />
-                    </div>
+                    <PurpleToggle
+                      checked={settings.obsEndingChatMessageEnabled ?? false}
+                      onChange={(v) => saveSettingsUpdates({ obsEndingChatMessageEnabled: v })}
+                    />
                   </div>
 
                   {/* Message Input Box & Test Button */}
                   <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div className="end-chat-input-row">
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <input
                         type="text"
                         value={settings.obsEndingChatMessage ?? ''}
@@ -4872,8 +4843,7 @@ function LowBitrateContent() {
                           border: '1px solid rgba(255, 255, 255, 0.14)',
                           borderRadius: '8px',
                           color: '#ffffff',
-                          fontSize: '0.88rem',
-                          boxSizing: 'border-box'
+                          fontSize: '0.88rem'
                         }}
                       />
                       <button
@@ -4893,8 +4863,7 @@ function LowBitrateContent() {
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '6px',
-                          whiteSpace: 'nowrap',
-                          flexShrink: 0
+                          whiteSpace: 'nowrap'
                         }}
                       >
                         <span>💬</span>
@@ -4908,8 +4877,8 @@ function LowBitrateContent() {
                 </div>
 
                 {/* 4. Auto stop stream on raid */}
-                <div className="switcher-option-row" style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="switcher-option-text" style={{ paddingRight: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ paddingRight: '16px' }}>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
                       Auto stop stream on raid
                     </div>
@@ -4917,21 +4886,19 @@ function LowBitrateContent() {
                       Enable/disable stopping the stream on a raid.
                     </div>
                   </div>
-                  <div className="switcher-option-control">
-                    <PurpleToggle
-                      checked={settings.obsAutoStopStreamOnRaid ?? false}
-                      onChange={(v) => saveSettingsUpdates({ obsAutoStopStreamOnRaid: v })}
-                    />
-                  </div>
+                  <PurpleToggle
+                    checked={settings.obsAutoStopStreamOnRaid ?? false}
+                    onChange={(v) => saveSettingsUpdates({ obsAutoStopStreamOnRaid: v })}
+                  />
                 </div>
               </div>
 
               {/* CARD 3: Engine Live Status */}
-              <div className="switcher-card">
+              <div style={{ background: '#0e121b', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '22px' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 14px', color: '#fff' }}>
                   Engine Live Status
                 </h3>
-                <div className="engine-status-grid">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
                   <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div style={{ fontSize: '0.74rem', opacity: 0.6, textTransform: 'uppercase' }}>Current State</div>
                     <div style={{ fontSize: '1.1rem', fontWeight: 800, color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255,255,255,0.6)' }}>

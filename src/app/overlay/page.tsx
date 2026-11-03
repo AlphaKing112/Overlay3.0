@@ -139,13 +139,35 @@ function OverlayPage() {
 
   // State
   const [timeDisplay, setTimeDisplay] = useState({ time: '', date: '' });
+  const timeDisplayRef = useRef(timeDisplay);
+  useEffect(() => {
+    timeDisplayRef.current = timeDisplay;
+  }, [timeDisplay]);
+
   const [location, setLocation] = useState<{
     primary: string;
     secondary?: string;
     countryCode?: string;
   } | null>(null);
+  const locationRef = useRef(location);
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
   const [weather, setWeather] = useState<{ temp: number; desc: string; id?: number; feelsLike?: number } | null>(null);
+  const weatherRef = useRef(weather);
+  useEffect(() => {
+    weatherRef.current = weather;
+  }, [weather]);
+
   const [timezone, setTimezone] = useState<string | null>(null);
+  const timezoneRef = useRef(timezone);
+  useEffect(() => {
+    timezoneRef.current = timezone;
+  }, [timezone]);
+
+  const [commandShowTimeUntil, setCommandShowTimeUntil] = useState<number>(0);
+  const [commandShowWeatherUntil, setCommandShowWeatherUntil] = useState<number>(0);
   const [sunriseSunset, setSunriseSunset] = useState<SunriseSunsetData | null>(null);
   const [mapCoords, setMapCoords] = useState<[number, number] | null>(null);
   const [currentSpeed, setCurrentSpeed] = useState(0);
@@ -789,11 +811,13 @@ function OverlayPage() {
   // Visibility is controlled by "Hidden" option in location display mode
   const updateLocation = useCallback((locationData: { primary: string; secondary?: string; countryCode?: string }) => {
     setLocation(locationData);
+    locationRef.current = locationData;
     lastSuccessfulLocationFetch.current = Date.now();
   }, []);
 
   const updateWeather = useCallback((weatherData: { temp: number; desc: string; id?: number; feelsLike?: number }) => {
     setWeather(weatherData);
+    weatherRef.current = weatherData;
     lastSuccessfulWeatherFetch.current = Date.now();
   }, []);
 
@@ -804,6 +828,7 @@ function OverlayPage() {
       return; // Don't set invalid timezones
     }
     setTimezone(timezoneData);
+    timezoneRef.current = timezoneData;
     // Don't call markGpsReceived() here - timezone updates even when GPS is stale
     // Location/weather visibility is controlled separately by hasReceivedFreshGps
   }, []);
@@ -905,6 +930,7 @@ function OverlayPage() {
       const formatted = formatTime(timezone);
       if (isActive) {
         setTimeDisplay(formatted);
+        timeDisplayRef.current = formatted;
       }
     };
 
@@ -2051,6 +2077,19 @@ function OverlayPage() {
                 if (firstCmdWord === '!bitrate' || firstCmdWord === '!b' || firstCmdWord === '!status') {
                   if (isCommandRateLimited(firstCmdWord, 4000)) return;
                 }
+                if (firstCmdWord === '!time' || firstCmdWord === '!weather') {
+                  if (isCommandRateLimited(firstCmdWord, 4000)) return;
+                  if (firstCmdWord === '!time' && seSettingsRef.current?.showTimeOnCommand !== false) {
+                    setCommandShowTimeUntil(Date.now() + 15000);
+                  }
+                  if (firstCmdWord === '!weather' && seSettingsRef.current?.showWeatherOnCommand !== false) {
+                    setCommandShowWeatherUntil(Date.now() + 15000);
+                  }
+                }
+                const formattedLocation = locationDisplayRef.current
+                  ? [locationDisplayRef.current.primary, locationDisplayRef.current.secondary].filter(Boolean).join(', ')
+                  : (locationRef.current?.primary || seSettingsRef.current?.customLocation);
+
                 fetch('/api/noalbs/command', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -2058,7 +2097,18 @@ function OverlayPage() {
                     command: chatText,
                     user: senderUser,
                     isMod,
-                    isBroadcaster
+                    isBroadcaster,
+                    timeDisplay: timeDisplayRef.current?.time,
+                    timeDate: timeDisplayRef.current?.date,
+                    timezone: timezoneRef.current || (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined),
+                    weather: weatherRef.current ? {
+                      temp: weatherRef.current.temp,
+                      desc: weatherRef.current.desc,
+                      id: weatherRef.current.id,
+                      feelsLike: weatherRef.current.feelsLike,
+                      formatted: weatherDisplayRef.current?.temperature
+                    } : undefined,
+                    location: formattedLocation
                   })
                 })
                 .then(res => res.json())
@@ -3446,6 +3496,17 @@ function OverlayPage() {
             platform: obsVersionInfoRef.current.platform,
             scenes: cachedObsScenesRef.current.length > 0 ? cachedObsScenesRef.current : undefined,
             logs: telemetryLogsRef.current.slice(-25),
+            weather: weatherRef.current ? {
+              temp: weatherRef.current.temp,
+              desc: weatherRef.current.desc,
+              feelsLike: weatherRef.current.feelsLike,
+              id: weatherRef.current.id,
+            } : undefined,
+            location: locationRef.current ? {
+              primary: locationRef.current.primary,
+              secondary: locationRef.current.secondary,
+            } : undefined,
+            timezone: timezoneRef.current || undefined,
           };
 
           fetch('/api/obs-telemetry', {
@@ -3487,6 +3548,21 @@ function OverlayPage() {
     lastProcessedSignalRef.current = signal.timestamp;
     OverlayLogger.overlay(`📡 Received cloud stream command signal: ${signal.action}`);
 
+    if (signal.action === 'time') {
+      if (settings.showTimeOnCommand !== false) {
+        setCommandShowTimeUntil(Date.now() + 15000);
+      }
+      return;
+    }
+    if (signal.action === 'weather') {
+      if (settings.showWeatherOnCommand !== false) {
+        setCommandShowWeatherUntil(Date.now() + 15000);
+      }
+      return;
+    }
+
+    const obsAction = signal.action;
+
     const runSignalCommand = async () => {
       const targetUrl = settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
       const targetPass = settings.obsWebsocketPassword || '';
@@ -3496,7 +3572,7 @@ function OverlayPage() {
 
       // Direct execution on local OBS WebSocket
       if (localObsRef.current) {
-        const ok = await safeObsStreamControl(localObsRef.current, signal.action, {
+        const ok = await safeObsStreamControl(localObsRef.current, obsAction, {
           refreshScene,
           liveScene,
           delayMs: 6000,
@@ -3510,7 +3586,7 @@ function OverlayPage() {
       try {
         const tempObs = new OBSWebSocket();
         await tempObs.connect(targetUrl, targetPass || undefined);
-        await safeObsStreamControl(tempObs, signal.action, {
+        await safeObsStreamControl(tempObs, obsAction, {
           refreshScene,
           liveScene,
           delayMs: 6000,
@@ -3519,7 +3595,7 @@ function OverlayPage() {
         });
         try { await tempObs.disconnect(); } catch {}
       } catch (err) {
-        OverlayLogger.error(`Failed to execute stream signal ${signal.action}:`, err);
+        OverlayLogger.error(`Failed to execute stream signal ${obsAction}:`, err);
       }
     };
 
@@ -3777,7 +3853,6 @@ function OverlayPage() {
   }, [currentBitrate, currentRtt, bitrateUpdateTimestamp, settings.obsAutoSwitchSceneToggle, settings.obsOfflineSceneName, settings.obsLowSceneName, settings.obsLiveSceneName, settings.obsLowBitrateThreshold, settings.obsRecoveryBitrateThreshold, settings.obsOfflineBitrateThreshold, settings.obsRttThreshold, settings.obsRttRecoveryThreshold, settings.rttTriggerEnabled, obsConnected]);
 
   // RTIRL connection - use refs to avoid re-running on timezone/settings changes
-  const timezoneRef = useRef(timezone);
   const updateMinimapVisibilityRef = useRef(updateMinimapVisibility);
   const settingsRef = useRef(settings);
   const updateTimezoneRef = useRef(updateTimezone);
@@ -4431,6 +4506,11 @@ function OverlayPage() {
     return null;
   }, [location, settings.locationDisplay, settings.customLocation]);
 
+  const locationDisplayRef = useRef<any>(null);
+  useEffect(() => {
+    locationDisplayRef.current = locationDisplay;
+  }, [locationDisplay]);
+
 
   // Accurate day/night check using OpenWeatherMap sunrise/sunset data
   // Memoized to avoid recalculating on every render
@@ -4608,6 +4688,11 @@ function OverlayPage() {
     };
     return display;
   }, [weather, settings.weatherConditionDisplay, settings.temperatureUnit, settings.showWeatherWarnings, getWeatherIcon, isNotableWeatherCondition, isNightTime]);
+
+  const weatherDisplayRef = useRef<any>(null);
+  useEffect(() => {
+    weatherDisplayRef.current = weatherDisplay;
+  }, [weatherDisplay]);
 
   // Animated speed value - counts through each integer (50, 51, 52...) - faster for responsiveness
   const displayedSpeed = useAnimatedValue(currentSpeed, {
@@ -4870,7 +4955,7 @@ function OverlayPage() {
       )}
 
       {/* Weather section */}
-      {weatherDisplay && settings.showWeather && (
+      {weatherDisplay && ((settings.showWeather ?? true) || (settings.showWeatherOnCommand && commandShowWeatherUntil > Date.now())) && (
         <div className="weather weather-line">
           <div className="weather-text-group">
             <div className="weather-temperature">
@@ -4907,8 +4992,9 @@ function OverlayPage() {
   );
 
   const showTimeWeatherLocation = settings.showTimeWeatherLocation !== false;
-  const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
-  const isTimeVisible = (settings.showTime ?? true) && isValidTimezone(timezone) && !!timeDisplay.time;
+  const isWeatherVisible = ((settings.showWeather ?? true) || (settings.showWeatherOnCommand && commandShowWeatherUntil > Date.now())) && !!weatherDisplay;
+  const showLocationWeather = showTimeWeatherLocation && (settings.locationDisplay !== 'hidden' || isWeatherVisible) && (!!locationDisplay || isWeatherVisible || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
+  const isTimeVisible = ((settings.showTime ?? true) || (settings.showTimeOnCommand && commandShowTimeUntil > Date.now())) && isValidTimezone(timezone) && !!timeDisplay.time;
   const isDateVisible = (settings.showDate ?? true) && isValidTimezone(timezone) && !!timeDisplay.date;
   const showTimeDate = showTimeWeatherLocation && (isTimeVisible || isDateVisible || !!API_KEYS.PULSOID || (settings.bitrateAnchor === 'time' && !!bitrateJSX));
 

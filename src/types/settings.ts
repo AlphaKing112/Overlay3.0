@@ -73,10 +73,12 @@ export interface OverlaySettings {
   showCountryName: boolean;
   showWeather: boolean;
   showWeatherWarnings?: boolean;
+  showWeatherOnCommand?: boolean;
   showTimeWeatherLocation?: boolean;
   weatherConditionDisplay: DisplayMode;
   temperatureUnit?: 'both' | 'F';
   showTime?: boolean;
+  showTimeOnCommand?: boolean;
   showDate?: boolean;
   showMinimap: boolean;
   minimapSpeedBased: boolean;
@@ -272,7 +274,7 @@ export interface OverlaySettings {
   noalbsCommandsList?: CommandConfigItem[];
   obsAutoSwitchDebugger?: boolean;
   obsStreamCommandsEnabled?: boolean;
-  obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh' | 'fix' | 'rec' | 'start_record' | 'stop_record'; timestamp: number } | null;
+  obsStreamCommandSignal?: { action: 'start' | 'stop' | 'refresh' | 'fix' | 'rec' | 'start_record' | 'stop_record' | 'weather' | 'time'; timestamp: number } | null;
   obsTelemetryEnabled?: boolean;
   obsTelemetryInterval?: number;
   enableResourceOptimization?: boolean;
@@ -383,10 +385,12 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   showCountryName: true,
   showWeather: true,
   showWeatherWarnings: true,
+  showWeatherOnCommand: true,
   showTimeWeatherLocation: true,
   weatherConditionDisplay: 'auto',
   temperatureUnit: 'both',
   showTime: true,
+  showTimeOnCommand: true,
   showDate: true,
   showMinimap: false,
   minimapSpeedBased: false,
@@ -643,10 +647,12 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   showCountryName: 'boolean',
   showWeather: 'boolean',
   showWeatherWarnings: 'boolean',
+  showWeatherOnCommand: 'boolean',
   showTimeWeatherLocation: 'boolean',
   weatherConditionDisplay: 'string',
   temperatureUnit: 'string',
   showTime: 'boolean',
+  showTimeOnCommand: 'boolean',
   showDate: 'boolean',
   showMinimap: 'boolean',
   minimapSpeedBased: 'boolean',

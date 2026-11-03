@@ -325,12 +325,14 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     showCountryName: cleanSettings.showCountryName ?? DEFAULT_OVERLAY_SETTINGS.showCountryName,
     showWeather: cleanSettings.showWeather ?? DEFAULT_OVERLAY_SETTINGS.showWeather,
     showWeatherWarnings: cleanSettings.showWeatherWarnings ?? DEFAULT_OVERLAY_SETTINGS.showWeatherWarnings,
+    showWeatherOnCommand: cleanSettings.showWeatherOnCommand ?? DEFAULT_OVERLAY_SETTINGS.showWeatherOnCommand,
     showTimeWeatherLocation: cleanSettings.showTimeWeatherLocation ?? DEFAULT_OVERLAY_SETTINGS.showTimeWeatherLocation,
     weatherConditionDisplay: cleanSettings.weatherConditionDisplay ?? DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
     temperatureUnit: (cleanSettings.temperatureUnit === 'F' || cleanSettings.temperatureUnit === 'both')
       ? cleanSettings.temperatureUnit
       : DEFAULT_OVERLAY_SETTINGS.temperatureUnit,
     showTime: cleanSettings.showTime ?? DEFAULT_OVERLAY_SETTINGS.showTime,
+    showTimeOnCommand: cleanSettings.showTimeOnCommand ?? DEFAULT_OVERLAY_SETTINGS.showTimeOnCommand,
     showDate: cleanSettings.showDate ?? DEFAULT_OVERLAY_SETTINGS.showDate,
     showMinimap: cleanSettings.showMinimap ?? DEFAULT_OVERLAY_SETTINGS.showMinimap,
     minimapSpeedBased: cleanSettings.minimapSpeedBased ?? DEFAULT_OVERLAY_SETTINGS.minimapSpeedBased,
