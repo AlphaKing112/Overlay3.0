@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
-import { validateAndSanitizeSettings, detectMaliciousKeys } from '@/lib/settings-validator';
+import { validateAndSanitizeSettings, detectMaliciousKeys, DEPRECATED_SETTINGS_KEYS } from '@/lib/settings-validator';
 import { verifyAuth, logKVUsage } from '@/lib/api-auth';
 import { broadcastSettings } from '@/lib/settings-broadcast';
 import { OverlayLogger } from '@/lib/logger';
@@ -45,6 +45,13 @@ async function handlePOST(request: NextRequest) {
     const mergedRawSettings = existingSettings ? { ...existingSettings, ...updates } : updates;
     if (updates && typeof updates.obsStreamCommandsEnabled === 'boolean') {
       mergedRawSettings.obsStreamCommandsEnabled = updates.obsStreamCommandsEnabled;
+    }
+
+    // Silently strip any deprecated/removed settings keys so they do not persist in database
+    for (const depKey of DEPRECATED_SETTINGS_KEYS) {
+      if (depKey in mergedRawSettings) {
+        delete (mergedRawSettings as any)[depKey];
+      }
     }
 
     // Detect and log any malicious keys

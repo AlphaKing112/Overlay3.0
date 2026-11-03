@@ -15,6 +15,16 @@ export const VALID_SETTINGS_KEYS = new Set<string>([
   'settings'
 ]);
 
+export const DEPRECATED_SETTINGS_KEYS = new Set<string>([
+  'enableChatBot',
+  'chatBotMessageTemplates',
+  'chatBotToken',
+  'kickClientId',
+  'kickClientSecret',
+  'showWeatherOnCommand',
+  'showTimeOnCommand'
+]);
+
 
 
 /**
@@ -307,14 +317,9 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
   }
 
   if (rejectedKeys.length > 0) {
-    // Check if these are just old chat bot settings that were removed
-    const deprecatedChatBotKeys = ['enableChatBot', 'chatBotMessageTemplates', 'chatBotToken', 'kickClientId', 'kickClientSecret'];
-    const isDeprecatedSettings = rejectedKeys.every(key => deprecatedChatBotKeys.includes(key));
-
-    if (isDeprecatedSettings) {
-      console.log('ℹ️  Ignoring old chat bot settings (removed during cleanup):', rejectedKeys);
-    } else {
-      console.warn('🚨 Rejected malicious/invalid settings keys:', rejectedKeys);
+    const unknownSuspiciousKeys = rejectedKeys.filter(key => !DEPRECATED_SETTINGS_KEYS.has(key));
+    if (unknownSuspiciousKeys.length > 0) {
+      console.warn('🚨 Rejected malicious/invalid settings keys:', unknownSuspiciousKeys);
     }
   }
 
@@ -662,7 +667,7 @@ export function detectMaliciousKeys(settings: unknown): string[] {
   const settingsObj = settings as Record<string, unknown>;
 
   for (const key of Object.keys(settingsObj)) {
-    if (!VALID_SETTINGS_KEYS.has(key)) {
+    if (!VALID_SETTINGS_KEYS.has(key) && !DEPRECATED_SETTINGS_KEYS.has(key)) {
       maliciousKeys.push(key);
     }
   }
