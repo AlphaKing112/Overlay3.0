@@ -87,6 +87,34 @@ function isSpecialSceneName(name: string, s: OverlaySettings): boolean {
          (n.includes('refresh') && !n.includes('live'));
 }
 
+function isStartingSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  const starting = (s.obsStartingSceneName || 'starting').trim().toLowerCase();
+  return n === starting || n === 'starting' || n.includes('starting') || n.includes('starting soon');
+}
+
+function isEndingSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  const ending = (s.obsEndingSceneName || 'ending').trim().toLowerCase();
+  return n === ending || n === 'ending' || n.includes('ending');
+}
+
+function isPrivacySceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  const privacy = (s.obsPrivacySceneName || 'privacy').trim().toLowerCase();
+  return n === privacy || n === 'privacy' || n.includes('priv') || n.includes('pause');
+}
+
+function isRefreshSceneName(name: string, s: OverlaySettings): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  const refresh = (s.obsRefreshSceneName || 'refresh').trim().toLowerCase();
+  return n === refresh || n === 'refresh' || (n.includes('refresh') && !n.includes('live'));
+}
+
 function isLiveSceneName(name: string, s: OverlaySettings): boolean {
   if (!name) return false;
   const n = name.trim().toLowerCase();
@@ -108,7 +136,7 @@ function isOfflineSceneName(name: string, s: OverlaySettings): boolean {
   const n = name.trim().toLowerCase();
   if (isSpecialSceneName(n, s)) return false;
   const offline = (s.obsOfflineSceneName || 'offline').trim().toLowerCase();
-  return n === offline || (n.includes('offline') && !n.includes('vertical')) || n.includes('brb');
+  return n === offline || (n.includes('offline') && !n.includes('vertical')) || n.includes('brb') || n.includes('be right back');
 }
 
 const DEFAULT_SCENE_PRESETS = [
@@ -327,7 +355,17 @@ function LowBitrateContent() {
         const sceneData: any = await obs.call('GetSceneList').catch(() => null);
         const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
         const currentProg = sceneData?.currentProgramSceneName || '';
-        if (currentProg) setCurrentScene(prev => prev === currentProg ? prev : currentProg);
+        if (currentProg) {
+          setCurrentScene(prev => prev === currentProg ? prev : currentProg);
+          currentSceneRef.current = currentProg;
+          if (isLiveSceneName(currentProg, settingsRef.current)) {
+            setAutoSwitchState('LIVE');
+          } else if (isLowSceneName(currentProg, settingsRef.current)) {
+            setAutoSwitchState('LOW');
+          } else if (isOfflineSceneName(currentProg, settingsRef.current)) {
+            setAutoSwitchState('OFFLINE');
+          }
+        }
         if (scenes.length > 0) updateAvailableScenes(scenes);
 
         await syncObsOutputStatus();
@@ -362,6 +400,10 @@ function LowBitrateContent() {
               setIsCheckingStartingBelabox(false);
               setStartingCheckRemainingSeconds(0);
               setAutoSwitchState('LIVE');
+            } else if (isLowSceneName(sName, settingsRef.current)) {
+              setAutoSwitchState('LOW');
+            } else if (isOfflineSceneName(sName, settingsRef.current)) {
+              setAutoSwitchState('OFFLINE');
             }
 
             fetch('/api/obs-telemetry', {
@@ -555,6 +597,191 @@ function LowBitrateContent() {
   useEffect(() => {
     currentSceneRef.current = currentScene;
   }, [currentScene]);
+
+  // Synchronize autoSwitchState when currentScene updates from OBS or telemetry
+  useEffect(() => {
+    if (!currentScene) return;
+    if (isLiveSceneName(currentScene, settingsRef.current)) {
+      if (autoSwitchStateRef.current === 'IDLE') {
+        setAutoSwitchState('LIVE');
+      }
+    } else if (isLowSceneName(currentScene, settingsRef.current)) {
+      if (autoSwitchStateRef.current === 'IDLE') {
+        setAutoSwitchState('LOW');
+      }
+    } else if (isOfflineSceneName(currentScene, settingsRef.current)) {
+      if (autoSwitchStateRef.current === 'IDLE') {
+        setAutoSwitchState('OFFLINE');
+      }
+    }
+  }, [currentScene]);
+
+  // Derived switcher display state that accurately reflects the current OBS scene and auto-switching activity
+  const switcherDisplayState = useMemo(() => {
+    const scene = (currentScene || '').trim();
+    const isAutoSwitchActive = Boolean(settings.obsAutoSwitchSceneToggle);
+
+    if (isCheckingStartingBelabox) {
+      return {
+        badgeText: `⏱️ CHECKING BELABOX (${startingCheckRemainingSeconds}s)`,
+        shortBadge: `⏱️ CHECKING (${startingCheckRemainingSeconds}s)`,
+        subText: `Waiting for feed to go live (${startingCheckRemainingSeconds}s left)`,
+        color: '#c084fc',
+        bg: 'rgba(168, 85, 247, 0.2)',
+        border: 'rgba(192, 132, 252, 0.4)',
+        progressPercent: 30,
+        progressBarColor: '#a855f7',
+        stateKey: 'STARTING_CHECK'
+      };
+    }
+
+    const isStarting = isStartingSceneName(scene, settings);
+    const isEnding = isEndingSceneName(scene, settings);
+    const isPrivacy = isPrivacySceneName(scene, settings);
+    const isRefresh = isRefreshSceneName(scene, settings);
+
+    if (isStarting) {
+      return {
+        badgeText: '🎬 STARTING',
+        shortBadge: '🎬 STARTING',
+        subText: isAutoSwitchActive ? 'Auto-switch holding on Starting Scene' : 'On Starting Scene',
+        color: '#c084fc',
+        bg: 'rgba(192, 132, 252, 0.2)',
+        border: 'rgba(192, 132, 252, 0.4)',
+        progressPercent: 20,
+        progressBarColor: '#c084fc',
+        stateKey: 'STARTING'
+      };
+    }
+
+    if (isEnding) {
+      return {
+        badgeText: '🛑 ENDING',
+        shortBadge: '🛑 ENDING',
+        subText: 'Auto-switching paused on Ending Scene',
+        color: '#f43f5e',
+        bg: 'rgba(244, 63, 94, 0.2)',
+        border: 'rgba(244, 63, 94, 0.4)',
+        progressPercent: 10,
+        progressBarColor: '#f43f5e',
+        stateKey: 'ENDING'
+      };
+    }
+
+    if (isPrivacy) {
+      return {
+        badgeText: '🔒 PRIVACY',
+        shortBadge: '🔒 PRIVACY',
+        subText: 'Auto-switching paused on Privacy Scene',
+        color: '#fb923c',
+        bg: 'rgba(251, 146, 60, 0.2)',
+        border: 'rgba(251, 146, 60, 0.4)',
+        progressPercent: 15,
+        progressBarColor: '#fb923c',
+        stateKey: 'PRIVACY'
+      };
+    }
+
+    if (isRefresh) {
+      return {
+        badgeText: '🔄 REFRESH',
+        shortBadge: '🔄 REFRESH',
+        subText: 'Refreshing feed in OBS...',
+        color: '#38bdf8',
+        bg: 'rgba(56, 189, 248, 0.2)',
+        border: 'rgba(56, 189, 248, 0.4)',
+        progressPercent: 25,
+        progressBarColor: '#38bdf8',
+        stateKey: 'REFRESH'
+      };
+    }
+
+    const isLive = isLiveSceneName(scene, settings) || autoSwitchState === 'LIVE';
+    const isLow = isLowSceneName(scene, settings) || autoSwitchState === 'LOW';
+    const isOff = isOfflineSceneName(scene, settings) || autoSwitchState === 'OFFLINE';
+
+    if (isOff && !isLive && !isLow) {
+      return {
+        badgeText: '🔴 BRB / OFFLINE',
+        shortBadge: '🔴 BRB',
+        subText: isAutoSwitchActive ? 'Feed offline — Auto-reconnect active' : 'On BRB / Offline (manual)',
+        color: '#f87171',
+        bg: 'rgba(239, 68, 68, 0.2)',
+        border: 'rgba(239, 68, 68, 0.4)',
+        progressPercent: 15,
+        progressBarColor: '#ef4444',
+        stateKey: 'OFFLINE'
+      };
+    }
+
+    if (isLow && !isLive) {
+      return {
+        badgeText: '🟡 LOW BITRATE',
+        shortBadge: '🟡 LOW',
+        subText: isAutoSwitchActive ? 'Feed degraded — Auto-recovery active' : 'On Low Bitrate (manual)',
+        color: '#fbbf24',
+        bg: 'rgba(245, 158, 11, 0.2)',
+        border: 'rgba(245, 158, 11, 0.4)',
+        progressPercent: 50,
+        progressBarColor: '#eab308',
+        stateKey: 'LOW'
+      };
+    }
+
+    if (isLive) {
+      return {
+        badgeText: '🟢 LIVE',
+        shortBadge: '🟢 LIVE',
+        subText: isAutoSwitchActive ? 'Auto-Switching is ACTIVE' : 'Switcher is DISABLED',
+        color: '#4ade80',
+        bg: 'rgba(34, 197, 94, 0.2)',
+        border: 'rgba(34, 197, 94, 0.4)',
+        progressPercent: 100,
+        progressBarColor: '#22c55e',
+        stateKey: 'LIVE'
+      };
+    }
+
+    if (scene) {
+      return {
+        badgeText: `🎬 ${scene}`,
+        shortBadge: `🎬 ${scene.length > 14 ? scene.substring(0, 12) + '…' : scene}`,
+        subText: 'Custom scene — Auto-switch paused',
+        color: '#818cf8',
+        bg: 'rgba(129, 140, 248, 0.2)',
+        border: 'rgba(129, 140, 248, 0.4)',
+        progressPercent: 40,
+        progressBarColor: '#818cf8',
+        stateKey: 'CUSTOM'
+      };
+    }
+
+    if (!isAutoSwitchActive) {
+      return {
+        badgeText: '⏸️ DISABLED',
+        shortBadge: '⏸️ DISABLED',
+        subText: 'Switcher is DISABLED in options',
+        color: 'rgba(255, 255, 255, 0.5)',
+        bg: 'rgba(255, 255, 255, 0.08)',
+        border: 'rgba(255, 255, 255, 0.15)',
+        progressPercent: 0,
+        progressBarColor: 'rgba(255, 255, 255, 0.2)',
+        stateKey: 'IDLE'
+      };
+    }
+
+    return {
+      badgeText: obsConnected ? '⚪ MONITORING' : '⚪ CONNECTING',
+      shortBadge: obsConnected ? '⚪ MONITORING' : 'STANDBY',
+      subText: obsConnected ? 'Auto-Switching is ACTIVE' : 'Connecting to OBS WebSocket...',
+      color: obsConnected ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
+      bg: obsConnected ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.1)',
+      border: obsConnected ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+      progressPercent: obsConnected ? 20 : 0,
+      progressBarColor: obsConnected ? '#38bdf8' : 'rgba(255, 255, 255, 0.3)',
+      stateKey: 'IDLE'
+    };
+  }, [currentScene, autoSwitchState, isCheckingStartingBelabox, startingCheckRemainingSeconds, settings, obsConnected]);
 
   // Dedicated 1-second countdown ticker for Belabox starting check UI
   useEffect(() => {
@@ -1461,7 +1688,7 @@ function LowBitrateContent() {
         // Recover to LIVE if OBS was in LOW or OFFLINE, or activate LIVE from IDLE when healthy feed detected
         const needsRecovery = (autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || isCurLow || isCurOffline) && !isSpecialSceneName(curScene, currentSettings);
 
-        if (liveCountRef.current >= liveRecoveryDelay && (needsRecovery || autoSwitchStateRef.current === 'IDLE')) {
+        if (liveCountRef.current >= liveRecoveryDelay && (needsRecovery || autoSwitchStateRef.current === 'IDLE' || isCurLive)) {
           if (autoSwitchStateRef.current !== 'LIVE') {
             setAutoSwitchState('LIVE');
             if (needsRecovery) {
@@ -2029,8 +2256,8 @@ function LowBitrateContent() {
                 <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase', marginBottom: '4px' }}>
                   Auto-Switch Status
                 </div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : '#ef4444' }}>
-                  {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW BITRATE' : autoSwitchState === 'OFFLINE' ? '🔴 BRB / OFFLINE' : 'MONITORING'}
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: switcherDisplayState.color }}>
+                  {switcherDisplayState.badgeText}
                 </div>
               </div>
             </div>
@@ -2040,8 +2267,8 @@ function LowBitrateContent() {
             <div
               style={{
                 height: '100%',
-                width: autoSwitchState === 'LIVE' ? '100%' : autoSwitchState === 'LOW' ? '50%' : '15%',
-                background: autoSwitchState === 'LIVE' ? '#22c55e' : autoSwitchState === 'LOW' ? '#eab308' : '#ef4444',
+                width: `${switcherDisplayState.progressPercent}%`,
+                background: switcherDisplayState.progressBarColor,
                 transition: 'all 0.4s ease',
               }}
             />
@@ -2806,47 +3033,30 @@ function LowBitrateContent() {
 
             {/* Auto-Switch State Machine */}
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>Auto-Switch State</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                {isCheckingStartingBelabox ? (
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      fontSize: '0.85rem',
-                      fontWeight: 700,
-                      background: 'rgba(192, 132, 252, 0.25)',
-                      color: '#c084fc',
-                      border: '1px solid rgba(192, 132, 252, 0.4)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                  >
-                    <span>⏱️</span>
-                    <span>CHECKING BELABOX ({startingCheckRemainingSeconds}s)</span>
-                  </span>
-                ) : (
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      fontSize: '0.85rem',
-                      fontWeight: 700,
-                      background: autoSwitchState === 'LIVE' ? 'rgba(34, 197, 94, 0.2)' : autoSwitchState === 'LOW' ? 'rgba(245, 158, 11, 0.2)' : autoSwitchState === 'OFFLINE' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-                      color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255, 255, 255, 0.6)',
-                    }}
-                  >
-                    {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW' : autoSwitchState === 'OFFLINE' ? '🔴 BRB' : 'IDLE'}
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                <span>
-                  {isCheckingStartingBelabox
-                    ? `Waiting for feed to go live (${startingCheckRemainingSeconds}s left)`
-                    : settings.obsAutoSwitchSceneToggle ? 'Auto-Switching is ACTIVE' : 'Switcher is DISABLED'}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>
+                  Auto-Switch State
                 </span>
+                <span
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    background: switcherDisplayState.bg,
+                    color: switcherDisplayState.color,
+                    border: `1px solid ${switcherDisplayState.border}`,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  {switcherDisplayState.shortBadge}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.65, marginTop: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span>{switcherDisplayState.subText}</span>
                 {isCheckingStartingBelabox && (
                   <button
                     type="button"
@@ -2861,12 +3071,12 @@ function LowBitrateContent() {
                       border: '1px solid rgba(255,255,255,0.2)',
                       color: '#ffaaaa',
                       fontSize: '0.7rem',
+                      padding: '2px 6px',
                       borderRadius: '4px',
-                      padding: '1px 6px',
                       cursor: 'pointer'
                     }}
                   >
-                    Stop Check
+                    Cancel
                   </button>
                 )}
               </div>
@@ -4901,8 +5111,8 @@ function LowBitrateContent() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
                   <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div style={{ fontSize: '0.74rem', opacity: 0.6, textTransform: 'uppercase' }}>Current State</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: autoSwitchState === 'LIVE' ? '#4ade80' : autoSwitchState === 'LOW' ? '#fbbf24' : autoSwitchState === 'OFFLINE' ? '#f87171' : 'rgba(255,255,255,0.6)' }}>
-                      {autoSwitchState === 'LIVE' ? '🟢 LIVE' : autoSwitchState === 'LOW' ? '🟡 LOW BITRATE' : autoSwitchState === 'OFFLINE' ? '🔴 BRB / OFFLINE' : '⏸️ IDLE'}
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: switcherDisplayState.color }}>
+                      {switcherDisplayState.badgeText}
                     </div>
                   </div>
                   <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
