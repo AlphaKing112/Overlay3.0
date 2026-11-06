@@ -188,6 +188,7 @@ function LowBitrateContent() {
   const [localRecording, setLocalRecording] = useState<boolean | null>(null);
   const isStreaming = localStreaming !== null ? localStreaming : Boolean(telemetry?.streaming);
   const isRecording = localRecording !== null ? localRecording : Boolean(telemetry?.recording);
+  const isObsOnline = obsConnected || Boolean(telemetry?.online);
   const [isFixingFeed, setIsFixingFeed] = useState<boolean>(false);
   const [isRefreshingFeed, setIsRefreshingFeed] = useState<boolean>(false);
   const [isTogglingRecord, setIsTogglingRecord] = useState<boolean>(false);
@@ -777,17 +778,17 @@ function LowBitrateContent() {
     }
 
     return {
-      badgeText: obsConnected ? '⚪ MONITORING' : '⚪ CONNECTING',
-      shortBadge: obsConnected ? '⚪ MONITORING' : 'STANDBY',
-      subText: obsConnected ? 'Auto-Switching is ACTIVE' : 'Connecting to OBS WebSocket...',
-      color: obsConnected ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
-      bg: obsConnected ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.1)',
-      border: obsConnected ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.2)',
-      progressPercent: obsConnected ? 20 : 0,
-      progressBarColor: obsConnected ? '#38bdf8' : 'rgba(255, 255, 255, 0.3)',
+      badgeText: isObsOnline ? '⚪ MONITORING' : '⚪ CONNECTING',
+      shortBadge: isObsOnline ? '⚪ MONITORING' : 'STANDBY',
+      subText: isObsOnline ? 'Auto-Switching is ACTIVE' : 'Connecting to OBS WebSocket...',
+      color: isObsOnline ? '#38bdf8' : 'rgba(255, 255, 255, 0.7)',
+      bg: isObsOnline ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.1)',
+      border: isObsOnline ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+      progressPercent: isObsOnline ? 20 : 0,
+      progressBarColor: isObsOnline ? '#38bdf8' : 'rgba(255, 255, 255, 0.3)',
       stateKey: 'IDLE'
     };
-  }, [currentScene, autoSwitchState, isCheckingStartingBelabox, startingCheckRemainingSeconds, settings, obsConnected]);
+  }, [currentScene, autoSwitchState, isCheckingStartingBelabox, startingCheckRemainingSeconds, settings, isObsOnline]);
 
   // Dedicated 1-second countdown ticker for Belabox starting check UI
   useEffect(() => {
@@ -2056,8 +2057,8 @@ function LowBitrateContent() {
       {/* Connection Loopback Status & Copy Browser Source Pill */}
       <div
         style={{
-          background: obsConnected ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-          border: `1px solid ${obsConnected ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+          background: isObsOnline ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+          border: `1px solid ${isObsOnline ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
           borderRadius: '8px',
           padding: '12px 14px',
           display: 'flex',
@@ -2071,22 +2072,24 @@ function LowBitrateContent() {
               width: '8px',
               height: '8px',
               borderRadius: '50%',
-              backgroundColor: obsConnected ? '#22c55e' : '#f59e0b',
-              boxShadow: `0 0 8px ${obsConnected ? '#22c55e' : '#f59e0b'}`,
+              backgroundColor: isObsOnline ? '#22c55e' : '#f59e0b',
+              boxShadow: `0 0 8px ${isObsOnline ? '#22c55e' : '#f59e0b'}`,
             }}
           />
-          <strong style={{ fontSize: '0.86rem', color: obsConnected ? '#4ade80' : '#fbbf24' }}>
-            {obsConnected
-              ? `CONNECTED TO OBS (Port ${settings.obsWebsocketPort || 4455})`
+          <strong style={{ fontSize: '0.86rem', color: isObsOnline ? '#4ade80' : '#fbbf24' }}>
+            {isObsOnline
+              ? (obsConnected ? `CONNECTED TO OBS (Port ${settings.obsWebsocketPort || 4455})` : 'CONNECTED TO OBS (Cloud Relay)')
               : 'WAITING FOR OBS BROWSER SOURCE'}
           </strong>
         </div>
         <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.7)', lineHeight: 1.4 }}>
-          {obsConnected
-            ? `Your Browser Source is actively running inside OBS on 127.0.0.1:${settings.obsWebsocketPort || 4455}. Automatic low-bitrate switching and chat commands are live!`
-            : 'To connect, add your overlay URL as a Browser Source inside OBS Studio. It communicates with OBS locally on your PC without needing port forwarding.'}
+          {isObsOnline
+            ? (obsConnected
+              ? `Your Browser Source is actively running inside OBS on 127.0.0.1:${settings.obsWebsocketPort || 4455}. Automatic low-bitrate switching and chat commands are live!`
+              : 'OBS Studio is synced via Cloud Relay. Real-time scene status and controls are live on your phone!')
+            : 'To connect, add your overlay URL as a Browser Source or Custom Browser Dock inside OBS Studio.'}
         </p>
-        {!obsConnected && (
+        {!isObsOnline && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
             <button
               className="btn btn-small"
@@ -3004,12 +3007,16 @@ function LowBitrateContent() {
             <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '14px 16px' }}>
               <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', textTransform: 'uppercase' }}>OBS WebSocket</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: obsConnected ? '#22c55e' : '#ef4444' }} />
-                <strong style={{ fontSize: '1.05rem', color: obsConnected ? '#4ade80' : '#f87171' }}>
-                  {obsConnected ? 'CONNECTED' : 'DISCONNECTED'}
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: isObsOnline ? '#22c55e' : '#ef4444' }} />
+                <strong style={{ fontSize: '1.05rem', color: isObsOnline ? '#4ade80' : '#f87171' }}>
+                  {isObsOnline ? (obsConnected ? 'CONNECTED' : 'CONNECTED (Cloud)') : 'DISCONNECTED'}
                 </strong>
               </div>
-              <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px' }}>{settings.obsWebsocketUrl || 'ws://127.0.0.1:4455'}</div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.6, marginTop: '2px' }}>
+                {obsConnected
+                  ? (settings.obsWebsocketUrl || `ws://127.0.0.1:${settings.obsWebsocketPort || 4455}`)
+                  : (telemetry?.online ? 'Connected via OBS Studio' : 'OBS Studio offline / not reachable')}
+              </div>
             </div>
 
             {/* Twitch Account Connection */}

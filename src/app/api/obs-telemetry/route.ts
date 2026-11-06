@@ -10,6 +10,7 @@ declare global {
   var __cachedObsTelemetryTime: number | undefined;
   var __lastKvTelemetryWriteTime: number | undefined;
   var __lastObsTelemetryStaleLogged: boolean | undefined;
+  var __lastObsTelemetryStaleLogTime: number | undefined;
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -42,8 +43,10 @@ export async function GET(): Promise<NextResponse> {
   const isStale = !telemetry || ageMs > 180000;
 
   if (isStale) {
-    if (telemetry && !globalThis.__lastObsTelemetryStaleLogged) {
+    const lastLogTime = globalThis.__lastObsTelemetryStaleLogTime || 0;
+    if (telemetry && !globalThis.__lastObsTelemetryStaleLogged && (now - lastLogTime > 60000)) {
       globalThis.__lastObsTelemetryStaleLogged = true;
+      globalThis.__lastObsTelemetryStaleLogTime = now;
       console.warn(`[OBS-TELEMETRY] ⚠️ Telemetry is stale (${Math.round(ageMs / 1000)}s old > 180s limit). Reporting OBS as disconnected.`);
     }
   } else {
