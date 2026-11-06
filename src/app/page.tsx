@@ -4381,6 +4381,19 @@ export default function AdminPage() {
                     </div>
                   </label>
 
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.clipChatAlertEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ clipChatAlertEnabled: e.target.checked })}
+                      style={{ width: '18px', height: '18px', accentColor: '#00d2ff', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '0.88em', display: 'block', color: '#fff' }}>💬 Post Clip Link to Twitch Chat</strong>
+                      <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Sends the clip creation announcement and twitch.tv link into Twitch chat</span>
+                    </div>
+                  </label>
+
                   <div>
                     <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
                       Custom Chat Reply Template
@@ -4556,6 +4569,19 @@ export default function AdminPage() {
                     <div>
                       <strong style={{ fontSize: '0.88em', display: 'block', color: '#fff' }}>✨ Show Snapshot Toast on Stream Overlay</strong>
                       <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Displays a camera shutter animation card on screen when !pic is triggered</span>
+                    </div>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.picChatAlertEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ picChatAlertEnabled: e.target.checked })}
+                      style={{ width: '18px', height: '18px', accentColor: '#53FC19', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '0.88em', display: 'block', color: '#fff' }}>💬 Post Snapshot Message to Twitch Chat</strong>
+                      <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Sends the snapshot confirmation message into Twitch chat when triggered</span>
                     </div>
                   </label>
 

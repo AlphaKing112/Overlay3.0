@@ -2465,7 +2465,9 @@ function OverlayPage() {
                           .replace(/\{points\}/gi, String(picCost))
                       : `📸 @${senderDisplayName || senderUser} snapped a stream picture! Check it out in the Discord pic channel! 🖼️`;
 
-                    sendChatReply(successMsg, { color: 'green' });
+                    if (seSettingsRef.current.picChatAlertEnabled !== false) {
+                      sendChatReply(successMsg, { color: 'green' });
+                    }
 
                     // Show on-screen notification toast if enabled
                     if (seSettingsRef.current.picShowOnOverlay !== false) {
@@ -2681,7 +2683,9 @@ function OverlayPage() {
                         successMsg = `🎬 Clip created by @${senderDisplayName || senderUser}! ${fullClipUrl}`;
                       }
 
-                      sendChatReply(successMsg, { color: 'green' });
+                      if (seSettingsRef.current.clipChatAlertEnabled !== false) {
+                        sendChatReply(successMsg, { color: 'green' });
+                      }
 
                       if (seSettingsRef.current.clipShowOnOverlay !== false) {
                         showClipToast(senderDisplayName || senderUser, clipCost, clipDuration, clipTitle);
@@ -2834,7 +2838,9 @@ function OverlayPage() {
                           .replace(/\{points\}/gi, String(clipCost))
                       : `🎬 @${senderDisplayName || senderUser} clipped the last ${clipDuration}s${titleDisplay}! Check it out in the Discord clips channel! 🎥`;
 
-                    sendChatReply(successMsg, { color: 'green' });
+                    if (seSettingsRef.current.clipChatAlertEnabled !== false) {
+                      sendChatReply(successMsg, { color: 'green' });
+                    }
 
                     // Show on-screen notification toast if enabled
                     if (seSettingsRef.current.clipShowOnOverlay !== false) {

@@ -1593,6 +1593,21 @@ export default function SettingsConfigPage() {
                 </label>
               </div>
 
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9em' }}>💬 Post Snapshot Message to Twitch Chat</div>
+                  <div style={{ fontSize: '0.75em', opacity: 0.6 }}>Sends the snapshot confirmation message into your Twitch chat when a viewer takes a pic.</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.picChatAlertEnabled ?? true}
+                    onChange={(e) => handleSettingsChange({ picChatAlertEnabled: e.target.checked })}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <button
@@ -1852,6 +1867,21 @@ export default function SettingsConfigPage() {
                     type="checkbox"
                     checked={settings.clipShowOnOverlay ?? true}
                     onChange={(e) => handleSettingsChange({ clipShowOnOverlay: e.target.checked })}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9em' }}>💬 Post Clip Link to Twitch Chat</div>
+                  <div style={{ fontSize: '0.75em', opacity: 0.6 }}>Sends the clip creation message and twitch.tv clip link directly into your Twitch chat.</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.clipChatAlertEnabled ?? true}
+                    onChange={(e) => handleSettingsChange({ clipChatAlertEnabled: e.target.checked })}
                   />
                   <span className="toggle-slider"></span>
                 </label>

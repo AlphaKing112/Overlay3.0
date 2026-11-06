@@ -157,7 +157,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         'noalbsCommandsList', 'autoSwitchPollInterval', 'bitrateUpdateInterval',
         'autoSwitchEnabled', 'twitchAlertsEnabled', 'kickAlertsEnabled',
         'twitchUseCustomBot', 'twitchUsername', 'kickChannelName', 'twitchBroadcasterId',
-        'showWeatherOnCommand', 'showTimeOnCommand'
+        'showWeatherOnCommand', 'showTimeOnCommand',
+        'clipChatAlertEnabled', 'picChatAlertEnabled'
       ];
       const updateKeys = Object.keys(updates);
       const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));

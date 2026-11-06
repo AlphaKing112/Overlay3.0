@@ -638,6 +638,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     picPointsCost: typeof cleanSettings.picPointsCost === 'number' && cleanSettings.picPointsCost >= 0 ? cleanSettings.picPointsCost : DEFAULT_OVERLAY_SETTINGS.picPointsCost,
     picCooldownSeconds: typeof cleanSettings.picCooldownSeconds === 'number' && cleanSettings.picCooldownSeconds >= 0 ? cleanSettings.picCooldownSeconds : DEFAULT_OVERLAY_SETTINGS.picCooldownSeconds,
     picShowOnOverlay: typeof cleanSettings.picShowOnOverlay === 'boolean' ? cleanSettings.picShowOnOverlay : DEFAULT_OVERLAY_SETTINGS.picShowOnOverlay,
+    picChatAlertEnabled: typeof cleanSettings.picChatAlertEnabled === 'boolean' ? cleanSettings.picChatAlertEnabled : DEFAULT_OVERLAY_SETTINGS.picChatAlertEnabled,
     picCustomMessage: typeof cleanSettings.picCustomMessage === 'string' ? cleanSettings.picCustomMessage : DEFAULT_OVERLAY_SETTINGS.picCustomMessage,
     discordClipWebhookUrl: typeof cleanSettings.discordClipWebhookUrl === 'string' ? cleanSettings.discordClipWebhookUrl : DEFAULT_OVERLAY_SETTINGS.discordClipWebhookUrl,
     clipCommandEnabled: typeof cleanSettings.clipCommandEnabled === 'boolean' ? cleanSettings.clipCommandEnabled : DEFAULT_OVERLAY_SETTINGS.clipCommandEnabled,
@@ -649,6 +650,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     clipMaxDuration: typeof cleanSettings.clipMaxDuration === 'number' && cleanSettings.clipMaxDuration > 0 ? cleanSettings.clipMaxDuration : DEFAULT_OVERLAY_SETTINGS.clipMaxDuration,
     clipMinDuration: typeof cleanSettings.clipMinDuration === 'number' && cleanSettings.clipMinDuration > 0 ? cleanSettings.clipMinDuration : DEFAULT_OVERLAY_SETTINGS.clipMinDuration,
     clipShowOnOverlay: typeof cleanSettings.clipShowOnOverlay === 'boolean' ? cleanSettings.clipShowOnOverlay : DEFAULT_OVERLAY_SETTINGS.clipShowOnOverlay,
+    clipChatAlertEnabled: typeof cleanSettings.clipChatAlertEnabled === 'boolean' ? cleanSettings.clipChatAlertEnabled : DEFAULT_OVERLAY_SETTINGS.clipChatAlertEnabled,
     clipCustomMessage: typeof cleanSettings.clipCustomMessage === 'string' ? cleanSettings.clipCustomMessage : DEFAULT_OVERLAY_SETTINGS.clipCustomMessage,
   };
 

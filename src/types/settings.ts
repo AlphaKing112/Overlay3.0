@@ -311,6 +311,7 @@ export interface OverlaySettings {
   picPointsCost?: number;
   picCooldownSeconds?: number;
   picShowOnOverlay?: boolean;
+  picChatAlertEnabled?: boolean;
   picCustomMessage?: string;
 
   // Stream Clipping (!clip Command) & Discord Integration
@@ -324,6 +325,7 @@ export interface OverlaySettings {
   clipMaxDuration?: number;
   clipMinDuration?: number;
   clipShowOnOverlay?: boolean;
+  clipChatAlertEnabled?: boolean;
   clipCustomMessage?: string;
 }
 
@@ -612,6 +614,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   picPointsCost: 200,
   picCooldownSeconds: 15,
   picShowOnOverlay: true,
+  picChatAlertEnabled: true,
   picCustomMessage: '',
   discordClipWebhookUrl: '',
   clipCommandEnabled: true,
@@ -623,6 +626,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   clipMaxDuration: 60,
   clipMinDuration: 10,
   clipShowOnOverlay: true,
+  clipChatAlertEnabled: true,
   clipCustomMessage: '',
 };
 
@@ -869,6 +873,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   picPointsCost: 'number',
   picCooldownSeconds: 'number',
   picShowOnOverlay: 'boolean',
+  picChatAlertEnabled: 'boolean',
   picCustomMessage: 'string',
   discordClipWebhookUrl: 'string',
   clipCommandEnabled: 'boolean',
@@ -880,6 +885,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   clipMaxDuration: 'number',
   clipMinDuration: 'number',
   clipShowOnOverlay: 'boolean',
+  clipChatAlertEnabled: 'boolean',
   clipCustomMessage: 'string',
 };
 
