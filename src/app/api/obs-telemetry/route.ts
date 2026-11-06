@@ -81,7 +81,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const now = Date.now();
 
     // Merge incoming logs with cached logs to preserve log history (keep 25 most recent)
-    const previousTelemetry = globalThis.__cachedObsTelemetry;
+    let previousTelemetry = globalThis.__cachedObsTelemetry;
+    if (!previousTelemetry) {
+      try {
+        const kvExisting = await kv.get<ObsTelemetryStats>('obs_telemetry');
+        if (kvExisting && typeof kvExisting === 'object') {
+          previousTelemetry = kvExisting;
+        }
+      } catch {}
+    }
+
     let mergedLogs = previousTelemetry?.logs || [];
     if (Array.isArray(body.logs) && body.logs.length > 0) {
       const existingTimestamps = new Set(mergedLogs.map(l => `${l.timestamp}_${l.message}`));
@@ -89,22 +98,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       mergedLogs = [...mergedLogs, ...newLogs].sort((a, b) => a.timestamp - b.timestamp).slice(-25);
     }
 
+    const isOnline = Boolean(body.online !== false);
     const telemetry: ObsTelemetryStats = {
-      online: Boolean(body.online !== false),
-      streaming: typeof body.streaming === 'boolean' ? body.streaming : Boolean(previousTelemetry?.streaming),
-      recording: typeof body.recording === 'boolean' ? body.recording : Boolean(previousTelemetry?.recording),
+      online: isOnline,
+      streaming: typeof body.streaming === 'boolean' ? body.streaming : (isOnline ? Boolean(previousTelemetry?.streaming) : false),
+      recording: typeof body.recording === 'boolean' ? body.recording : (isOnline ? Boolean(previousTelemetry?.recording) : false),
       uptimeTimecode: body.uptimeTimecode || previousTelemetry?.uptimeTimecode || '00:00:00',
-      uptimeDurationMs: typeof body.uptimeDurationMs === 'number' ? body.uptimeDurationMs : undefined,
-      outputBytes: typeof body.outputBytes === 'number' ? body.outputBytes : undefined,
-      outputBitrateKbps: typeof body.outputBitrateKbps === 'number' ? body.outputBitrateKbps : undefined,
-      droppedFrames: typeof body.droppedFrames === 'number' ? body.droppedFrames : 0,
-      totalFrames: typeof body.totalFrames === 'number' ? body.totalFrames : 0,
-      droppedFramesPercent: typeof body.droppedFramesPercent === 'number' ? body.droppedFramesPercent : 0,
-      cpuUsagePercent: typeof body.cpuUsagePercent === 'number' ? body.cpuUsagePercent : 0,
-      memoryUsageMb: typeof body.memoryUsageMb === 'number' ? body.memoryUsageMb : undefined,
-      fps: typeof body.fps === 'number' ? body.fps : 60,
-      renderSkippedFrames: typeof body.renderSkippedFrames === 'number' ? body.renderSkippedFrames : undefined,
-      renderTotalFrames: typeof body.renderTotalFrames === 'number' ? body.renderTotalFrames : undefined,
+      uptimeDurationMs: typeof body.uptimeDurationMs === 'number' ? body.uptimeDurationMs : previousTelemetry?.uptimeDurationMs,
+      outputBytes: typeof body.outputBytes === 'number' ? body.outputBytes : previousTelemetry?.outputBytes,
+      outputBitrateKbps: typeof body.outputBitrateKbps === 'number' ? body.outputBitrateKbps : previousTelemetry?.outputBitrateKbps,
+      droppedFrames: typeof body.droppedFrames === 'number' ? body.droppedFrames : (previousTelemetry?.droppedFrames ?? 0),
+      totalFrames: typeof body.totalFrames === 'number' ? body.totalFrames : (previousTelemetry?.totalFrames ?? 0),
+      droppedFramesPercent: typeof body.droppedFramesPercent === 'number' ? body.droppedFramesPercent : (previousTelemetry?.droppedFramesPercent ?? 0),
+      cpuUsagePercent: typeof body.cpuUsagePercent === 'number' ? body.cpuUsagePercent : (previousTelemetry?.cpuUsagePercent ?? 0),
+      memoryUsageMb: typeof body.memoryUsageMb === 'number' ? body.memoryUsageMb : previousTelemetry?.memoryUsageMb,
+      fps: typeof body.fps === 'number' ? body.fps : (previousTelemetry?.fps ?? 60),
+      renderSkippedFrames: typeof body.renderSkippedFrames === 'number' ? body.renderSkippedFrames : previousTelemetry?.renderSkippedFrames,
+      renderTotalFrames: typeof body.renderTotalFrames === 'number' ? body.renderTotalFrames : previousTelemetry?.renderTotalFrames,
       currentScene: body.currentScene || previousTelemetry?.currentScene || undefined,
       scenes: Array.isArray(body.scenes) && body.scenes.length > 0 ? body.scenes : previousTelemetry?.scenes || undefined,
       mediaFeedLive: typeof body.mediaFeedLive === 'boolean' ? body.mediaFeedLive : previousTelemetry?.mediaFeedLive,
@@ -121,18 +131,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       updatedAt: now,
     };
 
-    // Update in-memory cache immediately
-    globalThis.__cachedObsTelemetry = telemetry;
-    globalThis.__cachedObsTelemetryTime = now;
-
-    // Rate-limit KV writes: write immediately on streaming/online/scene status change, otherwise at most once every 20s
+    // Rate-limit KV writes: write immediately on streaming/online/scene status change, otherwise at most once every 15s
     const statusChanged = !previousTelemetry ||
       previousTelemetry.streaming !== telemetry.streaming ||
       previousTelemetry.online !== telemetry.online ||
       previousTelemetry.currentScene !== telemetry.currentScene;
-    const lastWrite = globalThis.__lastKvTelemetryWriteTime || 0;
+    const lastWrite = globalThis.__lastKvTelemetryWriteTime || previousTelemetry?.updatedAt || 0;
 
-    if (statusChanged || now - lastWrite > 20000) {
+    // Update in-memory cache immediately
+    globalThis.__cachedObsTelemetry = telemetry;
+    globalThis.__cachedObsTelemetryTime = now;
+
+    if (statusChanged || now - lastWrite > 15000) {
       globalThis.__lastKvTelemetryWriteTime = now;
       try {
         await kv.set('obs_telemetry', telemetry, { ex: 300 });

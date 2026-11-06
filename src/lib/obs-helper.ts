@@ -977,3 +977,67 @@ export async function triggerObsReplayBuffer(
   }
 }
 
+/**
+ * Creates an interval driven by an inline Web Worker so Chromium / OBS CEF
+ * never throttles or suspends it when the Browser Source's scene is inactive/hidden.
+ */
+export function createUnthrottledInterval(callback: () => void, ms: number): () => void {
+  if (typeof window !== 'undefined' && typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
+    try {
+      const intervalMs = Math.max(100, Math.floor(ms));
+      const blob = new Blob([
+        `const id = setInterval(() => postMessage('tick'), ${intervalMs}); onmessage = (e) => { if (e.data === 'stop') clearInterval(id); };`
+      ], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      const worker = new Worker(url);
+      worker.onmessage = () => callback();
+      return () => {
+        try {
+          worker.postMessage('stop');
+          worker.terminate();
+          URL.revokeObjectURL(url);
+        } catch {}
+      };
+    } catch {}
+  }
+  const id = setInterval(callback, ms);
+  return () => clearInterval(id);
+}
+
+/**
+ * Automatically ensures the Overlay Browser Source in OBS Studio has
+ * "Shutdown source when not visible" (shutdown) and "Refresh browser when scene becomes active"
+ * (restart_when_active) disabled, so a single Browser Source link stays active across all scenes
+ * just like NOALBS Cloud.
+ */
+export async function ensureOverlayBrowserSourcesPersistent(obs: any): Promise<void> {
+  if (!obs) return;
+  try {
+    const listRes: any = await obs.call('GetInputList', { inputKind: 'browser_source' }).catch(() => null);
+    const inputs: any[] = listRes?.inputs || [];
+    for (const inp of inputs) {
+      const inputName = inp?.inputName;
+      if (!inputName) continue;
+      try {
+        const settingsRes: any = await obs.call('GetInputSettings', { inputName });
+        const s = settingsRes?.inputSettings || {};
+        const url = String(s.url || '').toLowerCase();
+        const isOurOverlay = url.includes('/overlay') || url.includes('/low-bitrate') || /overlay/i.test(inputName);
+        if (isOurOverlay && (s.shutdown === true || s.restart_when_active === true)) {
+          await obs.call('SetInputSettings', {
+            inputName,
+            inputSettings: {
+              ...s,
+              shutdown: false,
+              restart_when_active: false,
+            },
+            overlay: true,
+          });
+          console.log(`✅ [OBS] Disabled "Shutdown when not visible" on browser source "${inputName}" for persistent scene switching.`);
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+

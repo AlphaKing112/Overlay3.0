@@ -375,7 +375,7 @@ function LowBitrateContent() {
         fetch('/api/obs-telemetry', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ online: true, currentScene: currentProg, scenes })
+          body: JSON.stringify({ online: true, streaming: Boolean(wasStreamingRef.current), currentScene: currentProg, scenes })
         }).catch(() => {});
 
         obs.on('CurrentProgramSceneChanged' as any, (data: any) => {
@@ -410,7 +410,7 @@ function LowBitrateContent() {
             fetch('/api/obs-telemetry', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ online: true, currentScene: sName })
+              body: JSON.stringify({ online: true, streaming: Boolean(wasStreamingRef.current), currentScene: sName })
             }).catch(() => {});
           }
         });

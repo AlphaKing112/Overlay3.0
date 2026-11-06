@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene, createUnthrottledInterval, ensureOverlayBrowserSourcesPersistent } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -3003,7 +3003,17 @@ function OverlayPage() {
               startingCheckStartRef.current = 0;
             }
 
-            fetch('/api/obs-telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ online: true, currentScene: sceneName }) }).catch(() => {});
+            fetch('/api/obs-telemetry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                online: true,
+                currentScene: sceneName,
+                streaming: Boolean(lastLoggedStateRef.current.isStreaming),
+                recording: Boolean(lastLoggedStateRef.current.isRecording),
+                scenes: cachedObsScenesRef.current.length > 0 ? cachedObsScenesRef.current : undefined
+              })
+            }).catch(() => {});
           }
         });
 
@@ -3124,19 +3134,27 @@ function OverlayPage() {
           setObsConnected(true);
           console.log('📡 OBS Browser Source connected directly to local OBS WebSocket!');
 
+          // Automatically ensure Browser Source does not shut down when switching scenes
+          ensureOverlayBrowserSourcesPersistent(obs).catch(() => {});
+
           // Fetch full startup diagnostics to generate authentic OBS log header
           try {
-            const [vData, vidData, sceneData, streamData] = await Promise.allSettled([
+            const [vData, vidData, sceneData, streamData, recordData] = await Promise.allSettled([
               obs.call('GetVersion' as any),
               obs.call('GetVideoSettings' as any),
               obs.call('GetSceneList' as any),
-              obs.call('GetStreamStatus' as any)
+              obs.call('GetStreamStatus' as any),
+              obs.call('GetRecordStatus' as any)
             ]);
 
             const version = vData.status === 'fulfilled' ? (vData.value as any) : null;
             const video = vidData.status === 'fulfilled' ? (vidData.value as any) : null;
             const scenes = sceneData.status === 'fulfilled' ? (sceneData.value as any) : null;
             const stream = streamData.status === 'fulfilled' ? (streamData.value as any) : null;
+            const record = recordData.status === 'fulfilled' ? (recordData.value as any) : null;
+
+            lastLoggedStateRef.current.isStreaming = Boolean(stream?.outputActive);
+            lastLoggedStateRef.current.isRecording = Boolean(record?.outputActive);
 
             if (version) {
               obsVersionInfoRef.current.obsVersion = version.obsVersion;
@@ -3165,6 +3183,7 @@ function OverlayPage() {
                 body: JSON.stringify({
                   online: true,
                   streaming: Boolean(stream?.outputActive),
+                  recording: Boolean(record?.outputActive),
                   currentScene: scenes?.currentProgramSceneName || '',
                   scenes: sceneNames,
                   obsVersion: version?.obsVersion,
@@ -3175,7 +3194,6 @@ function OverlayPage() {
             }
 
             if (stream?.outputActive) {
-              lastLoggedStateRef.current.isStreaming = true;
               appendObsLog('success', `[rtmp stream: 'simple_stream'] Stream is active (Uptime: ${stream.outputTimecode || 'LIVE'})`);
             }
           } catch {
@@ -3306,10 +3324,10 @@ function OverlayPage() {
       } catch {}
     };
 
-    const interval = setInterval(pollSignal, 1500);
+    const stopInterval = createUnthrottledInterval(pollSignal, 1500);
     return () => {
       isActive = false;
-      clearInterval(interval);
+      stopInterval();
     };
   }, [processSceneSignal]);
 
@@ -3318,7 +3336,7 @@ function OverlayPage() {
     if (!obsConnected) return;
 
     let isActive = true;
-    let timer: NodeJS.Timeout;
+    let isReporting = false;
     let lastOutputBytes = 0;
     let lastBytesTimestamp = 0;
     let lastPostTimestamp = 0;
@@ -3331,7 +3349,8 @@ function OverlayPage() {
     } = {};
 
     const reportTelemetry = async () => {
-      if (!isActive || !localObsRef.current) return;
+      if (!isActive || !localObsRef.current || isReporting) return;
+      isReporting = true;
 
       try {
         const [streamStatus, recordStatus, stats, currentSceneData] = await Promise.allSettled([
@@ -3348,6 +3367,8 @@ function OverlayPage() {
 
         const isStreaming = Boolean(stream?.outputActive);
         const isRecording = Boolean(record?.outputActive);
+        lastLoggedStateRef.current.isStreaming = isStreaming;
+        lastLoggedStateRef.current.isRecording = isRecording;
 
         // Compute bitrate in kbps from outputBytes delta
         let outputBitrateKbps = 0;
@@ -3425,9 +3446,8 @@ function OverlayPage() {
           lastReportedState.droppedFrames !== droppedFrames ||
           Math.abs((lastReportedState.cpuUsage || 0) - cpuUsagePercent) > 3.0;
 
-        const configuredInterval = (settings.obsTelemetryInterval || 45) * 1000;
-        const heartbeatInterval = isStreaming ? Math.min(15000, configuredInterval) : Math.min(25000, Math.max(10000, configuredInterval));
-        const shouldPost = hasCriticalChange || (now - lastPostTimestamp >= heartbeatInterval);
+        const heartbeatInterval = 10000;
+        const shouldPost = lastPostTimestamp === 0 || hasCriticalChange || (now - lastPostTimestamp >= heartbeatInterval);
 
         if (shouldPost) {
           lastPostTimestamp = now;
@@ -3495,18 +3515,17 @@ function OverlayPage() {
         }
       } catch {
         // Ignore background telemetry errors
-      }
-
-      if (isActive) {
-        timer = setTimeout(reportTelemetry, 6000);
+      } finally {
+        isReporting = false;
       }
     };
 
     reportTelemetry();
+    const stopTelemetryInterval = createUnthrottledInterval(reportTelemetry, 5000);
 
     return () => {
       isActive = false;
-      if (timer) clearTimeout(timer);
+      stopTelemetryInterval();
     };
   }, [obsConnected, settings.obsTelemetryInterval, appendObsLog]);
 
@@ -4823,54 +4842,47 @@ function OverlayPage() {
     }
 
     let isActive = true;
-    let timer: NodeJS.Timeout;
+    let isFetching = false;
 
     const fetchStats = async () => {
-      if (!isActive) return;
+      if (!isActive || isFetching) return;
+      isFetching = true;
 
-      const stats = await fetchBitrateStats(bitrateUrl, publisherKey);
+      try {
+        const stats = await fetchBitrateStats(bitrateUrl, publisherKey);
 
-      if (isActive) {
-        const isAutoSwitchOn = settings.obsAutoSwitchSceneToggle;
-        const isLive = stats && stats.bitrateKbps > 0;
+        if (isActive) {
+          const isLive = stats && stats.bitrateKbps > 0;
 
-        const liveInterval = isAutoSwitchOn ? Math.min(1000, settings.bitratePollIntervalLive ?? 1000) : (settings.bitratePollIntervalLive ?? 3000);
-        const offlineInterval = isAutoSwitchOn ? 1500 : (settings.bitratePollIntervalOffline ?? 6000);
-
-        let pollInterval: number;
-        if (typeof document !== 'undefined' && document.hidden) {
-          pollInterval = Math.max(5000, offlineInterval);
-        } else if (isLive) {
-          pollInterval = liveInterval;
-        } else {
-          pollInterval = offlineInterval;
-        }
-
-        if (isLive) {
-          // Success case - stream is LIVE
-          setCurrentBitrate(stats.bitrateKbps);
-          setCurrentRtt(stats.rttMs ?? null);
-          setBitrateUpdateTimestamp(Date.now());
-          consecutiveBitrateFailuresRef.current = 0;
-        } else {
-          // Failure or No Data - stream is OFFLINE
-          consecutiveBitrateFailuresRef.current++;
-          if (consecutiveBitrateFailuresRef.current >= 3 || (stats && stats.bitrateKbps === 0)) {
-            setCurrentBitrate(0);
-            setCurrentRtt(null);
+          if (isLive) {
+            // Success case - stream is LIVE
+            setCurrentBitrate(stats.bitrateKbps);
+            setCurrentRtt(stats.rttMs ?? null);
+            setBitrateUpdateTimestamp(Date.now());
+            consecutiveBitrateFailuresRef.current = 0;
+          } else {
+            // Failure or No Data - stream is OFFLINE
+            consecutiveBitrateFailuresRef.current++;
+            if (consecutiveBitrateFailuresRef.current >= 3 || (stats && stats.bitrateKbps === 0)) {
+              setCurrentBitrate(0);
+              setCurrentRtt(null);
+            }
+            setBitrateUpdateTimestamp(Date.now());
           }
-          setBitrateUpdateTimestamp(Date.now());
         }
-
-        timer = setTimeout(fetchStats, pollInterval);
+      } catch {
+        // Ignore transient fetch errors
+      } finally {
+        isFetching = false;
       }
     };
 
     fetchStats();
+    const stopBitrateInterval = createUnthrottledInterval(fetchStats, 1500);
 
     return () => {
       isActive = false;
-      if (timer) clearTimeout(timer);
+      stopBitrateInterval();
     };
   }, [settings.belaboxPublisherKey]);
 
