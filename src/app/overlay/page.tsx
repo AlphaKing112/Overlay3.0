@@ -3877,7 +3877,10 @@ function OverlayPage() {
 
       if (elapsedMs >= checkDurationMs) {
         startingCheckStartRef.current = 0;
-        appendObsLog('warn', `[scene-manager] Belabox did not go live within ${checkWindowSec}s check window. Stopped checking.`);
+        appendObsLog('warn', `[scene-manager] Belabox did not go live within ${checkWindowSec}s check window. Switching to offline scene.`);
+        const offlineTarget = settings.obsOfflineSceneName || 'offline';
+        lastBitrateStateRef.current = 'offline';
+        switchSceneViaApi(offlineTarget);
         return;
       }
 
@@ -3953,10 +3956,14 @@ function OverlayPage() {
       return;
     }
 
-    // Auto-switch to offline scene (only after stream was previously confirmed live or low, AND required checks met)
+    const isAlreadyOnOffline = activeScene === offlineScene || activeScene.includes('offline') || activeScene.includes('brb');
+    const isAlreadyOnLow = activeScene === lowScene || activeScene.includes('low');
+    const isAlreadyOnLive = activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical'));
+
+    // Auto-switch to offline scene (when stream is live/low or on live scene, AND Belabox is offline for required checks)
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
       const wasLiveOrLow = lastBitrateStateRef.current === 'live' || lastBitrateStateRef.current === 'low' || isCurLive || isCurLow;
-      if (isOffline && wasLiveOrLow && consecutiveOfflineChecksRef.current >= requiredChecks && lastBitrateStateRef.current !== 'offline') {
+      if (isOffline && (wasLiveOrLow || isCurLive || isCurLow) && consecutiveOfflineChecksRef.current >= requiredChecks && !isAlreadyOnOffline) {
         console.log(`📡 Stream confirmed offline (${consecutiveOfflineChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
         switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'offline';
@@ -3968,7 +3975,7 @@ function OverlayPage() {
     if (settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
       const lowScene = settings.obsLowSceneName || 'low';
       const wasLiveOrRecovering = lastBitrateStateRef.current === 'live' || isCurLive;
-      if (isLow && wasLiveOrRecovering && consecutiveLowChecksRef.current >= requiredChecks && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {
+      if (isLow && (wasLiveOrRecovering || isCurLive) && consecutiveLowChecksRef.current >= requiredChecks && !isAlreadyOnLow && !isAlreadyOnOffline) {
         console.log(`📡 Low bitrate confirmed (${consecutiveLowChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate} < ${lowThreshold}), switching to: ${lowScene}`);
         switchSceneViaApi(lowScene).then(success => {
           if (success) lastBitrateStateRef.current = 'low';
@@ -3981,7 +3988,7 @@ function OverlayPage() {
       const needsRecovery = !isSpecialScene && (lastBitrateStateRef.current === 'low' || lastBitrateStateRef.current === 'offline' || isCurLow || isCurOffline);
       const isInstantRecovery = settings.obsInstantRecovery !== false;
       const recoveryRequiredChecks = isInstantRecovery ? 1 : requiredChecks;
-      if (isLive && needsRecovery && consecutiveLiveChecksRef.current >= recoveryRequiredChecks && lastBitrateStateRef.current !== 'live') {
+      if (isLive && (needsRecovery || isCurLow || isCurOffline) && consecutiveLiveChecksRef.current >= recoveryRequiredChecks && !isAlreadyOnLive) {
         console.log(`📡 Stream is live (${consecutiveLiveChecksRef.current}/${recoveryRequiredChecks} checks, bitrate=${currentBitrate}), recovering to: ${settings.obsLiveSceneName}`);
         switchSceneViaApi(settings.obsLiveSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'live';
@@ -4997,10 +5004,8 @@ function OverlayPage() {
           } else {
             // Failure or No Data - stream is OFFLINE
             consecutiveBitrateFailuresRef.current++;
-            if (consecutiveBitrateFailuresRef.current >= 3 || (stats && stats.bitrateKbps === 0)) {
-              setCurrentBitrate(0);
-              setCurrentRtt(null);
-            }
+            setCurrentBitrate(0);
+            setCurrentRtt(null);
             setBitrateUpdateTimestamp(Date.now());
           }
         }

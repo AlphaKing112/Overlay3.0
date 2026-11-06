@@ -1537,6 +1537,7 @@ function LowBitrateContent() {
         manualOverrideUntilRef.current = 0; // Clear any manual override during starting check
 
         const liveScene = currentSettings.obsLiveSceneName || 'live';
+        const offlineScene = currentSettings.obsOfflineSceneName || 'offline';
         const liveSceneNorm = liveScene.trim().toLowerCase();
         // If OBS is already on the live scene, the transition already occurred!
         if (curScene && (curScene === liveSceneNorm || (curScene.includes('live') && !curScene.includes('vertical')))) {
@@ -1554,13 +1555,14 @@ function LowBitrateContent() {
         setStartingCheckRemainingSeconds(remainingSec);
 
         if (elapsedMs >= checkDurationMs) {
-          // Timeout reached: "if not it stops checking"
+          // Timeout reached: switch to offline scene
           startingCheckStartRef.current = 0;
           setIsCheckingStartingBelabox(false);
           setStartingCheckRemainingSeconds(0);
-          setAutoSwitchState('IDLE');
-          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏹️ Belabox did not go live within ${checkWindowSec}s. Stopped checking.`);
-          showToast(`Belabox did not go live within ${Math.round(checkWindowSec / 60)} min. Auto-check stopped.`, 'info');
+          setAutoSwitchState('OFFLINE');
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⏹️ Belabox did not go live within ${checkWindowSec}s. Switching to offline scene.`);
+          switchScene(offlineScene, `Belabox did not go live within check window (${checkWindowSec}s)`);
+          showToast(`Belabox did not go live within ${Math.round(checkWindowSec / 60)} min. Switched to '${offlineScene}'.`, 'info');
           return;
         }
 
@@ -1667,13 +1669,13 @@ function LowBitrateContent() {
 
       const wasLiveOrLow = autoSwitchStateRef.current === 'LIVE' || autoSwitchStateRef.current === 'LOW' || isCurLive || isCurLow;
 
-      // A. Evaluate OFFLINE / BRB (Only when previously live or low)
+      // A. Evaluate OFFLINE / BRB
       if (shouldBeOffline) {
         lowCountRef.current = 0;
         liveCountRef.current = 0;
         offlineCountRef.current += 1;
 
-        if (wasLiveOrLow && offlineCountRef.current >= offDelaySec && autoSwitchStateRef.current !== 'OFFLINE') {
+        if ((wasLiveOrLow || isCurLive || isCurLow) && offlineCountRef.current >= offDelaySec && !isCurOffline) {
           setAutoSwitchState('OFFLINE');
           const reason = isBrbByRtt
             ? `Critical latency spike (RTT: ${rtt}ms >= ${rttBrbThreshold}ms)`
@@ -1681,13 +1683,13 @@ function LowBitrateContent() {
           switchScene(offlineScene, reason);
         }
       }
-      // B. Evaluate LOW BITRATE (Only when previously live or low)
+      // B. Evaluate LOW BITRATE
       else if (shouldBeLow) {
         offlineCountRef.current = 0;
         liveCountRef.current = 0;
         lowCountRef.current += 1;
 
-        if (wasLiveOrLow && lowCountRef.current >= delaySec && autoSwitchStateRef.current !== 'LOW') {
+        if ((wasLiveOrLow || isCurLive) && lowCountRef.current >= delaySec && !isCurLow && !isCurOffline) {
           setAutoSwitchState('LOW');
           const reason = isLowByRtt
             ? `High latency detected (RTT: ${rtt}ms >= ${rttLowThreshold}ms)`
@@ -1701,16 +1703,12 @@ function LowBitrateContent() {
         lowCountRef.current = 0;
         liveCountRef.current += 1;
 
-        // Recover to LIVE if OBS was in LOW or OFFLINE, or activate LIVE from IDLE when healthy feed detected
+        // Recover to LIVE if OBS was in LOW or OFFLINE, or activate LIVE when healthy feed detected
         const needsRecovery = (autoSwitchStateRef.current === 'LOW' || autoSwitchStateRef.current === 'OFFLINE' || isCurLow || isCurOffline) && !isSpecialSceneName(curScene, currentSettings);
 
-        if (liveCountRef.current >= liveRecoveryDelay && (needsRecovery || autoSwitchStateRef.current === 'IDLE' || isCurLive)) {
-          if (autoSwitchStateRef.current !== 'LIVE') {
-            setAutoSwitchState('LIVE');
-            if (needsRecovery) {
-              switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
-            }
-          }
+        if (liveCountRef.current >= liveRecoveryDelay && (needsRecovery || isCurLow || isCurOffline) && !isCurLive) {
+          setAutoSwitchState('LIVE');
+          switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
         }
       }
     };
