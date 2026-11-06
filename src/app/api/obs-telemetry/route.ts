@@ -9,6 +9,7 @@ declare global {
   var __cachedObsTelemetry: ObsTelemetryStats | undefined;
   var __cachedObsTelemetryTime: number | undefined;
   var __lastKvTelemetryWriteTime: number | undefined;
+  var __lastObsTelemetryStaleLogged: boolean | undefined;
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -40,8 +41,13 @@ export async function GET(): Promise<NextResponse> {
   const ageMs = telemetry ? (now - (telemetry.updatedAt || 0)) : -1;
   const isStale = !telemetry || ageMs > 180000;
 
-  if (isStale && telemetry) {
-    console.warn(`[OBS-TELEMETRY GET] ⚠️ Telemetry is stale (${Math.round(ageMs / 1000)}s old > 180s limit). Reporting OBS as disconnected.`);
+  if (isStale) {
+    if (telemetry && !globalThis.__lastObsTelemetryStaleLogged) {
+      globalThis.__lastObsTelemetryStaleLogged = true;
+      console.warn(`[OBS-TELEMETRY] ⚠️ Telemetry is stale (${Math.round(ageMs / 1000)}s old > 180s limit). Reporting OBS as disconnected.`);
+    }
+  } else {
+    globalThis.__lastObsTelemetryStaleLogged = false;
   }
 
   const responseData: ObsTelemetryStats = telemetry && !isStale ? {
@@ -127,12 +133,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       globalThis.__lastKvTelemetryWriteTime = now;
       try {
         await kv.set('obs_telemetry', telemetry, { ex: 300 });
-        console.log(`📡 [OBS-TELEMETRY POST] Saved to KV: scene="${telemetry.currentScene || 'unknown'}", streaming=${telemetry.streaming}, fps=${telemetry.fps}, bitrate=${telemetry.outputBitrateKbps ?? 0}k, droppedFrames=${telemetry.droppedFrames}`);
+        if (statusChanged) {
+          console.log(`📡 [OBS-TELEMETRY] State update: scene="${telemetry.currentScene || 'unknown'}", streaming=${telemetry.streaming}, fps=${telemetry.fps}`);
+        }
       } catch (kvErr) {
         OverlayLogger.warn('KV write failed in obs-telemetry POST:', kvErr);
       }
-    } else {
-      console.log(`📡 [OBS-TELEMETRY POST] Memory cached: scene="${telemetry.currentScene || 'unknown'}", streaming=${telemetry.streaming}`);
     }
 
     return NextResponse.json({ success: true, timestamp: now });

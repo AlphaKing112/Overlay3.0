@@ -5,6 +5,10 @@ import { broadcastSettings } from '@/lib/settings-broadcast';
 
 export const dynamic = 'force-dynamic';
 
+declare global {
+  var __lastLoggedSwitchSceneStatus: string | undefined;
+}
+
 async function getObsConnectionInfo(overrideUrl?: string, overridePassword?: string) {
   let url = overrideUrl;
   let password = overridePassword;
@@ -77,7 +81,12 @@ export async function GET(request: NextRequest) {
 
     const isTelemetryFresh = telemetry && (Date.now() - (telemetry.updatedAt || 0) < 180000);
     if (isTelemetryFresh && telemetry.online) {
-      console.log(`📡 [OBS-SWITCH-SCENE GET] Connected via Browser Source. Current Scene: "${telemetry.currentScene || ''}" (${telemetry.scenes?.length || 0} scenes)`);
+      const current = telemetry.currentScene || '';
+      const stateKey = `connected:${current}`;
+      if (globalThis.__lastLoggedSwitchSceneStatus !== stateKey) {
+        globalThis.__lastLoggedSwitchSceneStatus = stateKey;
+        console.log(`📡 [OBS-SWITCH-SCENE] Connected via Browser Source. Current Scene: "${current}" (${telemetry.scenes?.length || 0} scenes)`);
+      }
       return NextResponse.json({
         success: true,
         currentScene: telemetry.currentScene || '',
@@ -86,6 +95,11 @@ export async function GET(request: NextRequest) {
         signal: signal || null,
         via: 'browser_source'
       });
+    } else {
+      if (globalThis.__lastLoggedSwitchSceneStatus !== 'disconnected') {
+        globalThis.__lastLoggedSwitchSceneStatus = 'disconnected';
+        console.log(`📡 [OBS-SWITCH-SCENE] OBS is disconnected (no active Browser Source telemetry)`);
+      }
     }
 
     // 2. Direct local WebSocket check (works when app runs on streamer's PC/local network)
