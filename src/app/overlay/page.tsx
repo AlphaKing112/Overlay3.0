@@ -2649,6 +2649,7 @@ function OverlayPage() {
                         duration: clipDuration,
                         username: senderUser,
                         displayName: senderDisplayName || senderUser,
+                        channelName: channelName || seSettingsRef.current?.twitchUsername || 'lazesk',
                         pointsCost: clipCost,
                         webhookUrl
                       })
@@ -2659,16 +2660,26 @@ function OverlayPage() {
                     if (clipData.success && clipData.clipUrl) {
                       const customMsg = seSettingsRef.current.clipCustomMessage;
                       const titleDisplay = clipTitle ? ` "${clipTitle}"` : '';
-                      const successMsg = customMsg
-                        ? customMsg
-                            .replace(/\{user\}/gi, senderDisplayName || senderUser)
-                            .replace(/\{username\}/gi, senderDisplayName || senderUser)
-                            .replace(/\{url\}/gi, clipData.clipUrl)
-                            .replace(/\{link\}/gi, clipData.clipUrl)
-                            .replace(/\{title\}/gi, clipTitle || 'Stream Clip')
-                            .replace(/\{duration\}/gi, String(clipDuration))
-                            .replace(/\{points\}/gi, String(clipCost))
-                        : `🎬 @${senderDisplayName || senderUser} clipped the stream${titleDisplay}! ${clipData.clipUrl} 🎥`;
+                      const fullClipUrl = clipData.clipUrl;
+
+                      let successMsg = '';
+                      if (customMsg && customMsg.trim()) {
+                        successMsg = customMsg
+                          .replace(/\{user\}/gi, `@${senderDisplayName || senderUser}`)
+                          .replace(/\{username\}/gi, `@${senderDisplayName || senderUser}`)
+                          .replace(/\{url\}/gi, fullClipUrl)
+                          .replace(/\{link\}/gi, fullClipUrl)
+                          .replace(/\{title\}/gi, clipTitle || 'Stream Clip')
+                          .replace(/\{duration\}/gi, String(clipDuration))
+                          .replace(/\{points\}/gi, String(clipCost));
+
+                        // Always ensure the Twitch clip link is included in chat even if omitted from custom message template
+                        if (!successMsg.includes(fullClipUrl) && !successMsg.includes(clipData.clipId)) {
+                          successMsg = `${successMsg} ${fullClipUrl}`;
+                        }
+                      } else {
+                        successMsg = `🎬 Clip created by @${senderDisplayName || senderUser}! ${fullClipUrl}`;
+                      }
 
                       sendChatReply(successMsg, { color: 'green' });
 

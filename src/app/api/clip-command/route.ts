@@ -313,9 +313,10 @@ export async function POST(request: NextRequest) {
         if (typeof duration === 'number' && duration >= 5 && duration <= 60) {
           twitchUrl += `&duration=${duration}`;
         }
-        if (typeof title === 'string' && title.trim()) {
-          twitchUrl += `&title=${encodeURIComponent(title.trim().slice(0, 140))}`;
-        }
+        const effectiveTitle = title && title.trim()
+          ? `Clipped by @${name}: ${title.trim().slice(0, 100)}`
+          : `Clipped by @${name}`;
+        twitchUrl += `&title=${encodeURIComponent(effectiveTitle.slice(0, 140))}`;
 
         const twitchRes = await fetch(twitchUrl, {
           method: 'POST',
@@ -357,7 +358,8 @@ export async function POST(request: NextRequest) {
         }
 
         const clipSlug = clipInfo.id;
-        const clipUrl = `https://clips.twitch.tv/${clipSlug}`;
+        const channel = String(body.channelName || settings.twitchUsername || 'lazesk').trim().toLowerCase();
+        const clipUrl = `https://www.twitch.tv/${channel}/clip/${clipSlug}`;
         const editUrl = clipInfo.edit_url || clipUrl;
 
         // Post to Discord Webhook if configured
