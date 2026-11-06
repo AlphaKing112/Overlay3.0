@@ -148,11 +148,6 @@ export default function AdminPage() {
           const isLive = Boolean(stream?.outputActive);
           const isRec = Boolean(record?.outputActive);
 
-          if (wasStreaming && !isLive && settingsRef.current.obsTelemetryEnabled) {
-            handleSettingsChange({ obsTelemetryEnabled: false });
-          } else if (!wasStreaming && isLive && !settingsRef.current.obsTelemetryEnabled) {
-            handleSettingsChange({ obsTelemetryEnabled: true });
-          }
           wasStreaming = isLive;
 
           const droppedFrames = stream?.outputSkippedFrames ?? 0;
@@ -214,11 +209,6 @@ export default function AdminPage() {
           setObsTelemetry(data);
 
           const isLive = Boolean(data.streaming);
-          if (wasStreaming && !isLive && settingsRef.current.obsTelemetryEnabled) {
-            handleSettingsChange({ obsTelemetryEnabled: false });
-          } else if (!wasStreaming && isLive && !settingsRef.current.obsTelemetryEnabled) {
-            handleSettingsChange({ obsTelemetryEnabled: true });
-          }
           wasStreaming = isLive;
         }
       } catch {
@@ -982,11 +972,6 @@ export default function AdminPage() {
     obs.on('StreamStateChanged' as any, (data: any) => {
       const isLive = Boolean(data.outputActive);
       setIsStreaming(isLive);
-      if (!isLive && settingsRef.current.obsTelemetryEnabled) {
-        handleSettingsChange({ obsTelemetryEnabled: false });
-      } else if (isLive && !settingsRef.current.obsTelemetryEnabled) {
-        handleSettingsChange({ obsTelemetryEnabled: true });
-      }
     });
     obsRef.current = obs;
 
@@ -1111,11 +1096,6 @@ export default function AdminPage() {
 
       if (executedLocally) {
         setIsStreaming(action === 'start');
-        if (action === 'start' && !settingsRef.current.obsTelemetryEnabled) {
-          handleSettingsChange({ obsTelemetryEnabled: true });
-        } else if (action === 'stop' && settingsRef.current.obsTelemetryEnabled) {
-          handleSettingsChange({ obsTelemetryEnabled: false });
-        }
         const msg = action === 'start' ? '▶ Command !start executed! OBS Stream starting...' : '🔴 Command !end executed! OBS Stream stopping...';
         setToast({ type: 'saved', message: msg });
         postTwitchAnnouncement(action === 'start' ? '▶ OBS Stream Started! 🚀' : '🔴 OBS Stream Ended! 🛑', action === 'start' ? 'green' : 'primary');
@@ -1361,11 +1341,6 @@ export default function AdminPage() {
               setDetectedLiveBitrate(stats.bitrateKbps);
               setIsStreaming(true);
 
-              if (!settingsRef.current.obsTelemetryEnabled) {
-                console.log('🟢 Belabox stream is LIVE -> Auto-enabling OBS Telemetry');
-                handleSettingsChange({ obsTelemetryEnabled: true });
-              }
-
               // Report status (scene switching is handled by dedicated NOALBS engine)
               if (obsStatus === 'connected') {
                 setAutoSwitchStatus(`✅ OBS Connected (LIVE ${stats.bitrateKbps} kbps) → Scene: "${obsCurrentScene || settings.obsLiveSceneName || 'live'}"`);
@@ -1378,10 +1353,6 @@ export default function AdminPage() {
               if (consecutiveOfflineCount >= 2) {
                 setDetectedLiveBitrate(0);
                 setIsStreaming(false);
-
-                if (settingsRef.current.obsTelemetryEnabled) {
-                  handleSettingsChange({ obsTelemetryEnabled: false });
-                }
 
                 if (obsStatus === 'connected') {
                   setAutoSwitchStatus(`🔴 OBS Connected (OFFLINE) → Scene: "${obsCurrentScene || settings.obsOfflineSceneName || 'offline'}"`);

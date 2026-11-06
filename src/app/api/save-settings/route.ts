@@ -140,7 +140,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const allowedKeys = [
         'startLat', 'startLon', 'distanceCurrent', 'donationGoals',
         'shoutout', 'totalTipCurrent', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent',
-        'obsStreamCommandSignal'
+        'obsStreamCommandSignal', 'obsSceneSwitchSignal',
+        'obsTelemetryEnabled', 'obsTelemetryInterval',
+        'obsAutoSwitchSceneToggle', 'obsSwitchOnlyWhileStreaming', 'obsInstantRecovery',
+        'obsChatAlertsEnabled', 'obsChecksBeforeSwitching', 'obsSwitchDelaySeconds',
+        'obsStartingSceneOnGoLive', 'obsStartingSceneName', 'obsStartingSceneCheckSeconds', 'obsStartingSceneMinDelaySeconds',
+        'obsLiveSceneName', 'obsLowSceneName', 'obsOfflineSceneName', 'obsRefreshSceneName', 'obsEndingSceneName', 'obsPrivacySceneName',
+        'obsLowBitrateTriggerEnabled', 'obsLowBitrateThreshold',
+        'obsOfflineBitrateTriggerEnabled', 'obsOfflineBitrateThreshold',
+        'rttTriggerEnabled', 'obsRttLowTriggerEnabled', 'obsRttThreshold',
+        'obsRttOfflineTriggerEnabled', 'obsRttOfflineThreshold',
+        'obsEndingChatMessageEnabled', 'obsEndingChatMessage',
+        'obsAutoStopStreamOnRaid', 'obsStreamCommandsEnabled',
+        'obsCommandPrefix', 'obsBotLanguage', 'obsReplyMode',
+        'obsCommandsPublicEnabled', 'obsCommandsModEnabled',
+        'noalbsCommandsList', 'autoSwitchPollInterval', 'bitrateUpdateInterval',
+        'autoSwitchEnabled', 'twitchAlertsEnabled', 'kickAlertsEnabled',
+        'twitchUseCustomBot', 'twitchUsername', 'kickChannelName', 'twitchBroadcasterId',
+        'showWeatherOnCommand', 'showTimeOnCommand'
       ];
       const updateKeys = Object.keys(updates);
       const isOverlayAllowedUpdate = updateKeys.length > 0 && updateKeys.every(k => allowedKeys.includes(k));

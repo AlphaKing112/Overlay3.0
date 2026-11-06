@@ -3021,10 +3021,10 @@ function OverlayPage() {
               appendObsLog('success', `[rtmp stream: 'simple_stream'] Connecting to RTMP destination...`);
               appendObsLog('success', `[rtmp stream: 'simple_stream'] Connection successful`);
               appendObsLog('success', `==== Streaming Start ====`);
-              fetch('/api/save-settings', {
+              fetch('/api/obs-telemetry', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ obsTelemetryEnabled: true })
+                body: JSON.stringify({ online: true, streaming: true, currentScene: lastLoggedStateRef.current.currentScene || '' })
               }).catch(() => {});
 
               if (seSettingsRef.current.obsStartingSceneOnGoLive !== false) {
@@ -3040,10 +3040,10 @@ function OverlayPage() {
               startingCheckStartRef.current = 0;
               appendObsLog('warn', `[rtmp stream: 'simple_stream'] User stopped the stream`);
               appendObsLog('warn', `==== Streaming Stop ====`);
-              fetch('/api/save-settings', {
+              fetch('/api/obs-telemetry', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ obsTelemetryEnabled: false })
+                body: JSON.stringify({ online: true, streaming: false, currentScene: lastLoggedStateRef.current.currentScene || '' })
               }).catch(() => {});
 
               // Post Custom End Stream Chat Message
