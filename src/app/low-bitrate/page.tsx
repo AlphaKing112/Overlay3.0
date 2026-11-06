@@ -580,6 +580,8 @@ function LowBitrateContent() {
   const desktopCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mobileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const currentSceneRef = useRef(currentScene);
+  const currentBitrateRef = useRef<number | null>(currentBitrate);
+  const belaboxFetchFailuresRef = useRef<number>(0);
   const lastManualSceneSwitchTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef<boolean>(false);
   const startingCheckStartRef = useRef<number>(0);
@@ -597,6 +599,10 @@ function LowBitrateContent() {
   useEffect(() => {
     currentSceneRef.current = currentScene;
   }, [currentScene]);
+
+  useEffect(() => {
+    currentBitrateRef.current = currentBitrate;
+  }, [currentBitrate]);
 
   // Synchronize autoSwitchState when currentScene updates from OBS or telemetry
   useEffect(() => {
@@ -1497,8 +1503,19 @@ function LowBitrateContent() {
           if (stats) {
             bitrate = stats.bitrateKbps || 0;
             if (stats.rttMs !== undefined) rtt = stats.rttMs;
+            belaboxFetchFailuresRef.current = 0;
+          } else {
+            belaboxFetchFailuresRef.current++;
+            if (belaboxFetchFailuresRef.current < 3 && currentBitrateRef.current !== null && currentBitrateRef.current > 0) {
+              bitrate = currentBitrateRef.current;
+            }
           }
-        } catch {}
+        } catch {
+          belaboxFetchFailuresRef.current++;
+          if (belaboxFetchFailuresRef.current < 3 && currentBitrateRef.current !== null && currentBitrateRef.current > 0) {
+            bitrate = currentBitrateRef.current;
+          }
+        }
       } else {
         const telBitrate = telemetryRef.current?.outputBitrateKbps;
         if (telBitrate) {
@@ -1622,10 +1639,8 @@ function LowBitrateContent() {
         currentSettings.obsSwitchDelaySeconds ?? 3
       );
       const delaySec = checksBeforeSwitch;
-      // When stream feed is completely dead (bitrate === 0), switch to offline/BRB fast (1-2 checks max)
-      const offDelaySec = (bitrate === 0)
-        ? Math.min(2, Math.max(1, currentSettings.obsSwitchDelaySeconds ?? checksBeforeSwitch))
-        : checksBeforeSwitch;
+      // Require at least 3 consecutive confirmed bad checks before leaving LIVE
+      const offDelaySec = Math.max(3, checksBeforeSwitch);
 
       // Instant Recovery: Go back to LIVE the moment the feed recovers (1 check) or wait delaySec
       const isInstantRecovery = currentSettings.obsInstantRecovery !== false;

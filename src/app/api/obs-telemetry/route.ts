@@ -37,7 +37,12 @@ export async function GET(): Promise<NextResponse> {
 
   // Check if telemetry is stale (>180 seconds old means OBS or Overlay is offline)
   // 180s threshold accommodates all intervals (15s, 30s, 45s, 60s) without false offline flipping
-  const isStale = !telemetry || (now - (telemetry.updatedAt || 0) > 180000);
+  const ageMs = telemetry ? (now - (telemetry.updatedAt || 0)) : -1;
+  const isStale = !telemetry || ageMs > 180000;
+
+  if (isStale && telemetry) {
+    console.warn(`[OBS-TELEMETRY GET] ⚠️ Telemetry is stale (${Math.round(ageMs / 1000)}s old > 180s limit). Reporting OBS as disconnected.`);
+  }
 
   const responseData: ObsTelemetryStats = telemetry && !isStale ? {
     ...telemetry,
@@ -111,16 +116,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     globalThis.__cachedObsTelemetry = telemetry;
     globalThis.__cachedObsTelemetryTime = now;
 
-    // Rate-limit KV writes: write immediately on streaming/online status change, otherwise at most once every 20s
-    const statusChanged = !previousTelemetry || previousTelemetry.streaming !== telemetry.streaming || previousTelemetry.online !== telemetry.online;
+    // Rate-limit KV writes: write immediately on streaming/online/scene status change, otherwise at most once every 20s
+    const statusChanged = !previousTelemetry ||
+      previousTelemetry.streaming !== telemetry.streaming ||
+      previousTelemetry.online !== telemetry.online ||
+      previousTelemetry.currentScene !== telemetry.currentScene;
     const lastWrite = globalThis.__lastKvTelemetryWriteTime || 0;
+
     if (statusChanged || now - lastWrite > 20000) {
       globalThis.__lastKvTelemetryWriteTime = now;
       try {
         await kv.set('obs_telemetry', telemetry, { ex: 300 });
+        console.log(`📡 [OBS-TELEMETRY POST] Saved to KV: scene="${telemetry.currentScene || 'unknown'}", streaming=${telemetry.streaming}, fps=${telemetry.fps}, bitrate=${telemetry.outputBitrateKbps ?? 0}k, droppedFrames=${telemetry.droppedFrames}`);
       } catch (kvErr) {
         OverlayLogger.warn('KV write failed in obs-telemetry POST:', kvErr);
       }
+    } else {
+      console.log(`📡 [OBS-TELEMETRY POST] Memory cached: scene="${telemetry.currentScene || 'unknown'}", streaming=${telemetry.streaming}`);
     }
 
     return NextResponse.json({ success: true, timestamp: now });

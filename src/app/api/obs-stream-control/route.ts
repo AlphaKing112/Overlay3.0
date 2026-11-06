@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { action, obsUrl, obsPassword } = body;
+    console.log(`📡 [OBS-STREAM-CONTROL POST] Action requested: "${action}"`);
 
     if (!action || !['start', 'stop', 'refresh', 'toggle'].includes(action)) {
       return NextResponse.json({ success: false, error: 'action must be "start", "stop", "refresh", or "toggle"' }, { status: 400 });

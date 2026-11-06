@@ -460,6 +460,9 @@ function OverlayPage() {
   const [altitudeUpdateTimestamp, setAltitudeUpdateTimestamp] = useState(0); // State to trigger re-renders
   const [bitrateUpdateTimestamp, setBitrateUpdateTimestamp] = useState(0); // State to trigger re-renders
   const consecutiveBitrateFailuresRef = useRef(0);
+  const consecutiveOfflineChecksRef = useRef(0);
+  const consecutiveLowChecksRef = useRef(0);
+  const consecutiveLiveChecksRef = useRef(0);
 
   // Helper: Check if GPS update is fresh (within 15 minutes)
   const isGpsUpdateFresh = (gpsUpdateTime: number, now: number): boolean => {
@@ -3312,7 +3315,7 @@ function OverlayPage() {
 
   // Periodic OBS Telemetry Reporter (relays Dropped Frames, Uptime, CPU %, FPS, and Logs to cloud)
   useEffect(() => {
-    if (!obsConnected || settings.obsTelemetryEnabled !== true) return;
+    if (!obsConnected) return;
 
     let isActive = true;
     let timer: NodeJS.Timeout;
@@ -3422,22 +3425,8 @@ function OverlayPage() {
           lastReportedState.droppedFrames !== droppedFrames ||
           Math.abs((lastReportedState.cpuUsage || 0) - cpuUsagePercent) > 3.0;
 
-        if (lastReportedState.streaming === true && !isStreaming) {
-          fetch('/api/save-settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ obsTelemetryEnabled: false })
-          }).catch(() => {});
-        } else if (lastReportedState.streaming === false && isStreaming) {
-          fetch('/api/save-settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ obsTelemetryEnabled: true })
-          }).catch(() => {});
-        }
-
         const configuredInterval = (settings.obsTelemetryInterval || 45) * 1000;
-        const heartbeatInterval = isStreaming ? Math.max(15000, configuredInterval) : Math.max(20000, configuredInterval);
+        const heartbeatInterval = isStreaming ? Math.min(15000, configuredInterval) : Math.min(25000, Math.max(10000, configuredInterval));
         const shouldPost = hasCriticalChange || (now - lastPostTimestamp >= heartbeatInterval);
 
         if (shouldPost) {
@@ -3519,7 +3508,7 @@ function OverlayPage() {
       isActive = false;
       if (timer) clearTimeout(timer);
     };
-  }, [obsConnected, settings.obsTelemetryEnabled, settings.obsTelemetryInterval, appendObsLog]);
+  }, [obsConnected, settings.obsTelemetryInterval, appendObsLog]);
 
   // Listen for Cloud Command Signals (e.g. !start or !end triggered via Vercel or Admin Menu)
   // Initialize with current timestamp so stale persisted signals from previous sessions are NOT executed on boot/reload
@@ -3583,11 +3572,14 @@ function OverlayPage() {
   useEffect(() => {
     if (!settings.obsAutoSwitchSceneToggle) {
       lastBitrateStateRef.current = null;
+      consecutiveOfflineChecksRef.current = 0;
+      consecutiveLowChecksRef.current = 0;
+      consecutiveLiveChecksRef.current = 0;
     }
   }, [settings.obsAutoSwitchSceneToggle]);
 
   useEffect(() => {
-    const staleThresholdMs = settings.obsAutoSwitchSceneToggle ? 3500 : 10000;
+    const staleThresholdMs = settings.obsAutoSwitchSceneToggle ? 20000 : 30000;
     const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > staleThresholdMs;
     const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 400;
     const lowThreshold = settings.obsLowBitrateThreshold ?? 1100;
@@ -3611,8 +3603,24 @@ function OverlayPage() {
     const isLive = !isOffline && !isLow && currentBitrate !== null && currentBitrate > lowThreshold && !isStale;
     const hasFetchedStats = bitrateUpdateTimestamp > 0;
 
+    // Track consecutive checks to prevent switching on momentary network hiccups
+    const requiredChecks = Math.max(3, settings.obsChecksBeforeSwitching ?? 3);
+    if (isOffline) {
+      consecutiveLowChecksRef.current = 0;
+      consecutiveLiveChecksRef.current = 0;
+      consecutiveOfflineChecksRef.current += 1;
+    } else if (isLow) {
+      consecutiveOfflineChecksRef.current = 0;
+      consecutiveLiveChecksRef.current = 0;
+      consecutiveLowChecksRef.current += 1;
+    } else if (isLive) {
+      consecutiveOfflineChecksRef.current = 0;
+      consecutiveLowChecksRef.current = 0;
+      consecutiveLiveChecksRef.current += 1;
+    }
+
     // DIAGNOSTIC LOG
-    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} offline=${isOffline} live=${isLive} fetched=${hasFetchedStats} lastState=${lastBitrateStateRef.current}`;
+    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} offline=${isOffline} (check ${consecutiveOfflineChecksRef.current}/${requiredChecks}) live=${isLive} fetched=${hasFetchedStats} lastState=${lastBitrateStateRef.current}`;
     console.log('[AUTO-SWITCH] State check:', logMsg);
     setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
 
@@ -3792,23 +3800,23 @@ function OverlayPage() {
       return;
     }
 
-    // Auto-switch to offline scene (only after stream was previously confirmed live or low)
+    // Auto-switch to offline scene (only after stream was previously confirmed live or low, AND required checks met)
     if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
-      const wasLiveOrLow = lastBitrateStateRef.current === 'live' || lastBitrateStateRef.current === 'low';
-      if (isOffline && wasLiveOrLow && lastBitrateStateRef.current !== 'offline') {
-        console.log(`📡 Stream went offline (bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
+      const wasLiveOrLow = lastBitrateStateRef.current === 'live' || lastBitrateStateRef.current === 'low' || isCurLive || isCurLow;
+      if (isOffline && wasLiveOrLow && consecutiveOfflineChecksRef.current >= requiredChecks && lastBitrateStateRef.current !== 'offline') {
+        console.log(`📡 Stream confirmed offline (${consecutiveOfflineChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
         switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'offline';
         });
       }
     }
 
-    // Auto-switch to low bitrate scene (only after stream was live or active on live scene)
+    // Auto-switch to low bitrate scene (only after stream was live or active on live scene, AND required checks met)
     if (settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
       const lowScene = settings.obsLowSceneName || 'low';
       const wasLiveOrRecovering = lastBitrateStateRef.current === 'live' || isCurLive;
-      if (isLow && wasLiveOrRecovering && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {
-        console.log(`📡 Low bitrate detected (bitrate=${currentBitrate} < ${lowThreshold}), switching to: ${lowScene}`);
+      if (isLow && wasLiveOrRecovering && consecutiveLowChecksRef.current >= requiredChecks && lastBitrateStateRef.current !== 'low' && lastBitrateStateRef.current !== 'offline') {
+        console.log(`📡 Low bitrate confirmed (${consecutiveLowChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate} < ${lowThreshold}), switching to: ${lowScene}`);
         switchSceneViaApi(lowScene).then(success => {
           if (success) lastBitrateStateRef.current = 'low';
         });
@@ -3818,8 +3826,10 @@ function OverlayPage() {
     // Auto-switch to live scene (ONLY when recovering from low or offline)
     if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
       const needsRecovery = !isSpecialScene && (lastBitrateStateRef.current === 'low' || lastBitrateStateRef.current === 'offline' || isCurLow || isCurOffline);
-      if (isLive && needsRecovery && lastBitrateStateRef.current !== 'live') {
-        console.log(`📡 Stream is live (bitrate=${currentBitrate}), recovering to: ${settings.obsLiveSceneName}`);
+      const isInstantRecovery = settings.obsInstantRecovery !== false;
+      const recoveryRequiredChecks = isInstantRecovery ? 1 : requiredChecks;
+      if (isLive && needsRecovery && consecutiveLiveChecksRef.current >= recoveryRequiredChecks && lastBitrateStateRef.current !== 'live') {
+        console.log(`📡 Stream is live (${consecutiveLiveChecksRef.current}/${recoveryRequiredChecks} checks, bitrate=${currentBitrate}), recovering to: ${settings.obsLiveSceneName}`);
         switchSceneViaApi(settings.obsLiveSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'live';
         });
@@ -4845,8 +4855,10 @@ function OverlayPage() {
         } else {
           // Failure or No Data - stream is OFFLINE
           consecutiveBitrateFailuresRef.current++;
-          setCurrentBitrate(0);
-          setCurrentRtt(null);
+          if (consecutiveBitrateFailuresRef.current >= 3 || (stats && stats.bitrateKbps === 0)) {
+            setCurrentBitrate(0);
+            setCurrentRtt(null);
+          }
           setBitrateUpdateTimestamp(Date.now());
         }
 

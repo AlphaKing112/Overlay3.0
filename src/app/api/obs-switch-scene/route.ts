@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
 
     const isTelemetryFresh = telemetry && (Date.now() - (telemetry.updatedAt || 0) < 180000);
     if (isTelemetryFresh && telemetry.online) {
+      console.log(`📡 [OBS-SWITCH-SCENE GET] Connected via Browser Source. Current Scene: "${telemetry.currentScene || ''}" (${telemetry.scenes?.length || 0} scenes)`);
       return NextResponse.json({
         success: true,
         currentScene: telemetry.currentScene || '',
