@@ -275,6 +275,7 @@ function OverlayPage() {
   // Always-current settings ref so the socket handler reads fresh values without reconnecting
   const seSettingsRef = useRef(settings);
   const lastCommandExecRef = useRef<Record<string, number>>({});
+  const lastRaidAutoStopTimeRef = useRef<number>(0);
   useEffect(() => { seSettingsRef.current = settings; }, [settings]);
 
   // Pic snapshot overlay notification & auto-hide state
@@ -1625,6 +1626,86 @@ function OverlayPage() {
           return;
         }
 
+        // Handle Auto-Stop Stream on Twitch Host / Raid
+        const handleAutoStopStreamOnRaid = async (targetUser?: string) => {
+          if (seSettingsRef.current?.obsAutoStopStreamOnRaid !== true) {
+            OverlayLogger.overlay('[twitch-raid] Raid/host detected, but obsAutoStopStreamOnRaid is disabled in settings.');
+            return;
+          }
+          const now = Date.now();
+          if (now - lastRaidAutoStopTimeRef.current < 60000) {
+            OverlayLogger.overlay('[twitch-raid] Auto-stop stream sequence already triggered within 60s, skipping duplicate.');
+            return;
+          }
+          lastRaidAutoStopTimeRef.current = now;
+
+          OverlayLogger.overlay(`[twitch-raid] 🚀 Outgoing raid detected${targetUser ? ` to @${targetUser}` : ''}! Initiating auto-stop sequence.`);
+          appendObsLog('warn', `[twitch-raid] Auto-stopping stream for outgoing raid${targetUser ? ` to @${targetUser}` : ''}...`);
+
+          // 1. Post Custom Ending Chat Message if enabled
+          if (seSettingsRef.current?.obsEndingChatMessageEnabled && seSettingsRef.current?.obsEndingChatMessage) {
+            const endMsg = seSettingsRef.current.obsEndingChatMessage.trim();
+            if (endMsg) {
+              fetch('/api/twitch-announcement', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: endMsg, dedupKey: 'raid_end_stream' })
+              }).catch(() => {});
+            }
+          }
+
+          // 2. Switch to Ending Scene in OBS
+          const endingScene = seSettingsRef.current?.obsEndingSceneName || 'ending';
+          if (localObsRef.current) {
+            safeObsSwitchScene(localObsRef.current, endingScene).catch(() => {});
+          } else {
+            fetch('/api/obs-switch-scene', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sceneName: endingScene })
+            }).catch(() => {});
+          }
+
+          // 3. 4-second delay matching NOALBS to allow viewer raid transfer
+          await new Promise(r => setTimeout(r, 4000));
+
+          // 4. Stop OBS Stream
+          if (localObsRef.current) {
+            await safeObsStreamControl(localObsRef.current, 'stop');
+          } else {
+            fetch('/api/obs-stream-control', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'stop',
+                obsUrl: seSettingsRef.current?.obsWebsocketUrl,
+                obsPassword: seSettingsRef.current?.obsWebsocketPassword
+              })
+            }).catch(() => {});
+          }
+          appendObsLog('success', `[twitch-raid] ✅ Stream stopped automatically for raid.`);
+        };
+
+        // Handle USERNOTICE (Twitch Raids)
+        if (raw.includes('USERNOTICE')) {
+          const isRaid = raw.includes('msg-id=raid');
+          if (isRaid) {
+            const targetMatch = raw.match(/msg-param-displayName=([^; ]+)/) || raw.match(/msg-param-login=([^; ]+)/);
+            const targetUser = targetMatch ? targetMatch[1] : undefined;
+            handleAutoStopStreamOnRaid(targetUser);
+          }
+        }
+
+        // Handle NOTICE (Twitch host/raid system notices)
+        if (raw.includes('NOTICE')) {
+          const lowerNotice = raw.toLowerCase();
+          if (lowerNotice.includes('raiding') || lowerNotice.includes('now hosting') || lowerNotice.includes('now raiding')) {
+            const raidMatch = raw.match(/(?:raiding|hosting)\s+([a-zA-Z0-9_]+)/i);
+            const targetUser = raidMatch ? raidMatch[1] : undefined;
+            handleAutoStopStreamOnRaid(targetUser);
+          }
+        }
+
         // Parse Twitch IRC PRIVMSG
         if (raw.includes('PRIVMSG')) {
           const match = raw.match(/PRIVMSG #[^ ]+ :(.*)/);
@@ -1893,6 +1974,47 @@ function OverlayPage() {
                 return;
               }
               executeObsStreamAction('stop');
+              return;
+            }
+
+            // Command: !autostop [on|off] (NOALBS Auto-Stop Stream on Host/Raid toggle)
+            if (lowerText === '!autostop' || lowerText.startsWith('!autostop ')) {
+              const cmdCfg = getCommandConfig('autostop', 'Moderators');
+              if (!cmdCfg.allowed) {
+                sendPermError('autostop', cmdCfg.role);
+                return;
+              }
+              const parts = lowerText.split(/\s+/);
+              const arg = parts[1];
+              let newEnabled = seSettingsRef.current.obsAutoStopStreamOnRaid !== false;
+              if (arg === 'on' || arg === 'enable' || arg === 'true' || arg === '1') {
+                newEnabled = true;
+              } else if (arg === 'off' || arg === 'disable' || arg === 'false' || arg === '0') {
+                newEnabled = false;
+              } else {
+                newEnabled = !newEnabled;
+              }
+              seSettingsRef.current.obsAutoStopStreamOnRaid = newEnabled;
+              fetch('/api/save-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ obsAutoStopStreamOnRaid: newEnabled })
+              }).catch(() => {});
+              sendChatReply(`🛑 Auto-stop stream on raid is now ${newEnabled ? 'ENABLED ✅' : 'DISABLED ❌'}.`, { color: newEnabled ? 'green' : 'orange' });
+              return;
+            }
+
+            // Command: !raid <channel> (Trigger outgoing raid with auto-stop stream)
+            if (lowerText.startsWith('!raid ') || lowerText.startsWith('/raid ')) {
+              const cmdCfg = getCommandConfig('raid', 'Moderators');
+              if (!cmdCfg.allowed) {
+                sendPermError('raid', cmdCfg.role);
+                return;
+              }
+              const target = chatText.replace(/^[/!]raid\s+/i, '').trim().replace(/^@/, '');
+              if (target && seSettingsRef.current.obsAutoStopStreamOnRaid) {
+                handleAutoStopStreamOnRaid(target);
+              }
               return;
             }
 
@@ -3337,6 +3459,7 @@ function OverlayPage() {
 
     let isActive = true;
     let isReporting = false;
+    let isReportingStartedAt = 0;
     let lastOutputBytes = 0;
     let lastBytesTimestamp = 0;
     let lastPostTimestamp = 0;
@@ -3349,16 +3472,26 @@ function OverlayPage() {
     } = {};
 
     const reportTelemetry = async () => {
-      if (!isActive || !localObsRef.current || isReporting) return;
+      if (!isActive || !localObsRef.current) return;
+      if (isReporting) {
+        if (Date.now() - isReportingStartedAt > 8000) {
+          isReporting = false;
+        } else {
+          return;
+        }
+      }
       isReporting = true;
+      isReportingStartedAt = Date.now();
 
       try {
-        const [streamStatus, recordStatus, stats, currentSceneData] = await Promise.allSettled([
+        const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('OBS call timeout')), 3500));
+        const dataPromise = Promise.allSettled([
           localObsRef.current.call('GetStreamStatus'),
           localObsRef.current.call('GetRecordStatus'),
           localObsRef.current.call('GetStats'),
           localObsRef.current.call('GetCurrentProgramScene')
         ]);
+        const [streamStatus, recordStatus, stats, currentSceneData] = await Promise.race([dataPromise, timeoutPromise]);
 
         const stream = streamStatus.status === 'fulfilled' ? streamStatus.value : null;
         const record = recordStatus.status === 'fulfilled' ? recordStatus.value : null;
@@ -3511,6 +3644,7 @@ function OverlayPage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(4000),
           }).catch(() => {});
         }
       } catch {

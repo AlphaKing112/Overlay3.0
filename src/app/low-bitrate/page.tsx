@@ -4775,56 +4775,6 @@ function LowBitrateContent() {
                   />
                 </div>
 
-                {/* 6. Starting scene on go-live */}
-                <div style={{ padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ paddingRight: '16px' }}>
-                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-                        Starting scene on go-live
-                      </div>
-                      <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
-                        Show the selected scene when the stream starts on OBS.
-                      </div>
-                    </div>
-                    <PurpleToggle
-                      checked={settings.obsStartingSceneOnGoLive ?? true}
-                      onChange={(v) => saveSettingsUpdates({ obsStartingSceneOnGoLive: v })}
-                    />
-                  </div>
-                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#c084fc' }}>
-                      🎬 Pick scene when stream starts:
-                    </span>
-                    <select
-                      value={settings.obsStartingSceneName || 'starting'}
-                      onChange={(e) => saveSettingsUpdates({ obsStartingSceneName: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#131924',
-                        border: '1px solid rgba(192, 132, 252, 0.4)',
-                        borderRadius: '6px',
-                        color: '#ffffff',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {availableScenes.length > 0 ? (
-                        availableScenes.map(sc => (
-                          <option key={sc} value={sc} style={{ background: '#1e293b' }}>
-                            {sc}
-                          </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="starting">starting</option>
-                          <option value="live">live</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                </div>
-
                 {/* 8. OBS Stream Commands (!start, !end & !refresh) */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ paddingRight: '16px' }}>
