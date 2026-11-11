@@ -1841,18 +1841,34 @@ function OverlayPage() {
               // Step 2: On-demand local WebSocket connection if localObsRef was not active
               if (!success) {
                 try {
-                  const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                  const wsPort = seSettingsRef.current.obsWebsocketPort || 4455;
+                  const urlsToTry = [
+                    `ws://127.0.0.1:${wsPort}`,
+                    `ws://localhost:${wsPort}`,
+                    seSettingsRef.current.obsWebsocketUrl || `ws://127.0.0.1:${wsPort}`,
+                    'ws://127.0.0.1:4455',
+                    'ws://localhost:4455'
+                  ].filter((v, i, a) => a.indexOf(v) === i);
                   const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
                   const tempObs = new OBSWebSocket();
                   tempObs.on('ConnectionClosed', () => {});
                   tempObs.on('ConnectionError', () => {});
 
-                  const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
-                  const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timed out')), 3000));
-                  await Promise.race([connectPromise, timeoutPromise]);
+                  let connected = false;
+                  for (const url of urlsToTry) {
+                    try {
+                      const connectPromise = tempObs.connect(url, targetPass || undefined);
+                      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timed out')), 2500));
+                      await Promise.race([connectPromise, timeoutPromise]);
+                      connected = true;
+                      break;
+                    } catch {}
+                  }
 
-                  success = await safeObsStreamControl(tempObs, action);
-                  try { await tempObs.disconnect(); } catch {}
+                  if (connected) {
+                    success = await safeObsStreamControl(tempObs, action);
+                    try { await tempObs.disconnect(); } catch {}
+                  }
                 } catch (connErr: any) {
                   errorMsg = connErr?.message || String(connErr);
                 }
@@ -2042,22 +2058,70 @@ function OverlayPage() {
               (async () => {
                 let fixRes: any = { success: false, sources: [] };
                 if (localObsRef.current) {
-                  fixRes = await safeObsFixFeed(localObsRef.current, liveScene);
-                }
-                if (!fixRes.success && fixRes.error) {
                   try {
-                    const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                    fixRes = await safeObsFixFeed(localObsRef.current, liveScene);
+                  } catch (err: any) {
+                    fixRes = { success: false, error: err?.message || String(err) };
+                  }
+                }
+
+                // If not successful via active instance, try on-demand connection with full URL fallback
+                if (!fixRes.success) {
+                  try {
+                    const wsPort = seSettingsRef.current.obsWebsocketPort || 4455;
+                    const urlsToTry = [
+                      `ws://127.0.0.1:${wsPort}`,
+                      `ws://localhost:${wsPort}`,
+                      seSettingsRef.current.obsWebsocketUrl || `ws://127.0.0.1:${wsPort}`,
+                      'ws://127.0.0.1:4455',
+                      'ws://localhost:4455'
+                    ].filter((v, i, a) => a.indexOf(v) === i);
                     const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
                     const tempObs = new OBSWebSocket();
                     tempObs.on('ConnectionClosed', () => {});
                     tempObs.on('ConnectionError', () => {});
-                    const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 3000));
-                    await Promise.race([connectPromise, timeoutPromise]);
-                    fixRes = await safeObsFixFeed(tempObs, liveScene);
-                    try { await tempObs.disconnect(); } catch {}
+
+                    let connected = false;
+                    for (const url of urlsToTry) {
+                      try {
+                        const connectPromise = tempObs.connect(url, targetPass || undefined);
+                        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 2500));
+                        await Promise.race([connectPromise, timeoutPromise]);
+                        connected = true;
+                        break;
+                      } catch {}
+                    }
+
+                    if (connected) {
+                      fixRes = await safeObsFixFeed(tempObs, liveScene);
+                      try { await tempObs.disconnect(); } catch {}
+                    }
                   } catch (connErr: any) {
-                    fixRes = { success: false, error: connErr?.message || String(connErr) };
+                    OverlayLogger.warn(`On-demand OBS !fix connection failed: ${connErr?.message}`);
+                  }
+                }
+
+                // If still not executed locally, dispatch cloud signal via /api/noalbs/command so local dashboard/OBS picks it up
+                if (!fixRes.success) {
+                  try {
+                    const res = await fetch('/api/noalbs/command', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ command: '!fix', user: senderUser, isMod, isBroadcaster })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      fixRes = {
+                        success: true,
+                        sources: data.sources || [],
+                        scene: data.scene || liveScene,
+                        message: data.message
+                      };
+                    } else if (data.error) {
+                      fixRes = { success: false, error: data.error };
+                    }
+                  } catch (cloudErr: any) {
+                    OverlayLogger.warn(`Cloud !fix relay failed: ${cloudErr?.message}`);
                   }
                 }
 
@@ -2065,7 +2129,7 @@ function OverlayPage() {
                   if (fixRes.sources && fixRes.sources.length > 0) {
                     sendChatReply(`🔧 @${senderDisplayName || senderUser}, reconnecting ${fixRes.sources.join(', ')}`);
                   } else {
-                    sendChatReply(`ℹ @${senderDisplayName || senderUser}, nothing to fix: no stream source is playing on ${fixRes.scene || liveScene}`);
+                    sendChatReply(`ℹ @${senderDisplayName || senderUser}, ${fixRes.message || `nothing to fix: no stream source found on ${fixRes.scene || liveScene}`}`);
                   }
                 } else {
                   sendChatReply(`⚠️ @${senderDisplayName || senderUser}, failed to fix feed: ${fixRes.error || 'Check OBS WebSocket'}`);
@@ -2102,33 +2166,55 @@ function OverlayPage() {
                 const isLiveBitrate = currentBitrateRef.current !== null && currentBitrateRef.current > 0;
 
                 if (localObsRef.current) {
-                  cycleRes = await safeObsRefreshCycle(localObsRef.current, refreshScene, liveScene, 6000, {
-                    isLiveBitrate,
-                    currentBitrate: currentBitrateRef.current ?? undefined
-                  });
+                  try {
+                    cycleRes = await safeObsRefreshCycle(localObsRef.current, refreshScene, liveScene, 6000, {
+                      isLiveBitrate,
+                      currentBitrate: currentBitrateRef.current ?? undefined
+                    });
+                  } catch (err: any) {
+                    cycleRes = { success: false, error: err?.message || String(err) };
+                  }
                 }
 
-                if (!cycleRes.success && !cycleRes.error) {
+                if (!cycleRes.success) {
                   try {
-                    const targetUrl = seSettingsRef.current.obsWebsocketUrl || 'ws://127.0.0.1:4455';
+                    const wsPort = seSettingsRef.current.obsWebsocketPort || 4455;
+                    const urlsToTry = [
+                      `ws://127.0.0.1:${wsPort}`,
+                      `ws://localhost:${wsPort}`,
+                      seSettingsRef.current.obsWebsocketUrl || `ws://127.0.0.1:${wsPort}`,
+                      'ws://127.0.0.1:4455',
+                      'ws://localhost:4455'
+                    ].filter((v, i, a) => a.indexOf(v) === i);
                     const targetPass = seSettingsRef.current.obsWebsocketPassword || '';
                     const tempObs = new OBSWebSocket();
                     tempObs.on('ConnectionClosed', () => {});
                     tempObs.on('ConnectionError', () => {});
-                    const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 3000));
-                    await Promise.race([connectPromise, timeoutPromise]);
-                    cycleRes = await safeObsRefreshCycle(tempObs, refreshScene, liveScene, 6000, {
-                      isLiveBitrate,
-                      currentBitrate: currentBitrateRef.current ?? undefined
-                    });
-                    try { await tempObs.disconnect(); } catch {}
+
+                    let connected = false;
+                    for (const url of urlsToTry) {
+                      try {
+                        const connectPromise = tempObs.connect(url, targetPass || undefined);
+                        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 2500));
+                        await Promise.race([connectPromise, timeoutPromise]);
+                        connected = true;
+                        break;
+                      } catch {}
+                    }
+
+                    if (connected) {
+                      cycleRes = await safeObsRefreshCycle(tempObs, refreshScene, liveScene, 6000, {
+                        isLiveBitrate,
+                        currentBitrate: currentBitrateRef.current ?? undefined
+                      });
+                      try { await tempObs.disconnect(); } catch {}
+                    }
                   } catch (err: any) {
                     OverlayLogger.warn(`Local refresh failed: ${err?.message}`);
                   }
                 }
 
-                if (!cycleRes.success && !cycleRes.error) {
+                if (!cycleRes.success) {
                   try {
                     const res = await fetch('/api/obs-stream-control', {
                       method: 'POST',

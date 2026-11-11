@@ -451,27 +451,29 @@ export async function safeObsFixFeed(
       }
     }
 
-    // 4. Third pass (NOALBS Media Live Detection):
-    // Check GetMediaInputStatus to detect if each candidate media source is actively live/playing
+    // 4. Third pass (Target Stream Source Identification):
+    // Prioritize stream sources reporting active playing/buffering/opening states.
+    // If none report playing (e.g. the feed dropped, froze, or ended — the exact reason !fix was triggered!),
+    // target all candidate stream sources on the scene so the broken feed is revived.
     const playingStreamSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
     for (const candidate of candidateSources) {
       const { sourceName } = candidate;
       const mediaStatus = await getObsMediaInputStatus(obs, sourceName);
 
-      // NOALBS checks if the media source is currently in PLAYING, BUFFERING, or OPENING state.
-      // If user explicitly configured streamSourceName, allow fix even if restarting an idle player.
       const isExplicitTarget = options?.streamSourceName && sourceName.toLowerCase() === options.streamSourceName.toLowerCase();
       if (mediaStatus?.isLive || isExplicitTarget) {
         console.log(`📡 [OBS !fix] Media feed "${sourceName}" detected LIVE (${mediaStatus?.state || 'TARGETED'})`);
         playingStreamSources.push(candidate);
       } else {
-        console.log(`⏸️ [OBS !fix] Media source "${sourceName}" state is ${mediaStatus?.state || 'UNKNOWN'} (not playing)`);
+        console.log(`⏸️ [OBS !fix] Media source "${sourceName}" state is ${mediaStatus?.state || 'UNKNOWN'}`);
       }
     }
 
-    // If NO stream source is currently playing on the active scene, match NOALBS exact outcome!
-    if (playingStreamSources.length === 0) {
-      const nothingMsg = `Nothing to fix: no stream source is playing on ${currentScene}`;
+    const targetSources = playingStreamSources.length > 0 ? playingStreamSources : candidateSources;
+
+    // If NO candidate stream source exists on the active scene, return friendly message
+    if (targetSources.length === 0) {
+      const nothingMsg = `Nothing to fix: no stream source found on ${currentScene}`;
       console.log(`ℹ [OBS !fix] ${nothingMsg}`);
       return {
         success: true,
@@ -482,11 +484,11 @@ export async function safeObsFixFeed(
       };
     }
 
-    // 5. Execute NOALBS In-Place Reconnect on the playing media sources ONLY
+    // 5. Execute NOALBS In-Place Reconnect on the target media sources
     const fixedSources: string[] = [];
-    for (const stream of playingStreamSources) {
+    for (const stream of targetSources) {
       const { sourceName, itemId, inputKind } = stream;
-      console.log(`🎯 [OBS !fix] Reconnecting playing media stream source "${sourceName}" (${inputKind || 'media'})...`);
+      console.log(`🎯 [OBS !fix] Reconnecting media stream source "${sourceName}" (${inputKind || 'media'})...`);
 
       // NOALBS Method A: TriggerMediaInputAction Restart (for irl_source or media inputs)
       try {
@@ -518,7 +520,7 @@ export async function safeObsFixFeed(
         console.log(`✅ [OBS !fix] obs-smooth-media RestartSource sent to "${sourceName}"`);
       } catch {}
 
-      // Method D: Ensure ONLY this Belabox source is enabled on the scene (NEVER disable!)
+      // Method D: Ensure Belabox scene item is enabled (toggle if stuck to re-initialize socket)
       if (itemId !== undefined) {
         try {
           await obs.call('SetSceneItemEnabled', {

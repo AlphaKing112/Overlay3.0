@@ -1487,6 +1487,23 @@ function LowBitrateContent() {
     }
   };
 
+  // 7b. Listen for Cloud Stream Command Signals (e.g. !fix, !refresh triggered via chat/cloud)
+  const lastProcessedSignalRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const signal = settings.obsStreamCommandSignal;
+    if (!signal || !signal.timestamp || !signal.action) return;
+    if (signal.timestamp <= lastProcessedSignalRef.current || (Date.now() - signal.timestamp > 15000)) {
+      return;
+    }
+    lastProcessedSignalRef.current = signal.timestamp;
+
+    if (signal.action === 'fix') {
+      handleFixFeed();
+    } else if (signal.action === 'refresh') {
+      handleRefreshCycle();
+    }
+  }, [settings.obsStreamCommandSignal]);
+
 
   // 8. Stream Bitrate & RTT Poller + Automatic Switcher Engine
   useEffect(() => {
