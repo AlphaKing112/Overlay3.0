@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene, createUnthrottledInterval, ensureOverlayBrowserSourcesPersistent, getObsSceneItems, toggleObsSceneItem } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene, createUnthrottledInterval, ensureOverlayBrowserSourcesPersistent, getObsSceneItems, toggleObsSceneItem, removeObsSceneItem } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry, ObsSceneItemInfo } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -3915,6 +3915,38 @@ function OverlayPage() {
         .catch(() => {});
     }
   }, [settings.obsSourceToggleSignal]);
+
+  // Listen for Cloud Source Remove Signals (delete source from OBS scene from dashboard or mobile)
+  const lastProcessedRemoveSignalRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const signal = settings.obsSourceRemoveSignal;
+    if (!signal || !signal.timestamp || !signal.sceneName || signal.sceneItemId === undefined) return;
+    if (signal.timestamp <= lastProcessedRemoveSignalRef.current || (Date.now() - signal.timestamp > 15000)) {
+      return;
+    }
+    lastProcessedRemoveSignalRef.current = signal.timestamp;
+    OverlayLogger.overlay(`🗑️ Received source remove signal: "${signal.sourceName || signal.sceneItemId}" from "${signal.sceneName}"`);
+
+    if (localObsRef.current) {
+      removeObsSceneItem(localObsRef.current, signal.sceneName, signal.sceneItemId, signal.sourceName)
+        .then(() => {
+          if (localObsRef.current) {
+            getObsSceneItems(localObsRef.current, signal.sceneName).then((sources) => {
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  currentScene: signal.sceneName,
+                  currentSceneSources: sources
+                })
+              }).catch(() => {});
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+  }, [settings.obsSourceRemoveSignal]);
 
 
   // Reset scene state tracking when toggle is disabled so it evaluates immediately when re-enabled

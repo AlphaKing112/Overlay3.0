@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getObsSceneItems, toggleObsSceneItem } from '@/lib/obs-helper';
+import { getObsSceneItems, toggleObsSceneItem, removeObsSceneItem } from '@/lib/obs-helper';
 import { kv } from '@vercel/kv';
 import { broadcastSettings } from '@/lib/settings-broadcast';
 
@@ -118,14 +118,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sceneName, sceneItemId, sourceName, enabled, obsUrl, obsPassword } = body;
+    const { action, sceneName, sceneItemId, sourceName, enabled, obsUrl, obsPassword } = body;
+    const isRemove = action === 'remove';
 
-    if (!sceneName || sceneItemId === undefined || enabled === undefined) {
-      return NextResponse.json({ success: false, error: 'sceneName, sceneItemId, and enabled are required' }, { status: 400 });
+    if (!sceneName || sceneItemId === undefined || (!isRemove && enabled === undefined)) {
+      return NextResponse.json({ success: false, error: 'sceneName and sceneItemId are required' }, { status: 400 });
     }
 
     const now = Date.now();
-    const signal = { sceneName, sceneItemId: Number(sceneItemId), sourceName: sourceName || '', enabled: Boolean(enabled), timestamp: now };
+    const toggleSignal = { sceneName, sceneItemId: Number(sceneItemId), sourceName: sourceName || '', enabled: Boolean(enabled), timestamp: now };
+    const removeSignal = { sceneName, sceneItemId: Number(sceneItemId), sourceName: sourceName || '', timestamp: now };
 
     // 1. Dispatch signal via Settings Broadcast to the active OBS Browser Source
     try {
@@ -135,7 +137,10 @@ export async function POST(request: NextRequest) {
         if (kvSettings && typeof kvSettings === 'object') currentSettings = kvSettings;
       } catch {}
 
-      const updated = { ...currentSettings, obsSourceToggleSignal: signal };
+      const updated = isRemove
+        ? { ...currentSettings, obsSourceRemoveSignal: removeSignal }
+        : { ...currentSettings, obsSourceToggleSignal: toggleSignal };
+
       if (typeof globalThis !== 'undefined') {
         (globalThis as any).__cachedOverlaySettings = updated;
         (globalThis as any).__cachedOverlaySettingsTime = now;
@@ -146,12 +151,14 @@ export async function POST(request: NextRequest) {
           kv.set('overlay_settings_modified', now)
         ]);
 
-        // Optimistically update obs_telemetry KV so mobile GET immediately sees the toggled state
+        // Optimistically update obs_telemetry KV so mobile GET immediately sees the change
         const kvTelemetry = await kv.get<any>('obs_telemetry');
         if (kvTelemetry && Array.isArray(kvTelemetry.currentSceneSources)) {
-          const updatedSources = kvTelemetry.currentSceneSources.map((s: any) =>
-            s.id === Number(sceneItemId) ? { ...s, enabled: Boolean(enabled) } : s
-          );
+          const updatedSources = isRemove
+            ? kvTelemetry.currentSceneSources.filter((s: any) => s.id !== Number(sceneItemId))
+            : kvTelemetry.currentSceneSources.map((s: any) =>
+                s.id === Number(sceneItemId) ? { ...s, enabled: Boolean(enabled) } : s
+              );
           const nextTel = { ...kvTelemetry, currentSceneSources: updatedSources };
           if (typeof globalThis !== 'undefined') {
             (globalThis as any).__cachedObsTelemetry = nextTel;
@@ -162,11 +169,11 @@ export async function POST(request: NextRequest) {
 
       await broadcastSettings(updated);
     } catch (sigErr) {
-      console.warn('⚠️ [API] Source toggle signal dispatch warning:', sigErr);
+      console.warn('⚠️ [API] Source action signal dispatch warning:', sigErr);
     }
 
     // 2. Also attempt direct local WS if available
-    let toggledViaDirect = false;
+    let actionViaDirect = false;
     const { url, password, port } = await getObsConnectionInfo(obsUrl, obsPassword);
     const urlsToTry = [
       url,
@@ -194,18 +201,23 @@ export async function POST(request: NextRequest) {
       }
 
       if (connected) {
-        toggledViaDirect = await toggleObsSceneItem(obs, sceneName, Number(sceneItemId), Boolean(enabled), sourceName);
+        if (isRemove) {
+          actionViaDirect = await removeObsSceneItem(obs, sceneName, Number(sceneItemId), sourceName);
+        } else {
+          actionViaDirect = await toggleObsSceneItem(obs, sceneName, Number(sceneItemId), Boolean(enabled), sourceName);
+        }
         await obs.disconnect();
       }
     } catch {}
 
     return NextResponse.json({
       success: true,
+      action: isRemove ? 'remove' : 'toggle',
       sceneName,
       sceneItemId,
       sourceName,
-      enabled,
-      via: toggledViaDirect ? 'direct' : 'signal'
+      enabled: isRemove ? undefined : enabled,
+      via: actionViaDirect ? 'direct' : 'signal'
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err?.message || 'Server error' }, { status: 500 });

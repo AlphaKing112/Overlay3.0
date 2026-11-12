@@ -220,6 +220,7 @@ export interface OverlaySettings {
   obsWebsocketPassword?: string;
   obsSceneSwitchSignal?: { sceneName: string; timestamp: number } | null;
   obsSourceToggleSignal?: { sceneName: string; sceneItemId: number; sourceName?: string; enabled: boolean; timestamp: number } | null;
+  obsSourceRemoveSignal?: { sceneName: string; sceneItemId: number; sourceName?: string; timestamp: number } | null;
   obsAutoSwitchSceneToggle?: boolean;
   obsOfflineSceneName?: string;
   obsLiveSceneName?: string;
@@ -532,6 +533,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsWebsocketPassword: '',
   obsSceneSwitchSignal: null,
   obsSourceToggleSignal: null,
+  obsSourceRemoveSignal: null,
   obsAutoSwitchSceneToggle: false,
   obsOfflineSceneName: 'offline',
   obsLiveSceneName: 'live',
@@ -633,8 +635,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
 };
 
 // Valid settings schema for validation
-// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', 'obsSceneSwitchSignal', 'obsSourceToggleSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'obsSceneSwitchSignal' | 'obsSourceToggleSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', 'obsSceneSwitchSignal', 'obsSourceToggleSignal', 'obsSourceRemoveSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'obsSceneSwitchSignal' | 'obsSourceToggleSignal' | 'obsSourceRemoveSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
   shoutoutAnnouncementTemplate: 'string',
   shoutoutX: 'number',
   shoutoutY: 'number',

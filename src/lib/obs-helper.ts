@@ -204,6 +204,48 @@ export async function toggleObsSceneItem(
 }
 
 /**
+ * Remove a scene item (source) from a specific scene in OBS Studio
+ */
+export async function removeObsSceneItem(
+  obs: any,
+  sceneName: string,
+  sceneItemId: number,
+  sourceName?: string
+): Promise<boolean> {
+  if (!obs || !sceneName || sceneItemId === undefined) return false;
+  try {
+    // v5 syntax: RemoveSceneItem { sceneName, sceneItemId }
+    await obs.call('RemoveSceneItem', {
+      sceneName,
+      sceneItemId
+    });
+    console.log(`🗑️ [OBS] Removed scene item "${sourceName || sceneItemId}" from scene "${sceneName}"`);
+    return true;
+  } catch (err) {
+    try {
+      // v4 syntax fallback: DeleteSceneItem or DeleteItem
+      await obs.call('DeleteSceneItem' as any, {
+        'scene-name': sceneName,
+        item: { id: sceneItemId }
+      });
+      return true;
+    } catch {
+      try {
+        if (sourceName) {
+          await obs.call('DeleteItem' as any, {
+            'scene-name': sceneName,
+            source: sourceName
+          });
+          return true;
+        }
+      } catch {}
+    }
+    console.warn(`[OBS] Failed to remove scene item "${sourceName || sceneItemId}" from "${sceneName}":`, err);
+    return false;
+  }
+}
+
+/**
  * Query whether OBS is currently streaming live
  */
 export async function getIsObsStreaming(obs: any): Promise<boolean | null> {

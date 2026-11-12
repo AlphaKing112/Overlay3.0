@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } fro
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
-import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle, getObsSceneItems, toggleObsSceneItem, type ObsSceneItemInfo } from '@/lib/obs-helper';
+import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle, getObsSceneItems, toggleObsSceneItem, removeObsSceneItem, type ObsSceneItemInfo } from '@/lib/obs-helper';
 import { API_KEYS } from '@/utils/overlay-constants';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
@@ -233,6 +233,7 @@ function LowBitrateContent() {
   const [sceneSources, setSceneSources] = useState<ObsSceneItemInfo[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState<boolean>(false);
   const [togglingSourceId, setTogglingSourceId] = useState<number | null>(null);
+  const [removingSourceId, setRemovingSourceId] = useState<number | null>(null);
   const loadSceneSourcesRef = useRef<(targetScene?: string) => Promise<void>>(() => Promise.resolve());
 
   // OBS Action Controls State (Fix Feed, Record, Start Stream)
@@ -1250,6 +1251,80 @@ function LowBitrateContent() {
       }
     }
     showToast(`All sources in "${targetScene}" set to ${enableAll ? 'Visible' : 'Hidden'}`, 'info');
+  };
+
+  // Remove individual source (RemoveSceneItem)
+  const handleRemoveSource = async (item: ObsSceneItemInfo) => {
+    const targetScene = currentSceneRef.current || currentScene;
+    if (!targetScene) {
+      showToast('No active scene selected.', 'error');
+      return;
+    }
+
+    const confirmMsg = `Remove source "${item.name}" from scene "${targetScene}"?`;
+    if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setRemovingSourceId(item.id);
+
+    // Optimistic UI update: immediately remove from list
+    const previousSources = [...sceneSources];
+    setSceneSources(prev => prev.filter(s => s.id !== item.id));
+
+    try {
+      let directSuccess = false;
+      if (localObsRef.current) {
+        directSuccess = await removeObsSceneItem(
+          localObsRef.current,
+          targetScene,
+          item.id,
+          item.name
+        );
+      }
+
+      if (!directSuccess) {
+        // Fallback: Call API route to relay or broadcast signal to OBS
+        const res = await fetch('/api/obs-sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'remove',
+            sceneName: targetScene,
+            sceneItemId: item.id,
+            sourceName: item.name,
+            obsUrl: settingsRef.current.obsWebsocketUrl || `ws://127.0.0.1:${settingsRef.current.obsWebsocketPort || 4455}`,
+            obsPassword: settingsRef.current.obsWebsocketPassword
+          })
+        });
+        const result = await res.json();
+        if (!result.success) {
+          // Revert optimistic update
+          setSceneSources(previousSources);
+          showToast(result.error || 'Failed to remove source', 'error');
+          return;
+        }
+      }
+
+      // Update cloud telemetry
+      fetch('/api/obs-telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          online: true,
+          currentScene: targetScene,
+          currentSceneSources: previousSources.filter(s => s.id !== item.id)
+        })
+      }).catch(() => {});
+
+      showToast(`Source "${item.name}" removed from "${targetScene}" 🗑️`, 'success');
+    } catch (err: any) {
+      // Revert optimistic update
+      setSceneSources(previousSources);
+      showToast(`Remove failed: ${err.message}`, 'error');
+    } finally {
+      setRemovingSourceId(null);
+    }
   };
 
   // 4. Save settings changes
@@ -3800,6 +3875,7 @@ function LowBitrateContent() {
                       {sceneSources.map((item) => {
                         const badge = getSourceKindBadge(item.kind, item.name);
                         const isToggling = togglingSourceId === item.id;
+                        const isRemoving = removingSourceId === item.id;
                         return (
                           <div
                             key={item.id}
@@ -3812,7 +3888,8 @@ function LowBitrateContent() {
                               border: item.enabled ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(255, 255, 255, 0.03)',
                               borderRadius: '6px',
                               opacity: item.enabled ? 1 : 0.55,
-                              transition: 'all 0.18s ease'
+                              transition: 'all 0.18s ease',
+                              gap: '8px'
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
@@ -3851,36 +3928,62 @@ function LowBitrateContent() {
                               </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleToggleSource(item)}
-                              disabled={isToggling}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                padding: '6px 12px',
-                                borderRadius: '6px',
-                                border: item.enabled ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(148, 163, 184, 0.25)',
-                                background: item.enabled
-                                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(22, 163, 74, 0.3) 100%)'
-                                  : 'rgba(255, 255, 255, 0.05)',
-                                color: item.enabled ? '#4ade80' : '#94a3b8',
-                                cursor: isToggling ? 'wait' : 'pointer',
-                                transition: 'all 0.15s ease',
-                                flexShrink: 0
-                              }}
-                            >
-                              {isToggling ? (
-                                <>⏳ Saving...</>
-                              ) : item.enabled ? (
-                                <>👁️ Visible</>
-                              ) : (
-                                <>🙈 Hidden</>
-                              )}
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSource(item)}
+                                disabled={isToggling || isRemoving}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  padding: '6px 12px',
+                                  borderRadius: '6px',
+                                  border: item.enabled ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(148, 163, 184, 0.25)',
+                                  background: item.enabled
+                                    ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(22, 163, 74, 0.3) 100%)'
+                                    : 'rgba(255, 255, 255, 0.05)',
+                                  color: item.enabled ? '#4ade80' : '#94a3b8',
+                                  cursor: isToggling ? 'wait' : 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0
+                                }}
+                              >
+                                {isToggling ? (
+                                  <>⏳ Saving...</>
+                                ) : item.enabled ? (
+                                  <>👁️ Visible</>
+                                ) : (
+                                  <>🙈 Hidden</>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSource(item)}
+                                disabled={isRemoving || isToggling}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: '6px 9px',
+                                  borderRadius: '6px',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                                  background: 'rgba(239, 68, 68, 0.1)',
+                                  color: '#f87171',
+                                  cursor: isRemoving ? 'wait' : 'pointer',
+                                  fontSize: '0.8rem',
+                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0
+                                }}
+                                title={`Remove "${item.name}" from ${currentScene || 'scene'}`}
+                                aria-label={`Remove "${item.name}"`}
+                              >
+                                {isRemoving ? '⏳' : '🗑️'}
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
