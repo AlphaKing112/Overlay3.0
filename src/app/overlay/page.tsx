@@ -11,7 +11,7 @@ import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conver
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
 import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene, createUnthrottledInterval, ensureOverlayBrowserSourcesPersistent, getObsSceneItems, toggleObsSceneItem } from '@/lib/obs-helper';
-import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
+import type { ObsTelemetryLogEntry, ObsSceneItemInfo } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
 const {
@@ -3228,16 +3228,66 @@ function OverlayPage() {
               startingCheckStartRef.current = 0;
             }
 
-            fetch('/api/obs-telemetry', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                online: true,
-                currentScene: sceneName,
-                streaming: Boolean(lastLoggedStateRef.current.isStreaming),
-                recording: Boolean(lastLoggedStateRef.current.isRecording),
-                scenes: cachedObsScenesRef.current.length > 0 ? cachedObsScenesRef.current : undefined
-              })
+            getObsSceneItems(obs, sceneName).then((sources) => {
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  currentScene: sceneName,
+                  currentSceneSources: sources,
+                  streaming: Boolean(lastLoggedStateRef.current.isStreaming),
+                  recording: Boolean(lastLoggedStateRef.current.isRecording),
+                  scenes: cachedObsScenesRef.current.length > 0 ? cachedObsScenesRef.current : undefined
+                })
+              }).catch(() => {});
+            }).catch(() => {
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  currentScene: sceneName,
+                  streaming: Boolean(lastLoggedStateRef.current.isStreaming),
+                  recording: Boolean(lastLoggedStateRef.current.isRecording),
+                  scenes: cachedObsScenesRef.current.length > 0 ? cachedObsScenesRef.current : undefined
+                })
+              }).catch(() => {});
+            });
+          }
+        });
+
+        // Fast 0ms source visibility relay from local OBS to cloud telemetry
+        obs.on('SceneItemEnableStateChanged' as any, () => {
+          const sc = lastLoggedStateRef.current.currentScene;
+          if (sc) {
+            getObsSceneItems(obs, sc).then((sources) => {
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  currentScene: sc,
+                  currentSceneSources: sources
+                })
+              }).catch(() => {});
+            }).catch(() => {});
+          }
+        });
+
+        obs.on('SceneItemListChanged' as any, () => {
+          const sc = lastLoggedStateRef.current.currentScene;
+          if (sc) {
+            getObsSceneItems(obs, sc).then((sources) => {
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  currentScene: sc,
+                  currentSceneSources: sources
+                })
+              }).catch(() => {});
             }).catch(() => {});
           }
         });
@@ -3705,6 +3755,16 @@ function OverlayPage() {
             mediaFeedSource = feedStatus.sourceName;
           } catch {}
 
+          let currentSceneSources: ObsSceneItemInfo[] | undefined = undefined;
+          try {
+            if (currentScene && localObsRef.current) {
+              const items = await getObsSceneItems(localObsRef.current, currentScene);
+              if (items && items.length > 0) {
+                currentSceneSources = items;
+              }
+            }
+          } catch {}
+
           const payload = {
             online: true,
             streaming: isStreaming,
@@ -3725,6 +3785,7 @@ function OverlayPage() {
             renderSkippedFrames: st?.renderSkippedFrames,
             renderTotalFrames: st?.renderTotalFrames,
             currentScene,
+            currentSceneSources,
             obsVersion: obsVersionInfoRef.current.obsVersion,
             obsWebSocketVersion: obsVersionInfoRef.current.obsWebSocketVersion,
             platform: obsVersionInfoRef.current.platform,
@@ -3835,7 +3896,23 @@ function OverlayPage() {
     OverlayLogger.overlay(`📡 Received source toggle signal: "${signal.sourceName || signal.sceneItemId}" -> ${signal.enabled ? 'SHOW' : 'HIDE'}`);
 
     if (localObsRef.current) {
-      toggleObsSceneItem(localObsRef.current, signal.sceneName, signal.sceneItemId, signal.enabled, signal.sourceName);
+      toggleObsSceneItem(localObsRef.current, signal.sceneName, signal.sceneItemId, signal.enabled, signal.sourceName)
+        .then(() => {
+          if (localObsRef.current) {
+            getObsSceneItems(localObsRef.current, signal.sceneName).then((sources) => {
+              fetch('/api/obs-telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  online: true,
+                  currentScene: signal.sceneName,
+                  currentSceneSources: sources
+                })
+              }).catch(() => {});
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
   }, [settings.obsSourceToggleSignal]);
 

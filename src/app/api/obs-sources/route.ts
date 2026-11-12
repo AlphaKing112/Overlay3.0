@@ -87,11 +87,21 @@ export async function GET(request: NextRequest) {
       }
     } catch {}
 
-    // 2. Fallback to in-memory telemetry cache
-    if (sources.length === 0 && typeof globalThis !== 'undefined') {
-      const telemetry = (globalThis as any).__cachedObsTelemetry;
-      if (telemetry?.currentSceneSources && Array.isArray(telemetry.currentSceneSources)) {
-        sources = telemetry.currentSceneSources;
+    // 2. Fallback to Upstash KV telemetry cache (crucial for mobile devices connecting via cloud!)
+    if (sources.length === 0) {
+      try {
+        let telemetry = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsTelemetry : null);
+        if (!telemetry || !telemetry.currentSceneSources || telemetry.currentSceneSources.length === 0) {
+          const kvData = await kv.get<any>('obs_telemetry');
+          if (kvData && typeof kvData === 'object') {
+            telemetry = kvData;
+          }
+        }
+        if (telemetry?.currentSceneSources && Array.isArray(telemetry.currentSceneSources)) {
+          sources = telemetry.currentSceneSources;
+        }
+      } catch (kvErr) {
+        console.warn('⚠️ [API] Failed to fetch sources from KV:', kvErr);
       }
     }
 
@@ -135,6 +145,19 @@ export async function POST(request: NextRequest) {
           kv.set('overlay_settings', updated),
           kv.set('overlay_settings_modified', now)
         ]);
+
+        // Optimistically update obs_telemetry KV so mobile GET immediately sees the toggled state
+        const kvTelemetry = await kv.get<any>('obs_telemetry');
+        if (kvTelemetry && Array.isArray(kvTelemetry.currentSceneSources)) {
+          const updatedSources = kvTelemetry.currentSceneSources.map((s: any) =>
+            s.id === Number(sceneItemId) ? { ...s, enabled: Boolean(enabled) } : s
+          );
+          const nextTel = { ...kvTelemetry, currentSceneSources: updatedSources };
+          if (typeof globalThis !== 'undefined') {
+            (globalThis as any).__cachedObsTelemetry = nextTel;
+          }
+          await kv.set('obs_telemetry', nextTel, { ex: 300 });
+        }
       } catch {}
 
       await broadcastSettings(updated);
@@ -188,3 +211,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: err?.message || 'Server error' }, { status: 500 });
   }
 }
+

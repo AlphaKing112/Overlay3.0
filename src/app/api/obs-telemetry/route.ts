@@ -57,11 +57,13 @@ export async function GET(): Promise<NextResponse> {
     ...telemetry,
     online: Boolean(telemetry.online !== false),
     scenes: telemetry.scenes || [],
+    currentSceneSources: telemetry.currentSceneSources || [],
   } : {
     online: false,
     streaming: false,
     recording: false,
     scenes: telemetry?.scenes || [],
+    currentSceneSources: telemetry?.currentSceneSources || [],
     error: telemetry?.error,
     updatedAt: telemetry?.updatedAt || 0,
   };
@@ -127,15 +129,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       weather: (body.weather && typeof body.weather === 'object') ? body.weather : previousTelemetry?.weather,
       location: (body.location && typeof body.location === 'object') ? body.location : previousTelemetry?.location,
       timezone: typeof body.timezone === 'string' ? body.timezone : previousTelemetry?.timezone,
+      currentSceneSources: Array.isArray(body.currentSceneSources)
+        ? body.currentSceneSources
+        : (body.currentScene && body.currentScene !== previousTelemetry?.currentScene ? undefined : previousTelemetry?.currentSceneSources),
       error: body.error || undefined,
       updatedAt: now,
     };
 
-    // Rate-limit KV writes: write immediately on streaming/online/scene status change, otherwise at most once every 15s
+    // Rate-limit KV writes: write immediately on streaming/online/scene/source status change, otherwise at most once every 15s
+    const sourcesChanged = Boolean(
+      Array.isArray(body.currentSceneSources) &&
+      (!previousTelemetry?.currentSceneSources ||
+       previousTelemetry.currentSceneSources.length !== body.currentSceneSources.length ||
+       body.currentSceneSources.some((s: any, idx: number) => {
+         const prev = previousTelemetry?.currentSceneSources?.[idx];
+         return !prev || prev.id !== s.id || prev.enabled !== s.enabled;
+       }))
+    );
+
     const statusChanged = !previousTelemetry ||
       previousTelemetry.streaming !== telemetry.streaming ||
       previousTelemetry.online !== telemetry.online ||
-      previousTelemetry.currentScene !== telemetry.currentScene;
+      previousTelemetry.currentScene !== telemetry.currentScene ||
+      sourcesChanged;
     const lastWrite = globalThis.__lastKvTelemetryWriteTime || previousTelemetry?.updatedAt || 0;
 
     // Update in-memory cache immediately

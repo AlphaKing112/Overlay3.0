@@ -1013,6 +1013,20 @@ function LowBitrateContent() {
         if (data.currentScene && !localObsRef.current && !isRecentlySwitched) {
           setCurrentScene(prev => prev === data.currentScene ? prev : data.currentScene);
         }
+        // Sync sources from cloud telemetry on mobile devices (where localObsRef is disconnected)
+        if (data.currentSceneSources && Array.isArray(data.currentSceneSources) && data.currentSceneSources.length > 0) {
+          if (!localObsRef.current) {
+            setSceneSources(prev => {
+              if (
+                prev.length === data.currentSceneSources.length &&
+                prev.every((p: any, idx: number) => p.id === data.currentSceneSources[idx]?.id && p.enabled === data.currentSceneSources[idx]?.enabled)
+              ) {
+                return prev;
+              }
+              return data.currentSceneSources;
+            });
+          }
+        }
       }
     } catch {}
   }, [localStreaming, localRecording, updateAvailableScenes]);
@@ -1107,7 +1121,7 @@ function LowBitrateContent() {
 
   // 3b. Load scene sources / scene items for active scene
   const loadSceneSources = useCallback(async (targetScene?: string) => {
-    const sceneToLoad = targetScene || currentSceneRef.current;
+    const sceneToLoad = targetScene || currentSceneRef.current || telemetryRef.current?.currentScene;
     if (!sceneToLoad) return;
     setIsLoadingSources(true);
     try {
@@ -1117,15 +1131,21 @@ function LowBitrateContent() {
         if (items && items.length > 0) {
           setSceneSources(items);
           setIsLoadingSources(false);
+          // Push to cloud telemetry so mobile devices (phones) get the updated source list immediately
+          fetch('/api/obs-telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ online: true, currentScene: sceneToLoad, currentSceneSources: items })
+          }).catch(() => {});
           return;
         }
       }
 
-      // 2. Fallback via /api/obs-sources
+      // 2. Fallback via /api/obs-sources (queries cloud KV on mobile devices)
       const res = await fetch(`/api/obs-sources?sceneName=${encodeURIComponent(sceneToLoad)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.sources)) {
+        if (data.success && Array.isArray(data.sources) && data.sources.length > 0) {
           setSceneSources(data.sources);
         }
       }
@@ -3757,8 +3777,16 @@ function LowBitrateContent() {
                       ⏳ Loading sources for &quot;{currentScene || 'active scene'}&quot;...
                     </div>
                   ) : sceneSources.length === 0 ? (
-                    <div style={{ padding: '14px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
-                      No sources found in active scene. (Make sure OBS is connected or click Refresh)
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      <div>No sources loaded yet for {currentScene ? `"${currentScene}"` : 'the active scene'}.</div>
+                      <button
+                        type="button"
+                        onClick={() => loadSceneSources(currentScene || telemetry?.currentScene)}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.75rem', padding: '6px 12px', background: 'rgba(145, 70, 255, 0.2)', color: '#c084fc', border: '1px solid rgba(145, 70, 255, 0.4)' }}
+                      >
+                        🔄 Fetch Scene Sources
+                      </button>
                     </div>
                   ) : (
                     <div style={{
