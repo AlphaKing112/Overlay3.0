@@ -219,6 +219,7 @@ export interface OverlaySettings {
   obsWebsocketPort?: number;
   obsWebsocketPassword?: string;
   obsSceneSwitchSignal?: { sceneName: string; timestamp: number } | null;
+  obsSourceToggleSignal?: { sceneName: string; sceneItemId: number; sourceName?: string; enabled: boolean; timestamp: number } | null;
   obsAutoSwitchSceneToggle?: boolean;
   obsOfflineSceneName?: string;
   obsLiveSceneName?: string;
@@ -530,6 +531,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   obsWebsocketPort: 4455,
   obsWebsocketPassword: '',
   obsSceneSwitchSignal: null,
+  obsSourceToggleSignal: null,
   obsAutoSwitchSceneToggle: false,
   obsOfflineSceneName: 'offline',
   obsLiveSceneName: 'live',
@@ -631,8 +633,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
 };
 
 // Valid settings schema for validation
-// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', 'obsSceneSwitchSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
-export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'obsSceneSwitchSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
+// Note: 'todos', 'urls', 'donationGoals', 'shoutout', 'obsStreamCommandSignal', 'obsSceneSwitchSignal', 'obsSourceToggleSignal', and 'noalbsCommandsList' are handled separately in the validator as they are objects/arrays
+export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'urls' | 'donationGoals' | 'shoutout' | 'obsStreamCommandSignal' | 'obsSceneSwitchSignal' | 'obsSourceToggleSignal' | 'noalbsCommandsList'>, 'boolean' | 'string' | 'number'> = {
   shoutoutAnnouncementTemplate: 'string',
   shoutoutX: 'number',
   shoutoutY: 'number',

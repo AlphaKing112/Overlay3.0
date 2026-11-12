@@ -1,0 +1,190 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getObsSceneItems, toggleObsSceneItem } from '@/lib/obs-helper';
+import { kv } from '@vercel/kv';
+import { broadcastSettings } from '@/lib/settings-broadcast';
+
+export const dynamic = 'force-dynamic';
+
+async function getObsConnectionInfo(overrideUrl?: string, overridePassword?: string) {
+  let url = overrideUrl;
+  let password = overridePassword;
+  let port = 4455;
+
+  try {
+    const cached = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlaySettings : null);
+    if (cached) {
+      if (!url && cached.obsWebsocketPort) {
+        port = cached.obsWebsocketPort;
+        url = `ws://127.0.0.1:${port}`;
+      } else if (!url && cached.obsWebsocketUrl) {
+        url = cached.obsWebsocketUrl;
+      }
+      if (password === undefined && cached.obsWebsocketPassword) {
+        password = cached.obsWebsocketPassword;
+      }
+    } else {
+      const kvSettings: any = await kv.get('overlay_settings');
+      if (kvSettings) {
+        if (!url && kvSettings.obsWebsocketPort) {
+          port = kvSettings.obsWebsocketPort;
+          url = `ws://127.0.0.1:${port}`;
+        } else if (!url && kvSettings.obsWebsocketUrl) {
+          url = kvSettings.obsWebsocketUrl;
+        }
+        if (password === undefined && kvSettings.obsWebsocketPassword) {
+          password = kvSettings.obsWebsocketPassword;
+        }
+      }
+    }
+  } catch {}
+
+  return {
+    url: url || `ws://127.0.0.1:${port}`,
+    password: password || '',
+    port
+  };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const sceneName = searchParams.get('sceneName') || '';
+
+    // 1. Try local direct WebSocket if available
+    let sources: any[] = [];
+    const { url, password, port } = await getObsConnectionInfo();
+    const urlsToTry = [
+      url,
+      `ws://127.0.0.1:${port}`,
+      `ws://localhost:${port}`,
+      'ws://127.0.0.1:4455',
+      'ws://localhost:4455'
+    ].filter((v, i, a) => a.indexOf(v) === i);
+
+    try {
+      const { default: OBSWebSocket } = await import('obs-websocket-js');
+      const obs = new OBSWebSocket();
+      obs.on('ConnectionClosed', () => {});
+      obs.on('ConnectionError', () => {});
+
+      let connected = false;
+      for (const targetUrl of urlsToTry) {
+        try {
+          const connectPromise = obs.connect(targetUrl, password || undefined);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500));
+          await Promise.race([connectPromise, timeoutPromise]);
+          connected = true;
+          break;
+        } catch {}
+      }
+
+      if (connected) {
+        const targetScene = sceneName || (await obs.call('GetCurrentProgramScene' as any).then((r: any) => r.currentProgramSceneName || r.sceneName).catch(() => ''));
+        if (targetScene) {
+          sources = await getObsSceneItems(obs, targetScene);
+        }
+        await obs.disconnect();
+      }
+    } catch {}
+
+    // 2. Fallback to in-memory telemetry cache
+    if (sources.length === 0 && typeof globalThis !== 'undefined') {
+      const telemetry = (globalThis as any).__cachedObsTelemetry;
+      if (telemetry?.currentSceneSources && Array.isArray(telemetry.currentSceneSources)) {
+        sources = telemetry.currentSceneSources;
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      sceneName,
+      sources
+    });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err?.message || 'Server error' }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { sceneName, sceneItemId, sourceName, enabled, obsUrl, obsPassword } = body;
+
+    if (!sceneName || sceneItemId === undefined || enabled === undefined) {
+      return NextResponse.json({ success: false, error: 'sceneName, sceneItemId, and enabled are required' }, { status: 400 });
+    }
+
+    const now = Date.now();
+    const signal = { sceneName, sceneItemId: Number(sceneItemId), sourceName: sourceName || '', enabled: Boolean(enabled), timestamp: now };
+
+    // 1. Dispatch signal via Settings Broadcast to the active OBS Browser Source
+    try {
+      let currentSettings: any = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlaySettings : null) || {};
+      try {
+        const kvSettings = await kv.get('overlay_settings');
+        if (kvSettings && typeof kvSettings === 'object') currentSettings = kvSettings;
+      } catch {}
+
+      const updated = { ...currentSettings, obsSourceToggleSignal: signal };
+      if (typeof globalThis !== 'undefined') {
+        (globalThis as any).__cachedOverlaySettings = updated;
+        (globalThis as any).__cachedOverlaySettingsTime = now;
+      }
+      try {
+        await Promise.all([
+          kv.set('overlay_settings', updated),
+          kv.set('overlay_settings_modified', now)
+        ]);
+      } catch {}
+
+      await broadcastSettings(updated);
+    } catch (sigErr) {
+      console.warn('⚠️ [API] Source toggle signal dispatch warning:', sigErr);
+    }
+
+    // 2. Also attempt direct local WS if available
+    let toggledViaDirect = false;
+    const { url, password, port } = await getObsConnectionInfo(obsUrl, obsPassword);
+    const urlsToTry = [
+      url,
+      `ws://127.0.0.1:${port}`,
+      `ws://localhost:${port}`,
+      'ws://127.0.0.1:4455',
+      'ws://localhost:4455'
+    ].filter((v, i, a) => a.indexOf(v) === i);
+
+    try {
+      const { default: OBSWebSocket } = await import('obs-websocket-js');
+      const obs = new OBSWebSocket();
+      obs.on('ConnectionClosed', () => {});
+      obs.on('ConnectionError', () => {});
+
+      let connected = false;
+      for (const targetUrl of urlsToTry) {
+        try {
+          const connectPromise = obs.connect(targetUrl, password || undefined);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500));
+          await Promise.race([connectPromise, timeoutPromise]);
+          connected = true;
+          break;
+        } catch {}
+      }
+
+      if (connected) {
+        toggledViaDirect = await toggleObsSceneItem(obs, sceneName, Number(sceneItemId), Boolean(enabled), sourceName);
+        await obs.disconnect();
+      }
+    } catch {}
+
+    return NextResponse.json({
+      success: true,
+      sceneName,
+      sceneItemId,
+      sourceName,
+      enabled,
+      via: toggledViaDirect ? 'direct' : 'signal'
+    });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err?.message || 'Server error' }, { status: 500 });
+  }
+}

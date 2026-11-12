@@ -1,3 +1,11 @@
+export interface ObsSceneItemInfo {
+  id: number;
+  name: string;
+  kind?: string;
+  enabled: boolean;
+  locked?: boolean;
+}
+
 export interface ObsTelemetryLogEntry {
   id?: string;
   timestamp: number;
@@ -23,6 +31,7 @@ export interface ObsTelemetryStats {
   renderTotalFrames?: number;
   currentScene?: string;
   scenes?: string[];
+  currentSceneSources?: ObsSceneItemInfo[];
   mediaFeedLive?: boolean;
   mediaFeedState?: string;
   mediaFeedSource?: string;

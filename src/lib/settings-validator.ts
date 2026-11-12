@@ -11,6 +11,7 @@ export const VALID_SETTINGS_KEYS = new Set<string>([
   'shoutout',
   'obsStreamCommandSignal',
   'obsSceneSwitchSignal',
+  'obsSourceToggleSignal',
   'noalbsCommandsList',
   'settings'
 ]);
@@ -514,6 +515,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     obsWebsocketPort: typeof cleanSettings.obsWebsocketPort === 'number' ? cleanSettings.obsWebsocketPort : (cleanSettings.obsWebsocketPort ? Number(cleanSettings.obsWebsocketPort) : DEFAULT_OVERLAY_SETTINGS.obsWebsocketPort),
     obsWebsocketPassword: cleanSettings.obsWebsocketPassword ?? DEFAULT_OVERLAY_SETTINGS.obsWebsocketPassword,
     obsSceneSwitchSignal: (cleanSettings.obsSceneSwitchSignal && typeof cleanSettings.obsSceneSwitchSignal === 'object') ? cleanSettings.obsSceneSwitchSignal : DEFAULT_OVERLAY_SETTINGS.obsSceneSwitchSignal,
+    obsSourceToggleSignal: (cleanSettings.obsSourceToggleSignal && typeof cleanSettings.obsSourceToggleSignal === 'object') ? cleanSettings.obsSourceToggleSignal : DEFAULT_OVERLAY_SETTINGS.obsSourceToggleSignal,
     obsAutoSwitchSceneToggle: cleanSettings.obsAutoSwitchSceneToggle ?? DEFAULT_OVERLAY_SETTINGS.obsAutoSwitchSceneToggle,
     obsOfflineSceneName: cleanSettings.obsOfflineSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsOfflineSceneName,
     obsLiveSceneName: cleanSettings.obsLiveSceneName ?? DEFAULT_OVERLAY_SETTINGS.obsLiveSceneName,

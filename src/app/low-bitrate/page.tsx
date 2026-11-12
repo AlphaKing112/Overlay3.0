@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } fro
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
-import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle } from '@/lib/obs-helper';
+import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle, getObsSceneItems, toggleObsSceneItem, type ObsSceneItemInfo } from '@/lib/obs-helper';
 import { API_KEYS } from '@/utils/overlay-constants';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
@@ -145,6 +145,52 @@ const DEFAULT_SCENE_PRESETS = [
   'Just Chatting', 'Gameplay', 'Screen Share', 'Be Right Back', 'Reconnecting', 'Pause'
 ];
 
+function getSourceIcon(kind: string = '', name: string = ''): string {
+  const k = (kind || '').toLowerCase();
+  const n = (name || '').toLowerCase();
+  if (k === 'browser_source' || /(chat|overlay|alert|widget|hud|botrix|streamelements)/i.test(n)) return '🌐';
+  if (k === 'ffmpeg_source' || k === 'vlc_source' || /(bela|belabox|srt|feed|stream|irl)/i.test(n)) return '📡';
+  if (k.includes('monitor') || k.includes('display') || /(display|screen|desktop|monitor)/i.test(n)) return '🖥️';
+  if (k.includes('window') || /(window|app|game)/i.test(n)) return '🪟';
+  if (k.includes('dshow') || k.includes('video_capture') || /(cam|camera|webcam|c920|facecam)/i.test(n)) return '📷';
+  if (k.includes('wasapi') || k.includes('audio') || k.includes('pulse') || /(mic|audio|sound|spotify|voice)/i.test(n)) return '🎙️';
+  if (k.includes('image') || /(image|logo|photo|banner)/i.test(n)) return '🖼️';
+  if (k.includes('text') || /(text|title|label)/i.test(n)) return '📝';
+  if (k.includes('color') || /(color|bg|background)/i.test(n)) return '🎨';
+  if (k.includes('group') || /(group|folder)/i.test(n)) return '📁';
+  return '📦';
+}
+
+function getSourceKindBadge(kind: string = '', name: string = ''): { label: string; color: string; bg: string } {
+  const k = (kind || '').toLowerCase();
+  const n = (name || '').toLowerCase();
+  if (k === 'browser_source' || /(chat|overlay|alert|widget)/i.test(n)) {
+    return { label: 'Browser', color: '#c084fc', bg: 'rgba(192, 132, 252, 0.12)' };
+  }
+  if (k === 'ffmpeg_source' || k === 'vlc_source' || /(bela|belabox|srt)/i.test(n)) {
+    return { label: 'Media Stream', color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.12)' };
+  }
+  if (k.includes('monitor') || k.includes('display') || /(display|monitor)/i.test(n)) {
+    return { label: 'Display Capture', color: '#4ade80', bg: 'rgba(74, 222, 128, 0.12)' };
+  }
+  if (k.includes('window') || k.includes('game')) {
+    return { label: 'Window / Game', color: '#2dd4bf', bg: 'rgba(45, 212, 191, 0.12)' };
+  }
+  if (k.includes('dshow') || /(cam|camera)/i.test(n)) {
+    return { label: 'Camera', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.12)' };
+  }
+  if (k.includes('audio') || k.includes('wasapi')) {
+    return { label: 'Audio', color: '#fb923c', bg: 'rgba(251, 146, 60, 0.12)' };
+  }
+  if (k.includes('image')) {
+    return { label: 'Image', color: '#e879f9', bg: 'rgba(232, 121, 249, 0.12)' };
+  }
+  if (k.includes('text')) {
+    return { label: 'Text', color: '#facc15', bg: 'rgba(250, 204, 21, 0.12)' };
+  }
+  return { label: kind ? kind.replace(/_source|_input|_v2/g, '') : 'Source', color: '#94a3b8', bg: 'rgba(255, 255, 255, 0.06)' };
+}
+
 function LowBitrateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -182,6 +228,12 @@ function LowBitrateContent() {
   const [showObsLogs, setShowObsLogs] = useState<boolean>(false);
   const [isScanningScenes, setIsScanningScenes] = useState<boolean>(false);
   const [customSceneMode, setCustomSceneMode] = useState<boolean>(false);
+
+  // Sources (Scene Items) State for Active Scene
+  const [sceneSources, setSceneSources] = useState<ObsSceneItemInfo[]>([]);
+  const [isLoadingSources, setIsLoadingSources] = useState<boolean>(false);
+  const [togglingSourceId, setTogglingSourceId] = useState<number | null>(null);
+  const loadSceneSourcesRef = useRef<(targetScene?: string) => Promise<void>>(() => Promise.resolve());
 
   // OBS Action Controls State (Fix Feed, Record, Start Stream)
   const [localStreaming, setLocalStreaming] = useState<boolean | null>(null);
@@ -359,6 +411,7 @@ function LowBitrateContent() {
         if (currentProg) {
           setCurrentScene(prev => prev === currentProg ? prev : currentProg);
           currentSceneRef.current = currentProg;
+          loadSceneSourcesRef.current(currentProg);
           if (isLiveSceneName(currentProg, settingsRef.current)) {
             setAutoSwitchState('LIVE');
           } else if (isLowSceneName(currentProg, settingsRef.current)) {
@@ -384,6 +437,7 @@ function LowBitrateContent() {
             setCurrentScene(prev => prev === sName ? prev : sName);
             currentSceneRef.current = sName;
             lastManualSceneSwitchTimeRef.current = Date.now();
+            loadSceneSourcesRef.current(sName);
 
             if (isSpecialSceneName(sName, settingsRef.current)) {
               const startSceneNorm = (settingsRef.current.obsStartingSceneName || 'starting').trim().toLowerCase();
@@ -428,6 +482,24 @@ function LowBitrateContent() {
               }).catch(() => {});
             }
           } catch {}
+        });
+
+        // Instant source visibility sync when toggled directly inside OBS Studio
+        obs.on('SceneItemEnableStateChanged' as any, (data: any) => {
+          const sName = data?.sceneName;
+          const itemId = Number(data?.sceneItemId);
+          const isEnabled = Boolean(data?.sceneItemEnabled);
+          if (!sName || sName === currentSceneRef.current) {
+            setSceneSources(prev => prev.map(item => item.id === itemId ? { ...item, enabled: isEnabled } : item));
+          }
+        });
+
+        // Instant reload when sources are added, removed, or reordered in OBS Studio
+        obs.on('SceneItemListChanged' as any, (data: any) => {
+          const sName = data?.sceneName;
+          if (!sName || sName === currentSceneRef.current) {
+            loadSceneSourcesRef.current(currentSceneRef.current);
+          }
         });
 
         obs.on('StreamStateChanged' as any, (data: any) => {
@@ -1033,6 +1105,133 @@ function LowBitrateContent() {
     }
   };
 
+  // 3b. Load scene sources / scene items for active scene
+  const loadSceneSources = useCallback(async (targetScene?: string) => {
+    const sceneToLoad = targetScene || currentSceneRef.current;
+    if (!sceneToLoad) return;
+    setIsLoadingSources(true);
+    try {
+      // 1. Direct local OBS WebSocket call if available (< 2ms)
+      if (localObsRef.current) {
+        const items = await getObsSceneItems(localObsRef.current, sceneToLoad);
+        if (items && items.length > 0) {
+          setSceneSources(items);
+          setIsLoadingSources(false);
+          return;
+        }
+      }
+
+      // 2. Fallback via /api/obs-sources
+      const res = await fetch(`/api/obs-sources?sceneName=${encodeURIComponent(sceneToLoad)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.sources)) {
+          setSceneSources(data.sources);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load scene sources:', err);
+    } finally {
+      setIsLoadingSources(false);
+    }
+  }, []);
+
+  loadSceneSourcesRef.current = loadSceneSources;
+
+  // Auto-load sources when currentScene changes
+  useEffect(() => {
+    if (currentScene) {
+      loadSceneSources(currentScene);
+    }
+  }, [currentScene, loadSceneSources]);
+
+  // Toggle individual source visibility (SetSceneItemEnabled)
+  const handleToggleSource = async (item: ObsSceneItemInfo) => {
+    const targetScene = currentSceneRef.current || currentScene;
+    if (!targetScene) {
+      showToast('No active scene selected.', 'error');
+      return;
+    }
+
+    const nextState = !item.enabled;
+    setTogglingSourceId(item.id);
+
+    // Optimistic UI update for instant feedback (< 1ms)
+    setSceneSources(prev => prev.map(s => s.id === item.id ? { ...s, enabled: nextState } : s));
+
+    try {
+      let directSuccess = false;
+      if (localObsRef.current) {
+        directSuccess = await toggleObsSceneItem(
+          localObsRef.current,
+          targetScene,
+          item.id,
+          nextState,
+          item.name
+        );
+      }
+
+      if (!directSuccess) {
+        // Fallback: Call API route to relay or broadcast signal to OBS
+        const res = await fetch('/api/obs-sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sceneName: targetScene,
+            sceneItemId: item.id,
+            enabled: nextState,
+            sourceName: item.name,
+            obsUrl: settingsRef.current.obsWebsocketUrl || `ws://127.0.0.1:${settingsRef.current.obsWebsocketPort || 4455}`,
+            obsPassword: settingsRef.current.obsWebsocketPassword
+          })
+        });
+        const result = await res.json();
+        if (!result.success) {
+          // Revert optimistic update
+          setSceneSources(prev => prev.map(s => s.id === item.id ? { ...s, enabled: item.enabled } : s));
+          showToast(result.error || 'Failed to toggle source visibility', 'error');
+          return;
+        }
+      }
+
+      showToast(`Source "${item.name}" is now ${nextState ? 'visible 👁️' : 'hidden 🙈'}`, 'info');
+    } catch (err: any) {
+      // Revert optimistic update
+      setSceneSources(prev => prev.map(s => s.id === item.id ? { ...s, enabled: item.enabled } : s));
+      showToast(`Toggle failed: ${err.message}`, 'error');
+    } finally {
+      setTogglingSourceId(null);
+    }
+  };
+
+  // Toggle all sources in the active scene
+  const handleToggleAllSources = async (enableAll: boolean) => {
+    const targetScene = currentSceneRef.current || currentScene;
+    if (!targetScene || sceneSources.length === 0) return;
+
+    // Optimistic update
+    setSceneSources(prev => prev.map(s => ({ ...s, enabled: enableAll })));
+
+    for (const item of sceneSources) {
+      if (item.enabled === enableAll) continue;
+      if (localObsRef.current) {
+        toggleObsSceneItem(localObsRef.current, targetScene, item.id, enableAll, item.name).catch(() => {});
+      } else {
+        fetch('/api/obs-sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sceneName: targetScene,
+            sceneItemId: item.id,
+            enabled: enableAll,
+            sourceName: item.name
+          })
+        }).catch(() => {});
+      }
+    }
+    showToast(`All sources in "${targetScene}" set to ${enableAll ? 'Visible' : 'Hidden'}`, 'info');
+  };
+
   // 4. Save settings changes
   const saveSettingsUpdates = async (updates: Partial<OverlaySettings>, options?: { silent?: boolean }) => {
     setSaving(true);
@@ -1077,6 +1276,7 @@ function LowBitrateContent() {
     // 1. Instant Optimistic State Update (< 1ms)
     setCurrentScene(sceneName);
     currentSceneRef.current = sceneName;
+    loadSceneSourcesRef.current(sceneName);
     setIsSwitchingScene(true);
     // Quick 80ms throttle so user can click between scenes (starting -> ending) with 0 delay!
     setTimeout(() => setIsSwitchingScene(false), 80);
@@ -3449,6 +3649,215 @@ function LowBitrateContent() {
 
                 <div style={{ marginTop: '10px', fontSize: '0.75rem', color: '#94a3b8', background: 'rgba(0,0,0,0.3)', padding: '6px 10px', borderRadius: '4px', wordBreak: 'break-all' }}>
                   <strong>Log:</strong> {lastSwitchLog}
+                </div>
+
+                {/* Active Scene Sources (Scene Items Hide/Show Toggle) */}
+                <div style={{
+                  marginTop: '16px',
+                  background: 'rgba(0, 0, 0, 0.35)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '10px',
+                  padding: '14px 16px',
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                    marginBottom: '12px',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                    paddingBottom: '10px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '1.2rem' }}>🎛️</span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          Scene Sources
+                          {currentScene && (
+                            <span style={{
+                              fontSize: '0.7rem',
+                              fontWeight: 600,
+                              background: 'rgba(145, 70, 255, 0.18)',
+                              color: '#c084fc',
+                              border: '1px solid rgba(145, 70, 255, 0.35)',
+                              padding: '2px 7px',
+                              borderRadius: '4px'
+                            }}>
+                              {currentScene}
+                            </span>
+                          )}
+                          <span style={{ fontSize: '0.75rem', opacity: 0.65 }}>
+                            ({sceneSources.filter(s => s.enabled).length}/{sceneSources.length} visible)
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                          Toggle source visibility in real-time on stream.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {sceneSources.length > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAllSources(true)}
+                            className="btn btn-secondary"
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '4px 8px',
+                              background: 'rgba(34, 197, 94, 0.12)',
+                              border: '1px solid rgba(34, 197, 94, 0.3)',
+                              color: '#4ade80'
+                            }}
+                            title="Show all sources in active scene"
+                          >
+                            👁️ Show All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAllSources(false)}
+                            className="btn btn-secondary"
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '4px 8px',
+                              background: 'rgba(239, 68, 68, 0.12)',
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              color: '#f87171'
+                            }}
+                            title="Hide all sources in active scene"
+                          >
+                            🙈 Hide All
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => loadSceneSources(currentScene)}
+                        disabled={isLoadingSources}
+                        className="btn btn-secondary"
+                        style={{
+                          fontSize: '0.7rem',
+                          padding: '4px 8px',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.12)',
+                          color: '#e2e8f0'
+                        }}
+                        title="Reload scene items from OBS"
+                      >
+                        {isLoadingSources ? '🔄 Refreshing...' : '🔄 Refresh'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sources List */}
+                  {isLoadingSources && sceneSources.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      ⏳ Loading sources for &quot;{currentScene || 'active scene'}&quot;...
+                    </div>
+                  ) : sceneSources.length === 0 ? (
+                    <div style={{ padding: '14px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
+                      No sources found in active scene. (Make sure OBS is connected or click Refresh)
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      maxHeight: '340px',
+                      overflowY: 'auto',
+                      paddingRight: '4px'
+                    }}>
+                      {sceneSources.map((item) => {
+                        const badge = getSourceKindBadge(item.kind, item.name);
+                        const isToggling = togglingSourceId === item.id;
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 12px',
+                              background: item.enabled ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.3)',
+                              border: item.enabled ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(255, 255, 255, 0.03)',
+                              borderRadius: '6px',
+                              opacity: item.enabled ? 1 : 0.55,
+                              transition: 'all 0.18s ease'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                              <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>
+                                {getSourceIcon(item.kind, item.name)}
+                              </span>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{
+                                  fontSize: '0.85rem',
+                                  fontWeight: 600,
+                                  color: item.enabled ? '#ffffff' : '#94a3b8',
+                                  textDecoration: item.enabled ? 'none' : 'line-through',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis'
+                                }}>
+                                  {item.name}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 600,
+                                    padding: '1px 5px',
+                                    borderRadius: '3px',
+                                    color: badge.color,
+                                    background: badge.bg
+                                  }}>
+                                    {badge.label}
+                                  </span>
+                                  {item.locked && (
+                                    <span style={{ fontSize: '0.65rem', color: '#94a3b8' }} title="Locked in OBS">
+                                      🔒 Locked
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSource(item)}
+                              disabled={isToggling}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: item.enabled ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(148, 163, 184, 0.25)',
+                                background: item.enabled
+                                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(22, 163, 74, 0.3) 100%)'
+                                  : 'rgba(255, 255, 255, 0.05)',
+                                color: item.enabled ? '#4ade80' : '#94a3b8',
+                                cursor: isToggling ? 'wait' : 'pointer',
+                                transition: 'all 0.15s ease',
+                                flexShrink: 0
+                              }}
+                            >
+                              {isToggling ? (
+                                <>⏳ Saving...</>
+                              ) : item.enabled ? (
+                                <>👁️ Visible</>
+                              ) : (
+                                <>🙈 Hidden</>
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </section>
 

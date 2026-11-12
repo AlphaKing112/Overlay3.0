@@ -126,6 +126,83 @@ export async function getCurrentObsScene(obs: any): Promise<string | null> {
   }
 }
 
+export interface ObsSceneItemInfo {
+  id: number;
+  name: string;
+  kind?: string;
+  enabled: boolean;
+  locked?: boolean;
+}
+
+/**
+ * Get all scene items (sources) on a specific OBS scene with visibility state
+ */
+export async function getObsSceneItems(obs: any, sceneName: string): Promise<ObsSceneItemInfo[]> {
+  if (!obs || !sceneName) return [];
+  try {
+    // v5 syntax
+    const res = await obs.call('GetSceneItemList', { sceneName });
+    const items = (res?.sceneItems as any[]) || [];
+    return items.map((item: any) => ({
+      id: item.sceneItemId ?? item.itemId ?? 0,
+      name: String(item.sourceName || item.name || ''),
+      kind: String(item.inputKind || item.sourceKind || item.sourceType || ''),
+      enabled: Boolean(item.sceneItemEnabled ?? true),
+      locked: Boolean(item.sceneItemLocked ?? false)
+    })).reverse(); // Reverse so topmost item in OBS layer stack is at the top of the UI list
+  } catch {
+    try {
+      // v4 syntax fallback
+      const v4Res = await obs.call('GetSceneItemList' as any, { 'scene-name': sceneName });
+      const items = (v4Res?.sceneItems || v4Res?.sources as any[]) || [];
+      return items.map((item: any) => ({
+        id: item.id ?? item.sceneItemId ?? 0,
+        name: String(item.name || item.sourceName || ''),
+        kind: String(item.type || item.kind || ''),
+        enabled: Boolean(item.render ?? item.sceneItemEnabled ?? true)
+      })).reverse();
+    } catch {
+      return [];
+    }
+  }
+}
+
+/**
+ * Set the visibility (enabled/disabled) of a scene item on a scene in OBS
+ */
+export async function toggleObsSceneItem(
+  obs: any,
+  sceneName: string,
+  sceneItemId: number,
+  enabled: boolean,
+  sourceName?: string
+): Promise<boolean> {
+  if (!obs || !sceneName || sceneItemId === undefined) return false;
+  try {
+    // v5 syntax
+    await obs.call('SetSceneItemEnabled', {
+      sceneName,
+      sceneItemId,
+      sceneItemEnabled: enabled
+    });
+    return true;
+  } catch (err) {
+    try {
+      // v4 syntax fallback
+      if (sourceName) {
+        await obs.call('SetSceneItemRender' as any, {
+          'scene-name': sceneName,
+          source: sourceName,
+          render: enabled
+        });
+        return true;
+      }
+    } catch {}
+    console.warn(`[OBS] Failed to toggle scene item "${sourceName || sceneItemId}":`, err);
+    return false;
+  }
+}
+
 /**
  * Query whether OBS is currently streaming live
  */

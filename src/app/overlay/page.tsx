@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
-import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene, createUnthrottledInterval, ensureOverlayBrowserSourcesPersistent } from '@/lib/obs-helper';
+import { safeObsStreamControl, safeObsRefreshCycle, safeObsFixFeed, getObsMediaFeedLiveStatus, takeObsScreenshot, triggerObsReplayBuffer, safeObsSwitchScene, createUnthrottledInterval, ensureOverlayBrowserSourcesPersistent, getObsSceneItems, toggleObsSceneItem } from '@/lib/obs-helper';
 import type { ObsTelemetryLogEntry } from '@/types/obs-telemetry';
 
 // Extract constants for cleaner code
@@ -3822,6 +3822,22 @@ function OverlayPage() {
 
     runSignalCommand();
   }, [settings.obsStreamCommandSignal, settings.obsStreamCommandsEnabled]);
+
+  // Listen for Cloud Source Toggle Signals (show / hide source in OBS from dashboard or mobile)
+  const lastProcessedSourceSignalRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const signal = settings.obsSourceToggleSignal;
+    if (!signal || !signal.timestamp || !signal.sceneName || signal.sceneItemId === undefined) return;
+    if (signal.timestamp <= lastProcessedSourceSignalRef.current || (Date.now() - signal.timestamp > 15000)) {
+      return;
+    }
+    lastProcessedSourceSignalRef.current = signal.timestamp;
+    OverlayLogger.overlay(`📡 Received source toggle signal: "${signal.sourceName || signal.sceneItemId}" -> ${signal.enabled ? 'SHOW' : 'HIDE'}`);
+
+    if (localObsRef.current) {
+      toggleObsSceneItem(localObsRef.current, signal.sceneName, signal.sceneItemId, signal.enabled, signal.sourceName);
+    }
+  }, [settings.obsSourceToggleSignal]);
 
 
   // Reset scene state tracking when toggle is disabled so it evaluates immediately when re-enabled
