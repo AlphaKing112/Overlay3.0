@@ -3967,21 +3967,24 @@ function LowBitrateContent() {
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
+                                  gap: '4px',
                                   justifyContent: 'center',
-                                  padding: '6px 9px',
+                                  padding: '6px 10px',
                                   borderRadius: '6px',
-                                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                                  background: 'rgba(239, 68, 68, 0.1)',
+                                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                                  background: 'rgba(239, 68, 68, 0.15)',
                                   color: '#f87171',
                                   cursor: isRemoving ? 'wait' : 'pointer',
-                                  fontSize: '0.8rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
                                   transition: 'all 0.15s ease',
                                   flexShrink: 0
                                 }}
                                 title={`Remove "${item.name}" from ${currentScene || 'scene'}`}
                                 aria-label={`Remove "${item.name}"`}
                               >
-                                {isRemoving ? '⏳' : '🗑️'}
+                                <span>{isRemoving ? '⏳' : '🗑️'}</span>
+                                <span className="switcher-tab-text-desktop">{isRemoving ? 'Removing...' : 'Remove'}</span>
                               </button>
                             </div>
                           </div>
