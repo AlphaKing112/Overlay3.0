@@ -471,11 +471,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 14. !autostop
+    // 14. !autostop [on|off]
     if (cmdName === '!autostop') {
+      const toggleArg = (args[0] || '').toLowerCase();
+      const turnOn = toggleArg === 'on' || toggleArg === 'enable' || toggleArg === 'true' || toggleArg === '1'
+        ? true
+        : toggleArg === 'off' || toggleArg === 'disable' || toggleArg === 'false' || toggleArg === '0'
+          ? false
+          : !settings.obsAutoStopStreamOnRaid;
+
+      await saveSettingsPatch({ obsAutoStopStreamOnRaid: turnOn });
       return NextResponse.json({
         success: true,
-        message: `🛡️ Auto-stop on incoming raid toggled.`
+        message: `🛑 Auto-stop stream on outgoing raid is now ${turnOn ? 'ENABLED 🟢' : 'DISABLED 🔴'}`
       });
     }
 

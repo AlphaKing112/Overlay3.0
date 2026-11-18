@@ -343,7 +343,7 @@ export interface OverlaySettings {
 // Default settings (single source of truth)
 export const DEFAULT_NOALBS_COMMANDS: CommandConfigItem[] = [
   { id: 'alias', name: '!alias', description: 'Add or remove an alias for a command', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
-  { id: 'autostop', name: '!autostop', description: 'Enable/disable stopping the stream on a raid', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
+  { id: 'autostop', name: '!autostop', description: 'Enable/disable stopping the stream when you raid another channel', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
   { id: 'bbb', name: '!bbb', description: 'Set the BELABOX max bitrate', defaultRole: 'Admins', role: 'Admins', enabled: true, aliases: [] },
   { id: 'bbs', name: '!bbs', description: 'Report the BELABOX network interfaces and bitrate', defaultRole: 'Everyone', role: 'Everyone', enabled: true, aliases: ['!bbm'] },
   { id: 'bbsensor', name: '!bbsensor', description: 'Report the BELABOX sensors', defaultRole: 'Everyone', role: 'Everyone', enabled: false, aliases: [] },

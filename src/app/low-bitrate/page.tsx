@@ -5798,7 +5798,7 @@ function LowBitrateContent() {
                       Auto stop stream on raid
                     </div>
                     <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.65)' }}>
-                      Enable/disable stopping the stream on a raid.
+                      Automatically stop the stream when you raid another channel (outgoing raids only).
                     </div>
                   </div>
                   <PurpleToggle

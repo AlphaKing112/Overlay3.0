@@ -301,6 +301,7 @@ function OverlayPage() {
   const seSettingsRef = useRef(settings);
   const lastCommandExecRef = useRef<Record<string, number>>({});
   const lastRaidAutoStopTimeRef = useRef<number>(0);
+  const handleAutoStopStreamOnRaidRef = useRef<(targetUser?: string) => Promise<void>>(async () => {});
   useEffect(() => { seSettingsRef.current = settings; }, [settings]);
 
   // Pic snapshot overlay notification & auto-hide state
@@ -1726,6 +1727,106 @@ function OverlayPage() {
 
   const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
 
+  // Twitch EventSub WebSocket Listener for Outgoing Raids (channel.raid with from_broadcaster_user_id)
+  // Fires ONLY when the broadcaster raids another channel (never on incoming raids!)
+  useEffect(() => {
+    const token = settings.twitchToken;
+    const broadcasterId = settings.twitchBroadcasterId;
+    if (!token || !broadcasterId) return;
+
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let isCleanedUp = false;
+
+    const connectEventSub = (url = 'wss://eventsub.wss.twitch.tv/ws') => {
+      if (isCleanedUp) return;
+
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        OverlayLogger.warn('[twitch-raid] EventSub WebSocket init failed:', err);
+        return;
+      }
+
+      ws.onmessage = async (event) => {
+        if (isCleanedUp) return;
+        try {
+          const data = JSON.parse(String(event.data || '{}'));
+          const msgType = data?.metadata?.message_type;
+
+          if (msgType === 'session_welcome') {
+            const sessionId = data?.payload?.session?.id;
+            if (!sessionId) return;
+
+            const subRes = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Client-Id': API_KEYS.TWITCH_CLIENT_ID,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                type: 'channel.raid',
+                version: '1',
+                condition: {
+                  from_broadcaster_user_id: String(broadcasterId),
+                },
+                transport: {
+                  method: 'websocket',
+                  session_id: sessionId,
+                },
+              }),
+            });
+
+            if (subRes.ok || subRes.status === 409) {
+              OverlayLogger.overlay(`[twitch-raid] EventSub subscribed to outgoing raids (from_broadcaster_user_id=${broadcasterId})`);
+            } else {
+              OverlayLogger.warn(`[twitch-raid] EventSub subscription returned HTTP ${subRes.status}`);
+            }
+          } else if (msgType === 'notification' && data?.metadata?.subscription_type === 'channel.raid') {
+            const ev = data?.payload?.event;
+            const fromId = String(ev?.from_broadcaster_user_id || '');
+            const toId = String(ev?.to_broadcaster_user_id || '');
+            // Strictly verify WE are the raiding channel (from_broadcaster_user_id === broadcasterId)
+            if (fromId === String(broadcasterId) && toId && toId !== String(broadcasterId)) {
+              const targetUser = ev?.to_broadcaster_user_name || ev?.to_broadcaster_user_login || undefined;
+              OverlayLogger.overlay(`[twitch-raid] EventSub outgoing raid confirmed: ${ev?.from_broadcaster_user_login} -> ${targetUser} (${ev?.viewers ?? 0} viewers)`);
+              await handleAutoStopStreamOnRaidRef.current?.(targetUser);
+            }
+          } else if (msgType === 'session_reconnect') {
+            const reconnectUrl = data?.payload?.session?.reconnect_url;
+            if (reconnectUrl) {
+              const oldWs = ws;
+              connectEventSub(reconnectUrl);
+              setTimeout(() => {
+                try { oldWs?.close(); } catch {}
+              }, 2000);
+            }
+          }
+        } catch (err) {
+          OverlayLogger.warn('[twitch-raid] EventSub message parse error:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        if (isCleanedUp) return;
+        reconnectTimer = setTimeout(() => connectEventSub(), 10000);
+      };
+
+      ws.onerror = () => {
+        try { ws?.close(); } catch {}
+      };
+    };
+
+    connectEventSub();
+
+    return () => {
+      isCleanedUp = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { ws?.close(); } catch {}
+    };
+  }, [settings.twitchToken, settings.twitchBroadcasterId]);
+
   // Direct Twitch IRC Chat Listener for !so & !shoutout commands
   // Connects via Twitch WebSocket IRC (wss://irc-ws.chat.twitch.tv:443) using anonymous access
   useEffect(() => {
@@ -1766,10 +1867,15 @@ function OverlayPage() {
           return;
         }
 
-        // Handle Auto-Stop Stream on Twitch Host / Raid
+        // Handle Auto-Stop Stream on Outgoing Twitch Raid (ONLY when broadcaster raids another channel)
         const handleAutoStopStreamOnRaid = async (targetUser?: string) => {
+          const normalizedTarget = (targetUser || '').trim().replace(/^@/, '').toLowerCase();
+          if (normalizedTarget && channelName && normalizedTarget === channelName) {
+            OverlayLogger.overlay(`[twitch-raid] Ignoring raid event targeting own channel (@${normalizedTarget}).`);
+            return;
+          }
           if (seSettingsRef.current?.obsAutoStopStreamOnRaid !== true) {
-            OverlayLogger.overlay('[twitch-raid] Raid/host detected, but obsAutoStopStreamOnRaid is disabled in settings.');
+            OverlayLogger.overlay('[twitch-raid] Outgoing raid detected, but obsAutoStopStreamOnRaid is disabled in settings.');
             return;
           }
           const now = Date.now();
@@ -1796,9 +1902,25 @@ function OverlayPage() {
 
           // 2. Switch to Ending Scene in OBS
           const endingScene = seSettingsRef.current?.obsEndingSceneName || 'ending';
+          let switchedScene = false;
           if (localObsRef.current) {
-            safeObsSwitchScene(localObsRef.current, endingScene).catch(() => {});
-          } else {
+            switchedScene = await safeObsSwitchScene(localObsRef.current, endingScene).catch(() => false);
+          }
+          if (!switchedScene) {
+            try {
+              switchedScene = await withTempObsConnection(
+                OBSWebSocket,
+                {
+                  url: seSettingsRef.current?.obsWebsocketUrl,
+                  port: seSettingsRef.current?.obsWebsocketPort || 4455,
+                  password: seSettingsRef.current?.obsWebsocketPassword || '',
+                  timeoutMs: 2500
+                },
+                (tempObs) => safeObsSwitchScene(tempObs, endingScene)
+              );
+            } catch {}
+          }
+          if (!switchedScene) {
             fetch('/api/obs-switch-scene', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1810,9 +1932,25 @@ function OverlayPage() {
           await new Promise(r => setTimeout(r, 4000));
 
           // 4. Stop OBS Stream
+          let stoppedStream = false;
           if (localObsRef.current) {
-            await safeObsStreamControl(localObsRef.current, 'stop');
-          } else {
+            stoppedStream = await safeObsStreamControl(localObsRef.current, 'stop').catch(() => false);
+          }
+          if (!stoppedStream) {
+            try {
+              stoppedStream = await withTempObsConnection(
+                OBSWebSocket,
+                {
+                  url: seSettingsRef.current?.obsWebsocketUrl,
+                  port: seSettingsRef.current?.obsWebsocketPort || 4455,
+                  password: seSettingsRef.current?.obsWebsocketPassword || '',
+                  timeoutMs: 2500
+                },
+                (tempObs) => safeObsStreamControl(tempObs, 'stop')
+              );
+            } catch {}
+          }
+          if (!stoppedStream) {
             fetch('/api/obs-stream-control', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1823,25 +1961,22 @@ function OverlayPage() {
               })
             }).catch(() => {});
           }
-          appendObsLog('success', `[twitch-raid] ✅ Stream stopped automatically for raid.`);
+          appendObsLog('success', `[twitch-raid] ✅ Stream stopped automatically for outgoing raid${targetUser ? ` to @${targetUser}` : ''}.`);
         };
+        handleAutoStopStreamOnRaidRef.current = handleAutoStopStreamOnRaid;
 
-        // Handle USERNOTICE (Twitch Raids)
-        if (raw.includes('USERNOTICE')) {
-          const isRaid = raw.includes('msg-id=raid');
-          if (isRaid) {
-            const targetMatch = raw.match(/msg-param-displayName=([^; ]+)/) || raw.match(/msg-param-login=([^; ]+)/);
-            const targetUser = targetMatch ? targetMatch[1] : undefined;
-            handleAutoStopStreamOnRaid(targetUser);
-          }
+        // Handle USERNOTICE (Twitch Incoming Raids) — NEVER stop stream when someone raids us!
+        if (raw.includes('USERNOTICE') && raw.includes('msg-id=raid')) {
+          const raiderMatch = raw.match(/msg-param-displayName=([^; ]+)/) || raw.match(/msg-param-login=([^; ]+)/);
+          const raiderUser = raiderMatch ? raiderMatch[1] : 'unknown';
+          OverlayLogger.overlay(`[twitch-raid] Incoming raid from @${raiderUser} detected — ignoring for auto-stop (outgoing raids only).`);
         }
 
-        // Handle NOTICE (Twitch host/raid system notices)
-        if (raw.includes('NOTICE')) {
-          const lowerNotice = raw.toLowerCase();
-          if (lowerNotice.includes('raiding') || lowerNotice.includes('now hosting') || lowerNotice.includes('now raiding')) {
-            const raidMatch = raw.match(/(?:raiding|hosting)\s+([a-zA-Z0-9_]+)/i);
-            const targetUser = raidMatch ? raidMatch[1] : undefined;
+        // Handle HOSTTARGET (Twitch outgoing host/raid target from our channel to another channel)
+        if (raw.includes(`HOSTTARGET #${channelName} :`)) {
+          const hostMatch = raw.match(new RegExp(`HOSTTARGET #${channelName} :([a-zA-Z0-9_]+)`, 'i'));
+          const targetUser = hostMatch ? hostMatch[1] : undefined;
+          if (targetUser && targetUser !== '-' && targetUser.toLowerCase() !== channelName) {
             handleAutoStopStreamOnRaid(targetUser);
           }
         }
@@ -2115,7 +2250,7 @@ function OverlayPage() {
               return;
             }
 
-            // Command: !autostop [on|off] (NOALBS Auto-Stop Stream on Host/Raid toggle)
+            // Command: !autostop [on|off] (NOALBS Auto-Stop Stream on Outgoing Raid toggle)
             if (lowerText === '!autostop' || lowerText.startsWith('!autostop ')) {
               const cmdCfg = getCommandConfig('autostop', 'Moderators');
               if (!cmdCfg.allowed) {
@@ -2124,7 +2259,7 @@ function OverlayPage() {
               }
               const parts = lowerText.split(/\s+/);
               const arg = parts[1];
-              let newEnabled = seSettingsRef.current.obsAutoStopStreamOnRaid !== false;
+              let newEnabled = Boolean(seSettingsRef.current.obsAutoStopStreamOnRaid);
               if (arg === 'on' || arg === 'enable' || arg === 'true' || arg === '1') {
                 newEnabled = true;
               } else if (arg === 'off' || arg === 'disable' || arg === 'false' || arg === '0') {
@@ -2138,7 +2273,7 @@ function OverlayPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ obsAutoStopStreamOnRaid: newEnabled })
               }).catch(() => {});
-              sendChatReply(`🛑 Auto-stop stream on raid is now ${newEnabled ? 'ENABLED ✅' : 'DISABLED ❌'}.`, { color: newEnabled ? 'green' : 'orange' });
+              sendChatReply(`🛑 Auto-stop stream on outgoing raid is now ${newEnabled ? 'ENABLED ✅' : 'DISABLED ❌'}.`, { color: newEnabled ? 'green' : 'orange' });
               return;
             }
 
@@ -2149,8 +2284,8 @@ function OverlayPage() {
                 sendPermError('raid', cmdCfg.role);
                 return;
               }
-              const target = chatText.replace(/^[/!]raid\s+/i, '').trim().replace(/^@/, '');
-              if (target && seSettingsRef.current.obsAutoStopStreamOnRaid) {
+              const target = chatText.replace(/^[/!]raid\s+/i, '').trim().replace(/^@/, '').split(/\s+/)[0];
+              if (target && target.toLowerCase() !== channelName && seSettingsRef.current.obsAutoStopStreamOnRaid) {
                 handleAutoStopStreamOnRaid(target);
               }
               return;
