@@ -405,7 +405,7 @@ export default function SettingsConfigPage() {
                 onClick={() => {
                   const clientId = API_KEYS.TWITCH_CLIENT_ID;
                   const redirectUri = window.location.origin + '/twitch-auth';
-                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit');
+                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit channel:manage:clips');
                   const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&force_verify=true`;
                   window.location.href = authUrl;
                 }}
@@ -1826,6 +1826,22 @@ export default function SettingsConfigPage() {
                 </div>
 
                 <div>
+                  <label className="input-label" style={{ fontWeight: 'bold' }}>📏 Min Duration (Seconds)</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="60"
+                    className="text-input"
+                    value={settings.clipMinDuration ?? 10}
+                    onChange={(e) => handleSettingsChange({ clipMinDuration: Math.max(5, Math.min(60, parseInt(e.target.value) || 10)) })}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  />
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    Minimum seconds a viewer can request with <code>!clip &lt;sec&gt;</code> (Default: 10s).
+                  </span>
+                </div>
+
+                <div>
                   <label className="input-label" style={{ fontWeight: 'bold' }}>⚡ Max Duration (Seconds)</label>
                   <input
                     type="number"
@@ -1833,13 +1849,61 @@ export default function SettingsConfigPage() {
                     max="60"
                     className="text-input"
                     value={settings.clipMaxDuration ?? 60}
-                    onChange={(e) => handleSettingsChange({ clipMaxDuration: parseInt(e.target.value) || 60 })}
+                    onChange={(e) => handleSettingsChange({ clipMaxDuration: Math.max(10, Math.min(60, parseInt(e.target.value) || 60)) })}
                     style={{ width: '100%', marginTop: '4px' }}
                   />
                   <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
                     Maximum seconds a viewer can request with <code>!clip &lt;sec&gt;</code> (Default: 60s).
                   </span>
                 </div>
+
+                <div>
+                  <label className="input-label" style={{ fontWeight: 'bold' }}>🎥 Discord Preview Mode</label>
+                  <select
+                    className="text-input"
+                    value={settings.clipDiscordDeliveryMode || 'video_auto'}
+                    disabled={settings.clipDiscordEnabled === false}
+                    onChange={(e) => handleSettingsChange({ clipDiscordDeliveryMode: e.target.value as 'video_auto' | 'video_boosted' | 'embed_only' })}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  >
+                    <option value="video_auto">Playable MP4 (Standard ≤10 MB + Thumb Fallback)</option>
+                    <option value="video_boosted">Playable MP4 HD (Boosted ≤25 MB)</option>
+                    <option value="embed_only">Fast 1080p Thumbnail Card (No MP4 Wait)</option>
+                  </select>
+                  <span style={{ fontSize: '0.75em', opacity: 0.6, marginTop: '4px', display: 'block' }}>
+                    How Twitch clips preview inside Discord.
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9em' }}>📤 Auto-Post Clips to Discord</div>
+                  <div style={{ fontSize: '0.75em', opacity: 0.6 }}>Automatically sends created clips &amp; previews to your Discord webhook.</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.clipDiscordEnabled ?? true}
+                    onChange={(e) => handleSettingsChange({ clipDiscordEnabled: e.target.checked })}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9em' }}>✏️ Allow Viewer Custom Clip Titles</div>
+                  <div style={{ fontSize: '0.75em', opacity: 0.6 }}>Allows viewers to name clips using <code>!clip &lt;title&gt;</code>.</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.clipAllowCustomTitle ?? true}
+                    onChange={(e) => handleSettingsChange({ clipAllowCustomTitle: e.target.checked })}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
               </div>
 
               <div>

@@ -13,10 +13,11 @@ import {
   isCloudUnreachableObsUrl
 } from '@/lib/obs-helper';
 import { fetchBitrateStats } from '@/utils/api-utils';
+import { parseClipCommandInput } from '@/utils/twitch-clips';
 import { CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10;
+export const maxDuration = 30;
 
 async function getSettings(): Promise<any> {
   let settings: any = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlaySettings : null) || null;
@@ -519,10 +520,15 @@ export async function POST(req: NextRequest) {
     }
 
     // 15b. !clip / !cliptheclip / !replay / !highlight
-    if (cmdName === '!clip' || cmdName.startsWith('!clip') || cmdName === '!cliptheclip' || cmdName === '!replay' || cmdName === '!highlight') {
-      const clipTitle = args.join(' ').trim();
-      const numMatch = cmdName.match(/^!clip(\d+)$/);
-      let duration = numMatch ? parseInt(numMatch[1], 10) : (settings.clipDefaultDuration || 60);
+    if (cmdName === '!clip' || /^!clip\d+$/.test(cmdName) || cmdName === '!cliptheclip' || cmdName === '!replay' || cmdName === '!highlight') {
+      if (settings.clipCommandEnabled === false) {
+        return NextResponse.json({
+          success: false,
+          error: '!clip command is currently disabled in settings.'
+        }, { status: 403 });
+      }
+
+      const { duration, title: clipTitle } = parseClipCommandInput(cmdName, args.join(' '), settings);
 
       const broadcasterId = settings.twitchBroadcasterId;
       const token = settings.twitchToken;
@@ -548,7 +554,9 @@ export async function POST(req: NextRequest) {
             duration,
             username: user || 'Viewer',
             displayName: user || 'Viewer',
-            pointsCost: 0
+            pointsCost: 0,
+            discordEnabled: settings.clipDiscordEnabled ?? true,
+            discordDeliveryMode: settings.clipDiscordDeliveryMode || 'video_auto'
           })
         });
 

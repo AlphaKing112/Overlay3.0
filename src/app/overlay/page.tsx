@@ -9,6 +9,7 @@ import { useRenderPerformance } from '@/lib/performance';
 import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
+import { parseClipCommandInput } from '@/utils/twitch-clips';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
 import {
@@ -1606,6 +1607,8 @@ function OverlayPage() {
     return () => clearInterval(interval);
   }, [settings.twitchToken, settings.twitchBroadcasterId, settings.twitchSyncInterval]);
 
+  const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
+
   // Direct Twitch IRC Chat Listener for !so & !shoutout commands
   // Connects via Twitch WebSocket IRC (wss://irc-ws.chat.twitch.tv:443) using anonymous access
   useEffect(() => {
@@ -2220,7 +2223,7 @@ function OverlayPage() {
             // Commands with specialized dedicated handlers in overlay/page.tsx (do NOT proxy to switcher API)
             const isSpecialOverlayCmd = (
               firstCmdWord === '!clip' ||
-              firstCmdWord.startsWith('!clip') ||
+              /^!clip\d+$/.test(firstCmdWord) ||
               firstCmdWord === '!cliptheclip' ||
               firstCmdWord === '!replay' ||
               firstCmdWord === '!highlight' ||
@@ -2581,36 +2584,11 @@ function OverlayPage() {
 
               const matchedCmd = clipCmdMatch[1].toLowerCase();
               const rawArgs = clipCmdMatch[2] ? clipCmdMatch[2].trim() : '';
-
-              const defaultDuration = seSettingsRef.current.clipDefaultDuration ?? 60;
-              const minDuration = seSettingsRef.current.clipMinDuration ?? 10;
-              const maxDuration = seSettingsRef.current.clipMaxDuration ?? 60;
-
-              let requestedDuration = defaultDuration;
-              let clipTitle = '';
-
-              // Check if command itself has duration suffix (e.g. !clip30, !clip45, !clip60)
-              const numSuffixMatch = matchedCmd.match(/^clip(\d+)$/);
-              if (numSuffixMatch) {
-                requestedDuration = parseInt(numSuffixMatch[1], 10);
-                clipTitle = rawArgs;
-              } else if (rawArgs) {
-                // Check if arguments start with a number (e.g. !clip 45 bird stolen OR !clip 45 OR !clip bird stolen)
-                const argNumMatch = rawArgs.match(/^(\d+)(?:\s+([\s\S]*))?$/);
-                if (argNumMatch) {
-                  const parsedNum = parseInt(argNumMatch[1], 10);
-                  if (parsedNum >= 5 && parsedNum <= 120) {
-                    requestedDuration = parsedNum;
-                    clipTitle = argNumMatch[2] ? argNumMatch[2].trim() : '';
-                  } else {
-                    clipTitle = rawArgs;
-                  }
-                } else {
-                  clipTitle = rawArgs;
-                }
-              }
-
-              const clipDuration = Math.max(minDuration, Math.min(maxDuration, requestedDuration));
+              const { duration: clipDuration, title: clipTitle } = parseClipCommandInput(
+                matchedCmd,
+                rawArgs,
+                seSettingsRef.current
+              );
 
               const cooldownSec = seSettingsRef.current.clipCooldownSeconds ?? 30;
               const userClipKey = `clip_cmd_${(senderUser || 'anon').toLowerCase()}`;
@@ -2643,6 +2621,20 @@ function OverlayPage() {
               (async () => {
                 // Step 1: Verify & deduct StreamElements points (if points enabled)
                 let channelId = seChannelIdRef.current;
+                const refundClipPoints = () => {
+                  if (clipCost <= 0) return;
+                  fetch('/api/clip-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'refund_points',
+                      username: senderUser,
+                      amount: clipCost,
+                      seToken,
+                      channelId
+                    })
+                  }).catch(() => {});
+                };
                 if (clipCost > 0) {
                   try {
                     const pointsCheckRes = await fetch('/api/clip-command', {
@@ -2704,16 +2696,19 @@ function OverlayPage() {
                         username: senderUser,
                         displayName: senderDisplayName || senderUser,
                         channelName: channelName || seSettingsRef.current?.twitchUsername || 'lazesk',
+                        sceneName: lastLoggedStateRef.current.currentScene,
                         pointsCost: clipCost,
-                        webhookUrl
-                      })
+                        webhookUrl,
+                        discordEnabled: seSettingsRef.current.clipDiscordEnabled ?? true,
+                        discordDeliveryMode: seSettingsRef.current.clipDiscordDeliveryMode || 'video_auto'
+                      }),
+                      signal: AbortSignal.timeout(28000),
                     });
 
                     const clipData = await clipRes.json();
 
                     if (clipData.success && clipData.clipUrl) {
                       const customMsg = seSettingsRef.current.clipCustomMessage;
-                      const titleDisplay = clipTitle ? ` "${clipTitle}"` : '';
                       const fullClipUrl = clipData.clipUrl;
 
                       let successMsg = '';
@@ -2745,26 +2740,16 @@ function OverlayPage() {
                     } else {
                       clearCommandCooldown(userClipKey);
                       OverlayLogger.error('Twitch clip creation failed:', clipData.error);
-                      if (clipCost > 0) {
-                        fetch('/api/clip-command', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            action: 'refund_points',
-                            username: senderUser,
-                            amount: clipCost,
-                            seToken,
-                            channelId
-                          })
-                        }).catch(() => {});
-                      }
+                      refundClipPoints();
                       const refundNotice = clipCost > 0 ? ` Refunded ${clipCost} points to @${senderDisplayName || senderUser}.` : '';
                       sendChatReply(`❌ Failed to create clip: ${clipData.error || 'Make sure stream is live on Twitch'}.${refundNotice}`, { color: 'orange' });
                     }
                   } catch (twitchClipErr: any) {
                     clearCommandCooldown(userClipKey);
                     OverlayLogger.error('Twitch clip exception:', twitchClipErr);
-                    sendChatReply(`❌ Error creating Twitch clip: ${twitchClipErr?.message || 'Network error'}.`, { color: 'orange' });
+                    refundClipPoints();
+                    const refundNotice = clipCost > 0 ? ` Refunded ${clipCost} points to @${senderDisplayName || senderUser}.` : '';
+                    sendChatReply(`❌ Error creating Twitch clip: ${twitchClipErr?.message || 'Network error'}.${refundNotice}`, { color: 'orange' });
                   }
                   return;
                 }
@@ -2804,17 +2789,7 @@ function OverlayPage() {
                 if (!replayRes.success || !replayRes.replayPath) {
                   clearCommandCooldown(userClipKey);
                   OverlayLogger.warn(`OBS replay buffer save failed (${replayRes.error}), refunding ${clipCost} points to @${senderUser}`);
-                  fetch('/api/clip-command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'refund_points',
-                      username: senderUser,
-                      amount: clipCost,
-                      seToken,
-                      channelId
-                    })
-                  }).catch(() => {});
+                  refundClipPoints();
 
                   sendChatReply(`❌ Failed to save replay from OBS (${replayRes.error || 'Replay buffer not active'}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
                   return;
@@ -2901,34 +2876,14 @@ function OverlayPage() {
                     clearCommandCooldown(userClipKey);
                     const errorMsg = postData?.error || lastErr || 'Processing error';
                     OverlayLogger.error('Discord clip upload failed, refunding points:', errorMsg);
-                    fetch('/api/clip-command', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        action: 'refund_points',
-                        username: senderUser,
-                        amount: clipCost,
-                        seToken,
-                        channelId
-                      })
-                    }).catch(() => {});
+                    refundClipPoints();
 
                     sendChatReply(`❌ Failed to upload clip to Discord (${errorMsg}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
                   }
                 } catch (postErr: any) {
                   clearCommandCooldown(userClipKey);
                   OverlayLogger.error('Error in clip process_and_upload fetch:', postErr);
-                  fetch('/api/clip-command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'refund_points',
-                      username: senderUser,
-                      amount: clipCost,
-                      seToken,
-                      channelId
-                    })
-                  }).catch(() => {});
+                  refundClipPoints();
 
                   sendChatReply(`❌ Failed to process clip (${postErr?.message || 'Network error'}). Refunded ${clipCost} points to @${senderDisplayName || senderUser}.`, { color: 'orange' });
                 }
@@ -3067,7 +3022,6 @@ function OverlayPage() {
   const lastAutoSwitchActionAtRef = useRef<number>(0);
   const lastAutoSwitchDiagRef = useRef<string>('');
   const obsVersionInfoRef = useRef<{ obsVersion?: string; obsWebSocketVersion?: string; platform?: string; baseRes?: string; outRes?: string; fps?: string }>({});
-  const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
 
   const formatObsLogTime = (date: Date = new Date()) => {
     let hours = date.getHours();

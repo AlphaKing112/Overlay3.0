@@ -329,6 +329,9 @@ export interface OverlaySettings {
   clipShowOnOverlay?: boolean;
   clipChatAlertEnabled?: boolean;
   clipCustomMessage?: string;
+  clipDiscordEnabled?: boolean;
+  clipDiscordDeliveryMode?: 'video_auto' | 'video_boosted' | 'embed_only';
+  clipAllowCustomTitle?: boolean;
 }
 
 // Default settings (single source of truth)
@@ -632,6 +635,9 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   clipShowOnOverlay: true,
   clipChatAlertEnabled: true,
   clipCustomMessage: '',
+  clipDiscordEnabled: true,
+  clipDiscordDeliveryMode: 'video_auto',
+  clipAllowCustomTitle: true,
 };
 
 // Valid settings schema for validation
@@ -891,6 +897,9 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   clipShowOnOverlay: 'boolean',
   clipChatAlertEnabled: 'boolean',
   clipCustomMessage: 'string',
+  clipDiscordEnabled: 'boolean',
+  clipDiscordDeliveryMode: 'string',
+  clipAllowCustomTitle: 'boolean',
 };
 
 // SSE message types

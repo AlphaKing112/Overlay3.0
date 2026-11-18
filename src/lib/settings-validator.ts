@@ -656,6 +656,14 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     clipShowOnOverlay: typeof cleanSettings.clipShowOnOverlay === 'boolean' ? cleanSettings.clipShowOnOverlay : DEFAULT_OVERLAY_SETTINGS.clipShowOnOverlay,
     clipChatAlertEnabled: typeof cleanSettings.clipChatAlertEnabled === 'boolean' ? cleanSettings.clipChatAlertEnabled : DEFAULT_OVERLAY_SETTINGS.clipChatAlertEnabled,
     clipCustomMessage: typeof cleanSettings.clipCustomMessage === 'string' ? cleanSettings.clipCustomMessage : DEFAULT_OVERLAY_SETTINGS.clipCustomMessage,
+    clipDiscordEnabled: typeof cleanSettings.clipDiscordEnabled === 'boolean' ? cleanSettings.clipDiscordEnabled : DEFAULT_OVERLAY_SETTINGS.clipDiscordEnabled,
+    clipDiscordDeliveryMode:
+      cleanSettings.clipDiscordDeliveryMode === 'video_auto' ||
+      cleanSettings.clipDiscordDeliveryMode === 'video_boosted' ||
+      cleanSettings.clipDiscordDeliveryMode === 'embed_only'
+        ? cleanSettings.clipDiscordDeliveryMode
+        : DEFAULT_OVERLAY_SETTINGS.clipDiscordDeliveryMode,
+    clipAllowCustomTitle: typeof cleanSettings.clipAllowCustomTitle === 'boolean' ? cleanSettings.clipAllowCustomTitle : DEFAULT_OVERLAY_SETTINGS.clipAllowCustomTitle,
   };
 
   return completeSettings;

@@ -1509,7 +1509,7 @@ export default function AdminPage() {
                 onClick={() => {
                   const clientId = API_KEYS.TWITCH_CLIENT_ID;
                   const redirectUri = window.location.origin + '/twitch-auth';
-                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit');
+                  const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit channel:manage:clips');
                   const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&force_verify=true`;
                   window.location.href = authUrl;
                 }}
@@ -4315,13 +4315,87 @@ export default function AdminPage() {
                         max="60"
                         step="5"
                         value={settings.clipDefaultDuration ?? 60}
-                        onChange={(e) => handleSettingsChange({ clipDefaultDuration: parseInt(e.target.value) || 60 })}
+                        onChange={(e) => handleSettingsChange({ clipDefaultDuration: Math.max(5, Math.min(60, parseInt(e.target.value) || 60)) })}
                         className="text-input"
                         style={{ width: '100%', padding: '6px 10px', fontSize: '0.9em' }}
                       />
                       <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>sec</span>
                     </div>
                   </div>
+
+                  {/* Min / Max Clip Length */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>Min / Max Length (sec)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="5"
+                        max="60"
+                        step="5"
+                        value={settings.clipMinDuration ?? 10}
+                        onChange={(e) => handleSettingsChange({ clipMinDuration: Math.max(5, Math.min(60, parseInt(e.target.value) || 10)) })}
+                        className="text-input"
+                        title="Minimum clip length"
+                        style={{ width: '50%', padding: '6px 8px', fontSize: '0.9em' }}
+                      />
+                      <span style={{ fontSize: '0.8em', color: '#94a3b8' }}>–</span>
+                      <input
+                        type="number"
+                        min="10"
+                        max="60"
+                        step="5"
+                        value={settings.clipMaxDuration ?? 60}
+                        onChange={(e) => handleSettingsChange({ clipMaxDuration: Math.max(10, Math.min(60, parseInt(e.target.value) || 60)) })}
+                        className="text-input"
+                        title="Maximum clip length"
+                        style={{ width: '50%', padding: '6px 8px', fontSize: '0.9em' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Discord Auto-Post, Preview Mode, Viewer Custom Titles */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.clipDiscordEnabled ?? true}
+                      onChange={(e) => handleSettingsChange({ clipDiscordEnabled: e.target.checked })}
+                      style={{ width: '18px', height: '18px', accentColor: '#00d2ff', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '0.86em', display: 'block', color: '#fff' }}>📤 Auto-Post Clips to Discord</strong>
+                      <span style={{ fontSize: '0.74em', opacity: 0.7 }}>Send created clips &amp; previews automatically to Discord</span>
+                    </div>
+                  </label>
+
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', opacity: (settings.clipDiscordEnabled ?? true) ? 1 : 0.5 }}>
+                    <label style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>🎥 Discord Preview Mode</label>
+                    <select
+                      value={settings.clipDiscordDeliveryMode || 'video_auto'}
+                      disabled={settings.clipDiscordEnabled === false}
+                      onChange={(e) => handleSettingsChange({ clipDiscordDeliveryMode: e.target.value as 'video_auto' | 'video_boosted' | 'embed_only' })}
+                      className="text-input"
+                      style={{ width: '100%', padding: '6px 10px', fontSize: '0.86em' }}
+                    >
+                      <option value="video_auto">Playable MP4 (Standard ≤10 MB + Thumb Fallback)</option>
+                      <option value="video_boosted">Playable MP4 HD (Boosted Server ≤25 MB)</option>
+                      <option value="embed_only">Fast 1080p Thumbnail Card (No MP4 Wait)</option>
+                    </select>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.clipAllowCustomTitle ?? true}
+                      onChange={(e) => handleSettingsChange({ clipAllowCustomTitle: e.target.checked })}
+                      style={{ width: '18px', height: '18px', accentColor: '#00d2ff', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '0.86em', display: 'block', color: '#fff' }}>✏️ Allow Viewer Custom Titles</strong>
+                      <span style={{ fontSize: '0.74em', opacity: 0.7 }}>Let viewers set titles via <code>!clip &lt;title&gt;</code></span>
+                    </div>
+                  </label>
                 </div>
 
                 {/* Discord Webhook URL & Test */}

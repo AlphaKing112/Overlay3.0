@@ -318,7 +318,7 @@ function LowBitrateContent() {
   const handleConnectCustomBot = () => {
     const clientId = API_KEYS?.TWITCH_CLIENT_ID || 'xjl7wqa2c3pyrb7u1d9wyzp6xlyyiw';
     const redirectUri = window.location.origin + '/twitch-auth';
-    const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit');
+    const scope = encodeURIComponent('channel:read:subscriptions moderator:manage:announcements user:write:chat chat:edit chat:read clips:edit channel:manage:clips');
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=bot&force_verify=true`;
     window.location.href = authUrl;
   };
