@@ -146,71 +146,78 @@ export async function withTempObsConnection<TResult, TObs = any>(
   }
 }
 
+const SCENE_KEYWORD_MATCHERS: Array<{
+  matchesTarget: (lower: string) => boolean;
+  matchesScene: (sLower: string) => boolean;
+}> = [
+  {
+    matchesTarget: l => l === 'live',
+    matchesScene: l => l === 'live' || (l.includes('live') && !l.includes('vertical')) || l.includes('main') || l.includes('game') || l.includes('chat') || l.includes('stream') || l.includes('irl'),
+  },
+  {
+    matchesTarget: l => l === 'low' || l.includes('low'),
+    matchesScene: l => l === 'low' || l.includes('low') || l.includes('weak') || l.includes('bad') || l.includes('standby') || l.includes('reconnect'),
+  },
+  {
+    matchesTarget: l => l === 'offline' || l === 'brb' || l.includes('off'),
+    matchesScene: l => l === 'offline' || (l.includes('offline') && !l.includes('vertical')) || l.includes('brb') || l.includes('break') || l.includes('right back'),
+  },
+  {
+    matchesTarget: l => l === 'refresh' || l === 'fix',
+    matchesScene: l => l === 'refresh' || (l.includes('refresh') && !l.includes('live')) || l.includes('fix') || l.includes('reset') || l.includes('reload'),
+  },
+  {
+    matchesTarget: l => l === 'starting' || l === 'start',
+    matchesScene: l => l === 'starting' || l.includes('start') || l.includes('intro') || l.includes('soon'),
+  },
+  {
+    matchesTarget: l => l === 'ending' || l === 'end',
+    matchesScene: l => l === 'ending' || l.includes('end') || l.includes('outro') || l.includes('bye'),
+  },
+  {
+    matchesTarget: l => l === 'privacy' || l === 'pause' || l.includes('priv'),
+    matchesScene: l => l === 'privacy' || l.includes('priv') || l.includes('pause') || l.includes('hide'),
+  },
+];
+
+/**
+ * Matches a configured scene name against actual OBS scene names using exact, case-insensitive, and semantic rules.
+ */
+export function findMatchingObsScene(scenes: string[], targetScene: string): string | null {
+  if (!scenes || scenes.length === 0 || !targetScene) return null;
+  const target = String(targetScene).trim();
+  const lowerTarget = target.toLowerCase();
+
+  const exact = scenes.find(s => s === target) || scenes.find(s => s.toLowerCase() === lowerTarget);
+  if (exact) return exact;
+
+  const semanticRule = SCENE_KEYWORD_MATCHERS.find(r => r.matchesTarget(lowerTarget));
+  if (semanticRule) {
+    return scenes.find(s => semanticRule.matchesScene(s.toLowerCase())) || null;
+  }
+
+  return scenes.find(s => s.toLowerCase().includes(lowerTarget) || lowerTarget.includes(s.toLowerCase())) || null;
+}
+
 /**
  * Universal safe scene switcher (supports v5, case-insensitive match, and v4 fallback)
  */
 export async function safeObsSwitchScene(obs: any, sceneName: string): Promise<boolean> {
   if (!obs || !sceneName) return false;
   const target = String(sceneName).trim();
-  const lowerTarget = target.toLowerCase();
 
   try {
     // 1. Try standard OBS WebSocket v5: SetCurrentProgramScene (exact match)
     await obs.call('SetCurrentProgramScene', { sceneName: target });
     console.log(`✅ [OBS] Switched scene to: "${target}"`);
     return true;
-  } catch (err1) {
+  } catch {
     try {
       // 2. Fetch full scene list from OBS
       const sceneListData = await obs.call('GetSceneList');
       const rawScenes = (sceneListData.scenes as any[]) || [];
       const scenes = rawScenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean);
-
-      // 2a. Case-insensitive exact match
-      let matched = scenes.find((s: string) => s.toLowerCase() === lowerTarget);
-
-      // 2b. Intelligent partial/keyword match
-      if (!matched) {
-        if (lowerTarget === 'live') {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'live' || (l.includes('live') && !l.includes('vertical')) || l.includes('main') || l.includes('game') || l.includes('chat') || l.includes('stream') || l.includes('irl');
-          });
-        } else if (lowerTarget === 'low' || lowerTarget.includes('low')) {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'low' || l.includes('low') || l.includes('weak') || l.includes('bad') || l.includes('standby') || l.includes('reconnect');
-          });
-        } else if (lowerTarget === 'offline' || lowerTarget === 'brb' || lowerTarget.includes('off')) {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'offline' || (l.includes('offline') && !l.includes('vertical')) || l.includes('brb') || l.includes('break') || l.includes('right back');
-          });
-        } else if (lowerTarget === 'refresh' || lowerTarget === 'fix') {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'refresh' || (l.includes('refresh') && !l.includes('live')) || l.includes('fix') || l.includes('reset') || l.includes('reload');
-          });
-        } else if (lowerTarget === 'starting' || lowerTarget === 'start') {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'starting' || l.includes('start') || l.includes('intro') || l.includes('soon');
-          });
-        } else if (lowerTarget === 'ending' || lowerTarget === 'end') {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'ending' || l.includes('end') || l.includes('outro') || l.includes('bye');
-          });
-        } else if (lowerTarget === 'privacy' || lowerTarget === 'pause' || lowerTarget.includes('priv')) {
-          matched = scenes.find(s => {
-            const l = s.toLowerCase();
-            return l === 'privacy' || l.includes('priv') || l.includes('pause') || l.includes('hide');
-          });
-        } else {
-          // General partial match
-          matched = scenes.find(s => s.toLowerCase().includes(lowerTarget) || lowerTarget.includes(s.toLowerCase()));
-        }
-      }
+      const matched = findMatchingObsScene(scenes, target);
 
       if (matched) {
         await obs.call('SetCurrentProgramScene', { sceneName: matched });

@@ -6,6 +6,7 @@ import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_N
 import { fetchBitrateStats } from '@/utils/api-utils';
 import {
   safeObsSwitchScene,
+  findMatchingObsScene,
   safeObsStreamControlResult,
   safeObsRefreshCycle,
   getObsSceneItems,
@@ -222,6 +223,8 @@ function LowBitrateContent() {
   const [obsConnected, setObsConnected] = useState<boolean>(false);
   const [currentScene, setCurrentScene] = useState<string>('');
   const [availableScenes, setAvailableScenes] = useState<string[]>([]);
+  const availableScenesRef = useRef<string[]>([]);
+  const missingSceneCooldownRef = useRef<Map<string, number>>(new Map());
   const [telemetry, setTelemetry] = useState<ObsTelemetryStats | null>(null);
   const telemetryRef = useRef<ObsTelemetryStats | null>(null);
   telemetryRef.current = telemetry;
@@ -229,6 +232,7 @@ function LowBitrateContent() {
   // Memoized scene updater with strict equality check to prevent needless re-renders
   const updateAvailableScenes = useCallback((scenes: string[]) => {
     if (!scenes || !Array.isArray(scenes)) return;
+    availableScenesRef.current = scenes;
     setAvailableScenes(prev => {
       if (prev.length === scenes.length && prev.every((s, i) => s === scenes[i])) {
         return prev;
@@ -1435,6 +1439,24 @@ function LowBitrateContent() {
       return false;
     }
 
+    const sceneKey = sceneName.trim().toLowerCase();
+    const isManual = reason === 'Manual';
+    if (!isManual && Date.now() < (missingSceneCooldownRef.current.get(sceneKey) || 0)) {
+      return false;
+    }
+
+    const knownScenes = availableScenesRef.current.length > 0
+      ? availableScenesRef.current
+      : (telemetryRef.current?.scenes || []);
+    if (knownScenes.length > 0 && !findMatchingObsScene(knownScenes, sceneName)) {
+      missingSceneCooldownRef.current.set(sceneKey, Date.now() + 60000);
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⚠️ Scene "${sceneName}" not found in OBS (${knownScenes.join(', ')})`);
+      if (isManual) {
+        showToast(`Scene "${sceneName}" does not exist in OBS.`, 'error');
+      }
+      return false;
+    }
+
     const currentSettings = settingsRef.current;
     const now = Date.now();
     lastManualSceneSwitchTimeRef.current = now;
@@ -1508,6 +1530,18 @@ function LowBitrateContent() {
           const successLog = `Program Scene is now: "${sceneName}"`;
           setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ ${successLog}`);
           showToast(successLog, 'success');
+        } else {
+          // Verify if OBS is actually alive and scene simply doesn't exist
+          const listData: any = await localObsRef.current.call('GetSceneList').catch(() => null);
+          const obsScenes = listData?.scenes ? listData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+          if (obsScenes.length > 0) {
+            updateAvailableScenes(obsScenes);
+            if (!findMatchingObsScene(obsScenes, sceneName)) {
+              missingSceneCooldownRef.current.set(sceneKey, Date.now() + 60000);
+              setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⚠️ Scene "${sceneName}" does not exist in OBS`);
+              return false;
+            }
+          }
         }
       } catch (wsErr) {
         console.warn('Direct OBS switch warning:', wsErr);

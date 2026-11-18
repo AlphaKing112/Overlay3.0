@@ -19,6 +19,7 @@ import {
   takeObsScreenshot,
   triggerObsReplayBuffer,
   safeObsSwitchScene,
+  findMatchingObsScene,
   createUnthrottledInterval,
   ensureOverlayBrowserSourcesPersistent,
   getObsSceneItems,
@@ -3062,6 +3063,7 @@ function OverlayPage() {
   const localObsRef = useRef<OBSWebSocket | null>(null);
   const telemetryLogsRef = useRef<ObsTelemetryLogEntry[]>([]);
   const cachedObsScenesRef = useRef<string[]>([]);
+  const missingSceneCooldownRef = useRef<Map<string, number>>(new Map());
   const obsVersionInfoRef = useRef<{ obsVersion?: string; obsWebSocketVersion?: string; platform?: string; baseRes?: string; outRes?: string; fps?: string }>({});
   const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
 
@@ -3963,6 +3965,19 @@ function OverlayPage() {
 
     // Switch scene via direct local WebSocket first, then fallback to on-demand WS / API
     const switchSceneViaApi = async (sceneName: string): Promise<boolean> => {
+      const sceneKey = sceneName.trim().toLowerCase();
+      const cooledUntil = missingSceneCooldownRef.current.get(sceneKey) || 0;
+      if (Date.now() < cooledUntil) {
+        return false;
+      }
+
+      if (cachedObsScenesRef.current.length > 0 && !findMatchingObsScene(cachedObsScenesRef.current, sceneName)) {
+        missingSceneCooldownRef.current.set(sceneKey, Date.now() + 60000);
+        setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⚠️ Scene "${sceneName}" not found in OBS (skipping retries for 60s)`);
+        console.warn(`⚠️ [AUTO-SWITCH] Scene "${sceneName}" not in OBS scenes [${cachedObsScenesRef.current.join(', ')}] — skipping retries for 60s.`);
+        return false;
+      }
+
       setLastSwitchLog(`[${new Date().toLocaleTimeString()}] 🔄 Switching scene to: ${sceneName}`);
 
       // 1. Try existing active local WebSocket connection (Fastest & 100% reliable inside OBS)
@@ -3972,6 +3987,19 @@ function OverlayPage() {
           setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Switched via Local WebSocket: ${sceneName}`);
           return true;
         }
+        // Verify if OBS is actually connected and the scene simply doesn't exist (avoids temp WS & Vercel API spam)
+        try {
+          const listRes: any = await localObsRef.current.call('GetSceneList');
+          const scenes = listRes?.scenes ? listRes.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+          if (scenes.length > 0) {
+            cachedObsScenesRef.current = scenes;
+            if (!findMatchingObsScene(scenes, sceneName)) {
+              missingSceneCooldownRef.current.set(sceneKey, Date.now() + 60000);
+              setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⚠️ Scene "${sceneName}" not found in OBS (skipping retries for 60s)`);
+              return false;
+            }
+          }
+        } catch {}
       }
 
       // 2. Try isolated on-demand WebSocket connection (guaranteed cleanup, never leaks sockets)
@@ -3985,11 +4013,28 @@ function OverlayPage() {
             password: currentCfg.obsWebsocketPassword || '',
             timeoutMs: 2500
           },
-          (tempObs) => safeObsSwitchScene(tempObs, sceneName)
+          async (tempObs) => {
+            const ok = await safeObsSwitchScene(tempObs, sceneName);
+            if (!ok) {
+              const listRes: any = await tempObs.call('GetSceneList').catch(() => null);
+              const scenes = listRes?.scenes ? listRes.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
+              if (scenes.length > 0) {
+                cachedObsScenesRef.current = scenes;
+                if (!findMatchingObsScene(scenes, sceneName)) {
+                  missingSceneCooldownRef.current.set(sceneKey, Date.now() + 60000);
+                }
+              }
+            }
+            return ok;
+          }
         );
         if (switchedOnDemand) {
           setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ✅ Switched via Local WebSocket: ${sceneName}`);
           return true;
+        }
+        if ((missingSceneCooldownRef.current.get(sceneKey) || 0) > Date.now()) {
+          setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ⚠️ Scene "${sceneName}" not found in OBS (skipping retries for 60s)`);
+          return false;
         }
       } catch (connErr) {
         console.warn('On-demand OBS scene switch failed:', formatObsError(connErr));
