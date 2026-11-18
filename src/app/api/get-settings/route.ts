@@ -6,16 +6,16 @@ import { OverlayLogger } from '@/lib/logger';
 import { DEFAULT_OVERLAY_SETTINGS } from '@/types/settings';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 8;
+export const revalidate = 1;
 
 async function handleGET() {
   let settings: any = null;
   const now = Date.now();
   
-  // First check in-memory cache for fast reads within warm lambda instances (within 8s)
+  // First check in-memory cache for fast reads within warm lambda instances (within 1.5s)
   const isCacheFresh = typeof globalThis !== 'undefined' && 
     globalThis.__cachedOverlaySettings && 
-    (now - (globalThis.__cachedOverlaySettingsTime || 0) < 8000);
+    (now - (globalThis.__cachedOverlaySettingsTime || 0) < 1500);
 
   if (isCacheFresh) {
     settings = globalThis.__cachedOverlaySettings;
@@ -46,9 +46,9 @@ async function handleGET() {
 
   return NextResponse.json(combinedSettings, {
     headers: {
-      'Cache-Control': 'public, s-maxage=8, stale-while-revalidate=4',
-      'CDN-Cache-Control': 'public, s-maxage=8, stale-while-revalidate=4',
-      'Vercel-CDN-Cache-Control': 'public, s-maxage=8, stale-while-revalidate=4',
+      'Cache-Control': 'public, max-age=0, s-maxage=1',
+      'CDN-Cache-Control': 'public, max-age=0, s-maxage=1',
+      'Vercel-CDN-Cache-Control': 'public, max-age=0, s-maxage=1',
     }
   });
 }

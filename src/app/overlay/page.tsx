@@ -3257,12 +3257,36 @@ function OverlayPage() {
     // Load initial settings
     loadSettings();
 
-    // Short-lived 10s HTTP polling (direct CDN route without middleware overhead)
-    const stopSettingsPolling = createUnthrottledInterval(pollSettings, 10000);
+    // Instant 0ms sync when admin dashboard is open in the same browser
+    let bc: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        bc = new BroadcastChannel('overlay_settings_sync');
+        bc.onmessage = (ev) => {
+          const data = ev?.data;
+          if (data && typeof data === 'object') {
+            const mergedData = {
+              ...DEFAULT_OVERLAY_SETTINGS,
+              ...data,
+              weatherConditionDisplay: data.weatherConditionDisplay || DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
+              altitudeDisplay: data.altitudeDisplay || DEFAULT_OVERLAY_SETTINGS.altitudeDisplay,
+              speedDisplay: data.speedDisplay || DEFAULT_OVERLAY_SETTINGS.speedDisplay,
+            } as OverlaySettings;
+            lastSettingsHash.current = createSettingsHash(mergedData);
+            setSettings(mergedData);
+            seSettingsRef.current = mergedData;
+          }
+        };
+      } catch {}
+    }
+
+    // Fast 2.5s HTTP polling (direct CDN route without middleware overhead)
+    const stopSettingsPolling = createUnthrottledInterval(pollSettings, 2500);
 
     // Cleanup on unmount
     return () => {
       stopSettingsPolling();
+      try { bc?.close(); } catch {}
     };
   }, []); // Empty dependency array - we want this to run once on mount
 

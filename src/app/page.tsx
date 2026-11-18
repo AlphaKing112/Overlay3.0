@@ -697,11 +697,16 @@ export default function AdminPage() {
 
     const pollSettings = async () => {
       if (!isActive) return;
+      // Skip overwriting local admin state if the user edited/saved settings within the last 5 seconds
+      if (Date.now() - lastLocalEditTimeRef.current < 5000 || saveTimeoutRef.current) {
+        schedulePoll();
+        return;
+      }
       try {
         const res = await fetch('/api/get-settings');
         if (res.ok) {
           const settingsData = await res.json();
-          if (settingsData && isActive) {
+          if (settingsData && isActive && Date.now() - lastLocalEditTimeRef.current >= 5000) {
             setSyncStatus((currentStatus) => {
               if (currentStatus === 'connected') {
                 setSettings((prevSettings) => {
@@ -709,13 +714,15 @@ export default function AdminPage() {
                     ? settingsData.obsStreamCommandsEnabled
                     : (prevSettings.obsStreamCommandsEnabled ?? true);
 
-                  return {
+                  const updated = {
                     ...DEFAULT_OVERLAY_SETTINGS,
                     ...prevSettings,
                     ...settingsData,
                     obsStreamCommandsEnabled: nextObsStreamCommandsEnabled,
                     shoutout: settingsData.shoutout !== undefined ? settingsData.shoutout : null
                   } as OverlaySettings;
+                  settingsRef.current = updated;
+                  return updated;
                 });
               }
               return currentStatus;
@@ -748,7 +755,10 @@ export default function AdminPage() {
     };
   }, [loadSettings]);
 
+  const lastLocalEditTimeRef = useRef<number>(0);
+
   const handleSettingsChange = useCallback(async (updates: Partial<OverlaySettings>) => {
+    lastLocalEditTimeRef.current = Date.now();
     const base = settingsRef.current || settings;
     const mergedSettings = { ...base, ...updates };
 
@@ -765,14 +775,27 @@ export default function AdminPage() {
     settingsRef.current = mergedSettings;
     latestMergedSettingsRef.current = mergedSettings;
 
-    // Save critical toggle switches immediately (0ms delay) so refreshing instantly loads saved value
-    const isInstantSaveKey = updates.obsStreamCommandsEnabled !== undefined || updates.shoutout !== undefined || updates.obsTelemetryEnabled !== undefined || updates.obsTelemetryInterval !== undefined || updates.picCommandEnabled !== undefined || updates.picShowOnOverlay !== undefined || updates.clipCommandEnabled !== undefined || updates.clipShowOnOverlay !== undefined || updates.clipPointsEnabled !== undefined || updates.picPointsEnabled !== undefined;
+    // Broadcast immediately to any same-browser /overlay tab for 0ms preview updates
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const bc = new BroadcastChannel('overlay_settings_sync');
+        bc.postMessage(mergedSettings);
+        bc.close();
+      } catch {}
+    }
+
+    // Save all toggle switches / array updates immediately (0ms delay), only debounce continuous slider/text drags
+    const hasBooleanOrArrayUpdate = Object.values(updates).some(v => typeof v === 'boolean' || Array.isArray(v));
+    const isInstantSaveKey = hasBooleanOrArrayUpdate || updates.obsStreamCommandsEnabled !== undefined || updates.shoutout !== undefined || updates.obsTelemetryEnabled !== undefined || updates.obsTelemetryInterval !== undefined || updates.picCommandEnabled !== undefined || updates.picShowOnOverlay !== undefined || updates.clipCommandEnabled !== undefined || updates.clipShowOnOverlay !== undefined || updates.clipPointsEnabled !== undefined || updates.picPointsEnabled !== undefined;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
     }
 
     const executeSave = async () => {
+      saveTimeoutRef.current = null;
+      lastLocalEditTimeRef.current = Date.now();
       const settingsToSave = latestMergedSettingsRef.current || mergedSettings;
       setToast({ type: 'saving', message: 'Saving settings...' });
       setSyncStatus('syncing');
@@ -795,6 +818,7 @@ export default function AdminPage() {
           throw new Error(`HTTP ${res.status}: ${errorText}`);
         }
 
+        lastLocalEditTimeRef.current = Date.now();
         if (typeof window !== 'undefined') {
           localStorage.setItem('overlay_settings_backup', JSON.stringify(settingsToSave));
         }
