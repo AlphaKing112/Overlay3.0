@@ -493,13 +493,14 @@ body.overlay-page {
 .todo-sub-pill {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 0.72em;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 1em;
+  line-height: 1.15;
   font-weight: 800;
-  letter-spacing: 0.04em;
-  margin-left: 6px;
-  vertical-align: middle;
+  letter-spacing: 0.03em;
+  margin-left: 8px;
+  vertical-align: baseline;
 }
 
 .todo-sub-pill.waiting {
