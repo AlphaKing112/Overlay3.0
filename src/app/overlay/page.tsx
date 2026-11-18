@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useRenderPerformance } from '@/lib/performance';
 import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
+import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
 import {
@@ -1580,20 +1581,17 @@ function OverlayPage() {
 
     const syncTwitchSubs = async () => {
       try {
-        const res = await fetch(`/api/twitch-subs?broadcasterId=${broadcasterId}&token=${token}&clientId=${clientId}`);
-        if (res.ok) {
-          const data = await res.json();
-          const liveSubTotal = typeof data.total === 'number' ? data.total : (data.points ?? 0);
-          if (typeof liveSubTotal === 'number' && seSettingsRef.current.totalSubCurrent !== liveSubTotal) {
-            OverlayLogger.overlay(`Directly syncing Total Subs from Twitch API: ${liveSubTotal}`);
-            seSettingsRef.current = { ...seSettingsRef.current, totalSubCurrent: liveSubTotal };
-            setSettings(prev => ({ ...prev, totalSubCurrent: liveSubTotal }));
-            fetch('/api/save-settings', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ settings: { totalSubCurrent: liveSubTotal } })
-            }).catch(err => OverlayLogger.error('Failed to save Twitch sub total to KV:', err));
-          }
+        const data = await fetchTwitchSubPoints(broadcasterId, token, clientId);
+        const liveSubTotal = typeof data.total === 'number' ? data.total : (data.points ?? 0);
+        if (typeof liveSubTotal === 'number' && seSettingsRef.current.totalSubCurrent !== liveSubTotal) {
+          OverlayLogger.overlay(`Directly syncing Total Subs from Twitch API: ${liveSubTotal}`);
+          seSettingsRef.current = { ...seSettingsRef.current, totalSubCurrent: liveSubTotal };
+          setSettings(prev => ({ ...prev, totalSubCurrent: liveSubTotal }));
+          fetch('/api/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { totalSubCurrent: liveSubTotal } })
+          }).catch(err => OverlayLogger.error('Failed to save Twitch sub total to KV:', err));
         }
       } catch (err) {
         OverlayLogger.error('Failed to sync Twitch subs in overlay:', err);
@@ -3018,7 +3016,7 @@ function OverlayPage() {
 
     const pollSettings = async () => {
       try {
-        // Relies on Edge CDN cache (s-maxage=3, stale-while-revalidate=5) instead of holding 2GB SSE streams open
+        // Relies on Edge CDN cache (s-maxage=8, stale-while-revalidate=4) instead of holding SSE streams open
         const res = await fetch('/api/get-settings');
         if (res.ok) {
           const data = await res.json();
@@ -3052,8 +3050,8 @@ function OverlayPage() {
     // Load initial settings
     loadSettings();
 
-    // Short-lived 5s HTTP polling (replaces persistent SSE + duplicate 1.5s switch-scene poll to cut Fluid Memory/CPU ~95%)
-    const stopSettingsPolling = createUnthrottledInterval(pollSettings, 5000);
+    // Short-lived 10s HTTP polling (direct CDN route without middleware overhead)
+    const stopSettingsPolling = createUnthrottledInterval(pollSettings, 10000);
 
     // Cleanup on unmount
     return () => {
@@ -3513,7 +3511,7 @@ function OverlayPage() {
     }
   }, [settings.obsSceneSwitchSignal, processSceneSignal]);
 
-  // Note: obsSceneSwitchSignal is delivered cleanly through the unified 5s /api/get-settings sync above,
+  // Note: obsSceneSwitchSignal is delivered cleanly through the unified 10s /api/get-settings sync above,
   // avoiding a separate 1.5s polling loop (~57,600 invocations/day saved).
 
   // Periodic OBS Telemetry Reporter (relays Dropped Frames, Uptime, CPU %, FPS, and Logs to cloud)

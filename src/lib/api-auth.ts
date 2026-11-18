@@ -49,13 +49,12 @@ export function logKVUsage(operation: 'read' | 'write') {
   if (operation === 'write') kvWriteCount++;
   
   const total = kvReadCount + kvWriteCount;
-  const hoursSinceStart = (Date.now() - kvUsageStartTime) / (1000 * 60 * 60);
+  const hoursSinceStart = Math.max((Date.now() - kvUsageStartTime) / (1000 * 60 * 60), 1 / 3600);
   const readsPerHour = kvReadCount / hoursSinceStart;
   const writesPerHour = kvWriteCount / hoursSinceStart;
   
-  if (total % 100 === 0) {
-    console.log(`📊 KV Usage: ${kvReadCount} reads, ${kvWriteCount} writes (${total} total)`);
-    console.log(`📊 KV Rate: ${readsPerHour.toFixed(1)} reads/hour, ${writesPerHour.toFixed(1)} writes/hour`);
+  if (total % 50 === 0) {
+    console.log(`📊 KV Usage: ${kvReadCount} reads, ${kvWriteCount} writes (${total} total) | Rate: ${readsPerHour.toFixed(1)} reads/hr, ${writesPerHour.toFixed(1)} writes/hr`);
     
     // Warn if usage is high
     if (readsPerHour > 1000 || writesPerHour > 1000) {

@@ -6,6 +6,7 @@ import { authenticatedFetch } from '@/lib/client-auth';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoomLevel, DisplayMode, TodoItem, UrlItem, ShoutoutData } from '@/types/settings';
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
+import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
 import { API_KEYS } from '@/utils/overlay-constants';
 import * as workerTimers from 'worker-timers';
 import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
@@ -889,20 +890,7 @@ export default function AdminPage() {
     }
     
     try {
-      const res = await fetch(`/api/twitch-subs?broadcasterId=${settings.twitchBroadcasterId}&token=${settings.twitchToken}&clientId=${clientId}`);
-      
-      if (!res.ok) {
-        let errorMsg = `HTTP ${res.status}`;
-        try {
-          const errorData = await res.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch (e) {
-          // fallback to status text
-        }
-        throw new Error(errorMsg);
-      }
-      
-      const result = await res.json();
+      const result = await fetchTwitchSubPoints(settings.twitchBroadcasterId, settings.twitchToken, clientId);
       const subTotal = typeof result.total === 'number' ? result.total : (result.points ?? 0);
       
       if (subTotal !== settings.totalSubCurrent) {

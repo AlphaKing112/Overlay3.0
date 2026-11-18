@@ -34,6 +34,11 @@ export async function GET(request: Request) {
       points, 
       subCount: total,
       rawTotal: data.total 
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=30',
+        'CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=30',
+      }
     });
   } catch (error) {
     console.error('Twitch API Proxy Error:', error);

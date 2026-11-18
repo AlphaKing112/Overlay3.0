@@ -19,60 +19,27 @@ export function middleware(request: NextRequest) {
     }
   }
   
-  // Skip authentication for public routes & overlay API endpoints
-  const publicRoutes = [
-    '/login',
-    '/api/login',
-    '/overlay',
-    '/map',
-    '/low-bitrate',
-    '/twitch-auth',
-    '/api/get-settings',
-    '/api/save-settings',
-    '/api/settings-stream',
-    '/api/health',
-    '/api/record-donation',
-    '/api/bitrate',
-    '/api/obs-switch-scene',
-    '/api/auto-switch-service',
-    '/api/noalbs/command',
-    '/api/twitch-subs',
-    '/api/twitch-user',
-    '/api/twitch-announcement',
-    '/api/obs-telemetry',
-    '/api/obs-stream-control',
-    '/api/obs-sources',
-    '/api/auth-check',
-    '/api/pic-command',
-    '/api/clip-command',
-    '/api/time'
-  ];
+  // Skip authentication for public overlay pages after ?v= rewrite
+  const publicRoutes = ['/overlay', '/map', '/low-bitrate'];
 
   if (publicRoutes.includes(pathname)) {
     return NextResponse.next();
   }
-  
-  // Check if user is trying to access protected routes
-  if (pathname === '/' || pathname === '/settings' || pathname.startsWith('/api/')) {
-    // Check for auth cookie
+
+  // Check if user is trying to access protected dashboard routes
+  if (pathname === '/' || pathname === '/settings') {
     const authToken = request.cookies.get('auth-token');
-    
+
     if (!authToken || authToken.value !== 'authenticated') {
-      // Redirect to login if not authenticated
-      if (pathname === '/' || pathname === '/settings') {
-        return NextResponse.redirect(new URL('/login', request.url));
-      }
-      
-      // Return 401 for API routes
-      if (pathname.startsWith('/api/')) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
+      return NextResponse.redirect(new URL('/login', request.url));
     }
   }
-  
+
   return NextResponse.next();
 }
 
+// Keep API routes out of Edge Middleware so public polling (/api/get-settings, etc.)
+// hits Vercel Edge CDN directly without doubling invocations or burning middleware CPU.
 export const config = {
-  matcher: ['/', '/settings', '/low-bitrate', '/api/:path*', '/login', '/overlay', '/map', '/twitch-auth']
+  matcher: ['/', '/settings', '/low-bitrate', '/overlay', '/map']
 };

@@ -439,7 +439,7 @@ function FullMapContent() {
       pollTimer = setTimeout(async () => {
         await loadSettings(false);
         schedulePoll();
-      }, delayMs ?? (hidden ? 30000 : 10000));
+      }, delayMs ?? (hidden ? 45000 : 15000));
     };
 
     const handleVisibility = () => {
