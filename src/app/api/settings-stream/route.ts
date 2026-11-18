@@ -3,7 +3,7 @@ import { kv } from '@vercel/kv';
 import { addConnection, removeConnection, getConnectionInfo, connections } from '@/lib/settings-broadcast';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 90;
+export const maxDuration = 25;
 
 // === 📡 SERVER-SENT EVENTS STREAM ===
 export async function GET(request: NextRequest): Promise<Response> {
@@ -82,13 +82,13 @@ export async function GET(request: NextRequest): Promise<Response> {
         } catch {}
       }, 15000);
 
-      // Gracefully close before Vercel 90s limit so client reconnects smoothly
+      // Gracefully close quickly so short-lived instances never pin Fluid Provisioned Memory
       const graceTimeout = setTimeout(() => {
         clearInterval(interval);
         clearInterval(heartbeatInterval);
         removeConnection(connectionId);
         try { controller.close(); } catch {}
-      }, 75000);
+      }, 20000);
       
       // Periodic check for updates every 10s (saves ~70% Active CPU while maintaining fast responsiveness)
       const interval = setInterval(checkForUpdates, 10000);

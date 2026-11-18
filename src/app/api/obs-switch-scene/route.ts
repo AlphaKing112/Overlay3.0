@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
       if (typeof globalThis !== 'undefined') {
         (globalThis as any).__cachedOverlaySettings = updated;
         (globalThis as any).__cachedOverlaySettingsTime = now;
+        (globalThis as any).__cachedOverlayModifiedTime = now;
       }
       try {
         await Promise.all([

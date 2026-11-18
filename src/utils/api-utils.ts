@@ -498,6 +498,8 @@ function formatDuration(ms: number): string {
 /**
  * Fetches bitrate stats from NOALBS or Belabox SRT Live Server (SLS)
  */
+const corsBlockedHosts = new Map<string, number>();
+
 export async function fetchBitrateStats(
   url: string,
   publisherKey?: string
@@ -512,45 +514,60 @@ export async function fetchBitrateStats(
 
     const isBrowser = typeof window !== 'undefined';
     const isHttps = url.startsWith('https://');
+    let hostname = '';
+    try {
+      hostname = new URL(url).host;
+    } catch {}
 
     // RESOURCE OPTIMIZATION:
-    // If we're on HTTPS and the target is HTTPS, try direct fetch first
-    // This saves Vercel / Serverless execution credits.
+    // If we're on HTTPS and the target is HTTPS, try direct fetch first to save Vercel invocations/CPU.
+    // Remember CORS-blocked hosts for 60s so we don't pay double fetch failures,
+    // and never proxy direct HTTP 4xx/5xx responses (e.g. 404 when Belabox is offline) through Vercel!
     let response;
     let usedProxy = false;
 
     const cacheBuster = `t=${Date.now()}`;
     const directUrl = url.includes('?') ? `${url}&${cacheBuster}` : `${url}?${cacheBuster}`;
-    
-    if (isBrowser && isHttps) {
+    const knownCorsBlocked = Boolean(hostname && (Date.now() - (corsBlockedHosts.get(hostname) || 0) < 60000));
+
+    if (isBrowser && isHttps && !knownCorsBlocked) {
+      let directHttpStatus = 0;
       try {
-        // Try direct fetch first with clean simple headers (avoids CORS preflight)
         response = await fetchWithRetry(directUrl, {
           timeout: 4000,
           headers: { 'Accept': 'application/json' },
           mode: 'cors'
-        });
-        if (!response.ok) throw new Error('Direct fetch failed');
-      } catch (e) {
-        // Fallback to proxy if direct fetch fails (likely CORS)
+        }, 0);
+        directHttpStatus = response.status;
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+      } catch {
+        // If the browser received an HTTP error status directly (CORS allowed), stream is offline — skip Vercel proxy
+        if (directHttpStatus >= 400) {
+          return null;
+        }
+        if (hostname) {
+          corsBlockedHosts.set(hostname, Date.now());
+        }
         const proxyUrl = `/api/bitrate?url=${encodeURIComponent(url)}&t=${Date.now()}`;
-        response = await fetchWithRetry(proxyUrl, { 
+        response = await fetchWithRetry(proxyUrl, {
           timeout: 5000,
           headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
           cache: 'no-store'
-        });
+        }, 0);
         usedProxy = true;
       }
     } else {
-      // Use proxy for HTTP to avoid Mixed Content errors, or if not in browser
+      // Use proxy for HTTP, non-browser server calls, or cached CORS-blocked HTTPS hosts
       const fetchUrl = isBrowser
         ? `/api/bitrate?url=${encodeURIComponent(url)}&t=${Date.now()}`
         : directUrl;
-      response = await fetchWithRetry(fetchUrl, { 
+      response = await fetchWithRetry(fetchUrl, {
         timeout: 5000,
         headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
         cache: 'no-store'
-      });
+      }, 0);
       usedProxy = true;
     }
 

@@ -673,17 +673,23 @@ export default function AdminPage() {
   useEffect(() => {
     loadSettings();
 
-    // Set up Server-Sent Events listener to receive database settings updates in real time (e.g. donation goals)
-    const setupSSE = () => {
-      const eventSource = new EventSource('/api/settings-stream');
+    let isActive = true;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'settings_update') {
-            const { type: _type, timestamp: _timestamp, ...settingsData } = data;
-            
-            // Only sync database updates if the Admin UI is connected (not currently saving or offline)
+    const schedulePoll = (delayMs?: number) => {
+      if (!isActive) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      pollTimer = setTimeout(pollSettings, delayMs ?? (hidden ? 60000 : 15000));
+    };
+
+    const pollSettings = async () => {
+      if (!isActive) return;
+      try {
+        const res = await fetch('/api/get-settings');
+        if (res.ok) {
+          const settingsData = await res.json();
+          if (settingsData && isActive) {
             setSyncStatus((currentStatus) => {
               if (currentStatus === 'connected') {
                 setSettings((prevSettings) => {
@@ -703,31 +709,29 @@ export default function AdminPage() {
               return currentStatus;
             });
           }
-        } catch {
-          // Ignore parsing errors
         }
-      };
-
-      eventSource.onerror = () => {
-        try {
-          eventSource.close();
-        } catch {
-          // Ignore close error
-        }
-        // Reconnect after 2 seconds
-        setTimeout(() => {
-          setupSSE();
-        }, 2000);
-      };
-
-      return eventSource;
+      } catch {
+        // Ignore transient polling errors
+      }
+      schedulePoll();
     };
 
-    const eventSource = setupSSE();
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        schedulePoll(500);
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+
+    schedulePoll();
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
+      isActive = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
       }
     };
   }, [loadSettings]);
@@ -1383,9 +1387,10 @@ export default function AdminPage() {
       }
 
       if (isActive) {
+        const hidden = typeof document !== 'undefined' && document.hidden;
         const intervalSec = settings.bitrateUpdateInterval && settings.bitrateUpdateInterval >= 2
-          ? settings.bitrateUpdateInterval
-          : (typeof document !== 'undefined' && document.hidden ? 15 : 5);
+          ? (hidden ? Math.max(30, settings.bitrateUpdateInterval * 3) : Math.max(10, settings.bitrateUpdateInterval))
+          : (hidden ? 30 : 10);
         timer = setTimeout(pollBitrateAndAutoSwitch, intervalSec * 1000);
       }
     };

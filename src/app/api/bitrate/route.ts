@@ -15,7 +15,8 @@ if (!g.__workingUrlCache) g.__workingUrlCache = new Map<string, string>();
 
 const bitrateCache: Map<string, CacheEntry> = g.__bitrateCache;
 const workingUrlCache: Map<string, string> = g.__workingUrlCache;
-const CACHE_TTL_MS = 1000; // 1 second cache TTL for near-instant offline/recovery detection
+const CACHE_TTL_MS = 2500; // 2.5s cache TTL reduces Active CPU & duplicate stats upstream requests
+const ERROR_CACHE_TTL_MS = 3000; // Cache offline 404/timeouts briefly to prevent multi-URL retry storms
 
 export async function GET(req: NextRequest) {
     try {
@@ -31,7 +32,8 @@ export async function GET(req: NextRequest) {
 
         // 1. Check in-memory cache
         const cached = bitrateCache.get(cacheKey);
-        if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+        const cacheTtl = cached && cached.status >= 400 ? ERROR_CACHE_TTL_MS : CACHE_TTL_MS;
+        if (cached && (Date.now() - cached.timestamp < cacheTtl)) {
             return NextResponse.json(cached.data, {
                 status: cached.status,
                 headers: {
@@ -142,16 +144,21 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // Clear any previous live cache immediately on stream failure / offline
-        bitrateCache.delete(cacheKey);
-
+        const errorStatus = lastStatus === 200 ? 502 : lastStatus;
         const errorResponse = {
             error: lastError || 'Stats server unreachable',
             details: `Tried ${variations.length} variations`
         };
 
+        // Briefly cache offline error response to avoid repeated multi-URL upstream timeouts on polling bursts
+        bitrateCache.set(cacheKey, {
+            data: errorResponse,
+            status: errorStatus,
+            timestamp: Date.now()
+        });
+
         return NextResponse.json(errorResponse, { 
-            status: lastStatus === 200 ? 502 : lastStatus,
+            status: errorStatus,
             headers: {
                 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
                 'Pragma': 'no-cache'

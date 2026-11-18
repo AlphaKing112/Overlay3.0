@@ -698,7 +698,7 @@ function LowBitrateContent() {
       } catch {}
     };
 
-    const interval = setInterval(pollSignal, 1500);
+    const interval = setInterval(pollSignal, 5000);
     return () => {
       isActive = false;
       clearInterval(interval);
@@ -1021,9 +1021,14 @@ function LowBitrateContent() {
     let sceneTimer: NodeJS.Timeout;
 
     const runSceneRefresh = async () => {
-      await refreshObsScenes();
+      // Skip cloud /api/obs-switch-scene polling when connected directly to local OBS WS
+      if (!localObsRef.current) {
+        await refreshObsScenes();
+      }
       if (isCancelled) return;
-      const delay = (typeof document !== 'undefined' && document.hidden) ? 12000 : 5000;
+      const delay = localObsRef.current
+        ? 30000
+        : (typeof document !== 'undefined' && document.hidden ? 45000 : 15000);
       sceneTimer = setTimeout(runSceneRefresh, delay);
     };
 
@@ -1097,9 +1102,14 @@ function LowBitrateContent() {
     let telTimer: NodeJS.Timeout;
 
     const runTelemetryPoll = async () => {
-      await fetchTelemetry();
+      // If local OBS is connected, live WS events & 1.5s local poller keep UI instant without hitting Vercel
+      if (!localObsRef.current) {
+        await fetchTelemetry();
+      }
       if (isCancelled) return;
-      const delay = (typeof document !== 'undefined' && document.hidden) ? 4000 : 1500;
+      const delay = localObsRef.current
+        ? 30000
+        : (typeof document !== 'undefined' && document.hidden ? 20000 : 5000);
       telTimer = setTimeout(runTelemetryPoll, delay);
     };
 
@@ -2085,7 +2095,8 @@ function LowBitrateContent() {
     pollBitrateAndEvaluate();
     let pollTimer: NodeJS.Timeout;
     const scheduleNextPoll = () => {
-      const delay = (typeof document !== 'undefined' && document.hidden) ? 3000 : 1000;
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      const delay = hidden ? 12000 : (localObsRef.current ? 2500 : 4000);
       pollTimer = setTimeout(async () => {
         await pollBitrateAndEvaluate();
         if (!isCancelled) scheduleNextPoll();

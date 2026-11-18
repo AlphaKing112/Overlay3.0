@@ -412,12 +412,16 @@ function FullMapContent() {
     return 1.0;
   }, [queryScale, settings.mapUiScale]);
 
-  // Initial settings load and SSE synchronization
+  // Initial settings load and lightweight CDN-cached polling (replaces persistent SSE to minimize Vercel Fluid Memory)
   useEffect(() => {
-    const loadSettings = async () => {
+    let isActive = true;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const loadSettings = async (bustCache = false) => {
       try {
-        const res = await fetch(`/api/get-settings?_t=${Date.now()}`, { cache: 'no-store' });
-        if (res.ok) {
+        const url = bustCache ? `/api/get-settings?_t=${Date.now()}` : '/api/get-settings';
+        const res = await fetch(url, bustCache ? { cache: 'no-store' } : undefined);
+        if (res.ok && isActive) {
           const data = await res.json();
           if (data) {
             setSettings(prev => ({ ...DEFAULT_OVERLAY_SETTINGS, ...prev, ...data }));
@@ -428,21 +432,34 @@ function FullMapContent() {
       }
     };
 
-    loadSettings();
-
-    const eventSource = new EventSource('/api/settings-stream');
-    eventSource.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data && data.type === 'settings_update') {
-          const { type: _type, timestamp: _timestamp, ...settingsData } = data;
-          setSettings(prev => ({ ...prev, ...settingsData }));
-        }
-      } catch {}
+    const schedulePoll = (delayMs?: number) => {
+      if (!isActive) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      pollTimer = setTimeout(async () => {
+        await loadSettings(false);
+        schedulePoll();
+      }, delayMs ?? (hidden ? 30000 : 10000));
     };
 
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        schedulePoll(500);
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+
+    loadSettings(true);
+    schedulePoll();
+
     return () => {
-      eventSource.close();
+      isActive = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      }
     };
   }, []);
 

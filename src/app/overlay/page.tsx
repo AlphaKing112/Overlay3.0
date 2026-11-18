@@ -3013,66 +3013,9 @@ function OverlayPage() {
       }
     };
 
-    // Track whether SSE is currently delivering updates
-    const sseActiveRef = { current: false };
-
-    // Set up Server-Sent Events for real-time updates
-    const setupSSE = () => {
-      const eventSource = new EventSource('/api/settings-stream');
-
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          sseActiveRef.current = true;
-
-          if (data.type === 'settings_update') {
-            const { type: _type, timestamp: _timestamp, ...settingsData } = data;
-            setSettings(prev => {
-              const mergedSettings = {
-                ...DEFAULT_OVERLAY_SETTINGS,
-                ...prev,
-                ...settingsData,
-                weatherConditionDisplay: settingsData.weatherConditionDisplay || prev.weatherConditionDisplay || DEFAULT_OVERLAY_SETTINGS.weatherConditionDisplay,
-                altitudeDisplay: settingsData.altitudeDisplay || prev.altitudeDisplay || DEFAULT_OVERLAY_SETTINGS.altitudeDisplay,
-                speedDisplay: settingsData.speedDisplay || prev.speedDisplay || DEFAULT_OVERLAY_SETTINGS.speedDisplay,
-              } as OverlaySettings;
-              seSettingsRef.current = mergedSettings;
-              OverlayLogger.settings('Settings updated via SSE', {
-                locationDisplay: mergedSettings.locationDisplay,
-                showWeather: mergedSettings.showWeather,
-                obsStreamCommandsEnabled: mergedSettings.obsStreamCommandsEnabled
-              });
-              lastSettingsHash.current = createSettingsHash(mergedSettings);
-              settingsLoadedRef.current = true;
-              setSettingsLoaded(true);
-              return mergedSettings;
-            });
-          }
-        } catch {}
-      };
-
-      eventSource.onerror = () => {
-        sseActiveRef.current = false;
-        try { eventSource.close(); } catch {}
-        setTimeout(() => {
-          try { setupSSE(); } catch {}
-        }, 5000);
-      };
-
-      return eventSource;
-    };
-
-    // Load initial settings
-    loadSettings();
-
-    // Set up real-time updates
-    const eventSource = setupSSE();
-
-    // Fallback polling — only runs if SSE drops
-    const pollingInterval = setInterval(async () => {
-      if (sseActiveRef.current) return;
-
+    const pollSettings = async () => {
       try {
+        // Relies on Edge CDN cache (s-maxage=3, stale-while-revalidate=5) instead of holding 2GB SSE streams open
         const res = await fetch('/api/get-settings');
         if (res.ok) {
           const data = await res.json();
@@ -3087,11 +3030,10 @@ function OverlayPage() {
             const newHash = createSettingsHash(mergedData);
             if (newHash !== lastSettingsHash.current) {
               lastSettingsHash.current = newHash;
-              OverlayLogger.settings('Settings updated via polling (SSE fallback)', {
+              OverlayLogger.settings('Settings & signals updated', {
                 locationDisplay: mergedData.locationDisplay,
                 showWeather: mergedData.showWeather,
                 showMinimap: mergedData.showMinimap,
-                donationGoalsCurrent: mergedData.donationGoals?.map(g => g.current),
                 obsStreamCommandsEnabled: mergedData.obsStreamCommandsEnabled
               });
               setSettings(mergedData);
@@ -3102,14 +3044,17 @@ function OverlayPage() {
       } catch (error) {
         OverlayLogger.warn('Settings polling failed', { error });
       }
-    }, SETTINGS_POLLING_INTERVAL);
+    };
+
+    // Load initial settings
+    loadSettings();
+
+    // Short-lived 5s HTTP polling (replaces persistent SSE + duplicate 1.5s switch-scene poll to cut Fluid Memory/CPU ~95%)
+    const stopSettingsPolling = createUnthrottledInterval(pollSettings, 5000);
 
     // Cleanup on unmount
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-      clearInterval(pollingInterval);
+      stopSettingsPolling();
     };
   }, []); // Empty dependency array - we want this to run once on mount
 
@@ -3562,28 +3507,8 @@ function OverlayPage() {
     }
   }, [settings.obsSceneSwitchSignal, processSceneSignal]);
 
-  // Fast 1.5s signal check to guarantee immediate scene switching from dashboard/chat
-  useEffect(() => {
-    let isActive = true;
-    const pollSignal = async () => {
-      if (!isActive || !localObsRef.current) return;
-      try {
-        const res = await fetch('/api/obs-switch-scene', { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.signal && data.signal.timestamp > lastProcessedSceneSignalRef.current) {
-            processSceneSignal(data.signal);
-          }
-        }
-      } catch {}
-    };
-
-    const stopInterval = createUnthrottledInterval(pollSignal, 1500);
-    return () => {
-      isActive = false;
-      stopInterval();
-    };
-  }, [processSceneSignal]);
+  // Note: obsSceneSwitchSignal is delivered cleanly through the unified 5s /api/get-settings sync above,
+  // avoiding a separate 1.5s polling loop (~57,600 invocations/day saved).
 
   // Periodic OBS Telemetry Reporter (relays Dropped Frames, Uptime, CPU %, FPS, and Logs to cloud)
   useEffect(() => {
@@ -3703,15 +3628,15 @@ function OverlayPage() {
 
         // Smart Diffing & User Configured Heartbeat:
         // POST immediately if state changed (scene switch, stream start/stop, dropped frames change),
-        // otherwise only send a periodic heartbeat (configured by user, default 45s).
+        // otherwise only send a periodic heartbeat (configured by user, default 45s; TTL on server is 180s).
         const hasCriticalChange =
           lastReportedState.streaming !== isStreaming ||
           lastReportedState.recording !== isRecording ||
           lastReportedState.scene !== currentScene ||
           lastReportedState.droppedFrames !== droppedFrames ||
-          Math.abs((lastReportedState.cpuUsage || 0) - cpuUsagePercent) > 3.0;
+          Math.abs((lastReportedState.cpuUsage || 0) - cpuUsagePercent) > 15.0;
 
-        const heartbeatInterval = 10000;
+        const heartbeatInterval = Math.max(30000, (seSettingsRef.current?.obsTelemetryInterval || 45) * 1000);
         const shouldPost = lastPostTimestamp === 0 || hasCriticalChange || (now - lastPostTimestamp >= heartbeatInterval);
 
         if (shouldPost) {
@@ -3798,7 +3723,7 @@ function OverlayPage() {
     };
 
     reportTelemetry();
-    const stopTelemetryInterval = createUnthrottledInterval(reportTelemetry, 5000);
+    const stopTelemetryInterval = createUnthrottledInterval(reportTelemetry, 10000);
 
     return () => {
       isActive = false;
@@ -5223,10 +5148,17 @@ function OverlayPage() {
 
     let isActive = true;
     let isFetching = false;
+    let lastFetchAt = 0;
 
-    const fetchStats = async () => {
+    const fetchStats = async (force = false) => {
       if (!isActive || isFetching) return;
+      const now = Date.now();
+      // When Belabox has been offline >= 3 consecutive checks, back off to 8s instead of hammering every 2.5s
+      if (!force && consecutiveBitrateFailuresRef.current >= 3 && now - lastFetchAt < 8000) {
+        return;
+      }
       isFetching = true;
+      lastFetchAt = now;
 
       try {
         const stats = await fetchBitrateStats(bitrateUrl, publisherKey);
@@ -5255,8 +5187,8 @@ function OverlayPage() {
       }
     };
 
-    fetchStats();
-    const stopBitrateInterval = createUnthrottledInterval(fetchStats, 1500);
+    fetchStats(true);
+    const stopBitrateInterval = createUnthrottledInterval(() => fetchStats(false), 2500);
 
     return () => {
       isActive = false;
