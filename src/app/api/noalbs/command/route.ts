@@ -367,8 +367,8 @@ export async function POST(req: NextRequest) {
     // 6. !rtrigger <ms>
     if (cmdName === '!rtrigger') {
       const val = parseInt(args[0], 10);
-      if (isNaN(val) || val <= 0) {
-        return NextResponse.json({ success: false, error: 'Usage: !rtrigger <ms> (e.g. !rtrigger 2500)' }, { status: 400 });
+      if (isNaN(val) || val < 150) {
+        return NextResponse.json({ success: false, error: 'Usage: !rtrigger <ms> (minimum 150ms, e.g. !rtrigger 350)' }, { status: 400 });
       }
 
       await saveSettingsPatch({ obsRttThreshold: val });

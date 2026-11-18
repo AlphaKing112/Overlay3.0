@@ -20,6 +20,8 @@ import {
   triggerObsReplayBuffer,
   safeObsSwitchScene,
   findMatchingObsScene,
+  evaluateStreamHealth,
+  MIN_RTT_THRESHOLD_MS,
   createUnthrottledInterval,
   ensureOverlayBrowserSourcesPersistent,
   getObsSceneItems,
@@ -3064,6 +3066,8 @@ function OverlayPage() {
   const telemetryLogsRef = useRef<ObsTelemetryLogEntry[]>([]);
   const cachedObsScenesRef = useRef<string[]>([]);
   const missingSceneCooldownRef = useRef<Map<string, number>>(new Map());
+  const lastAutoSwitchActionAtRef = useRef<number>(0);
+  const lastAutoSwitchDiagRef = useRef<string>('');
   const obsVersionInfoRef = useRef<{ obsVersion?: string; obsWebSocketVersion?: string; platform?: string; baseRes?: string; outRes?: string; fps?: string }>({});
   const lastLoggedStateRef = useRef<{ isStreaming?: boolean; isRecording?: boolean; currentScene?: string; lastHealthLogTime?: number; lastDroppedFrames?: number }>({});
 
@@ -3912,8 +3916,8 @@ function OverlayPage() {
     const isStale = bitrateUpdateTimestamp > 0 && (Date.now() - bitrateUpdateTimestamp) > staleThresholdMs;
     const offlineThreshold = settings.obsOfflineBitrateThreshold ?? 400;
     const lowThreshold = settings.obsLowBitrateThreshold ?? 1100;
-    const rttLowThreshold = settings.obsRttThreshold ?? 2500;
-    const rttBrbThreshold = settings.obsRttOfflineThreshold ?? 3500;
+    const rttLowThreshold = Math.max(MIN_RTT_THRESHOLD_MS, settings.obsRttThreshold ?? 2500);
+    const rttBrbThreshold = Math.max(MIN_RTT_THRESHOLD_MS, settings.obsRttOfflineThreshold ?? 3500);
 
     const lowTriggerEnabled = settings.obsLowBitrateTriggerEnabled !== false;
     const offTriggerEnabled = settings.obsOfflineBitrateTriggerEnabled !== false;
@@ -3921,15 +3925,33 @@ function OverlayPage() {
     const rttLowTriggerEnabled = settings.obsRttLowTriggerEnabled !== false;
     const rttBrbTriggerEnabled = settings.obsRttOfflineTriggerEnabled !== false;
 
-    const isBrbByBitrate = offTriggerEnabled && currentBitrate !== null && currentBitrate <= offlineThreshold;
-    const isBrbByRtt = rttTriggerEnabled && rttBrbTriggerEnabled && currentRtt !== null && currentRtt >= rttBrbThreshold;
-    const isOffline = (currentBitrate !== null && currentBitrate === 0) || isBrbByBitrate || isBrbByRtt || isStale;
+    const currentSceneNorm = (lastLoggedStateRef.current.currentScene || '').trim().toLowerCase();
+    const lowNormForEval = (settings.obsLowSceneName || 'low').trim().toLowerCase();
+    const offlineNormForEval = (settings.obsOfflineSceneName || 'offline').trim().toLowerCase();
+    const isCurrentlyDegraded =
+      lastBitrateStateRef.current === 'low' ||
+      lastBitrateStateRef.current === 'offline' ||
+      currentSceneNorm === lowNormForEval ||
+      currentSceneNorm.includes('low') ||
+      currentSceneNorm === offlineNormForEval ||
+      (currentSceneNorm.includes('offline') && !currentSceneNorm.includes('vertical')) ||
+      currentSceneNorm.includes('brb');
 
-    const isLowByBitrate = lowTriggerEnabled && currentBitrate !== null && currentBitrate <= lowThreshold;
-    const isLowByRtt = rttTriggerEnabled && rttLowTriggerEnabled && currentRtt !== null && currentRtt >= rttLowThreshold;
-    const isLow = !isOffline && (isLowByBitrate || isLowByRtt);
-
-    const isLive = !isOffline && !isLow && currentBitrate !== null && currentBitrate > lowThreshold && !isStale;
+    const { isOffline, isLow, isLive } = evaluateStreamHealth({
+      bitrate: currentBitrate,
+      rtt: currentRtt,
+      isStale,
+      isCurrentlyDegraded,
+      lowBitrateEnabled: lowTriggerEnabled,
+      lowBitrateThreshold: lowThreshold,
+      offlineBitrateEnabled: offTriggerEnabled,
+      offlineBitrateThreshold: offlineThreshold,
+      rttEnabled: rttTriggerEnabled,
+      rttLowEnabled: rttLowTriggerEnabled,
+      rttLowThreshold,
+      rttOfflineEnabled: rttBrbTriggerEnabled,
+      rttOfflineThreshold: rttBrbThreshold,
+    });
     const hasFetchedStats = bitrateUpdateTimestamp > 0;
 
     // Track consecutive checks to prevent switching on momentary network hiccups
@@ -3948,10 +3970,13 @@ function OverlayPage() {
       consecutiveLiveChecksRef.current += 1;
     }
 
-    // DIAGNOSTIC LOG
-    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} offline=${isOffline} (check ${consecutiveOfflineChecksRef.current}/${requiredChecks}) live=${isLive} fetched=${hasFetchedStats} lastState=${lastBitrateStateRef.current}`;
-    console.log('[AUTO-SWITCH] State check:', logMsg);
-    setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
+    // DIAGNOSTIC LOG (only print to OBS console when state changes to avoid 2.5s log spam)
+    const logMsg = `obsConn=${obsConnected} bitrate=${currentBitrate} rtt=${currentRtt} offline=${isOffline} (${consecutiveOfflineChecksRef.current}/${requiredChecks}) low=${isLow} live=${isLive} lastState=${lastBitrateStateRef.current}`;
+    if (lastAutoSwitchDiagRef.current !== logMsg) {
+      lastAutoSwitchDiagRef.current = logMsg;
+      console.log('[AUTO-SWITCH] State check:', logMsg);
+      setLastSwitchLog(`[${new Date().toLocaleTimeString()}] ${logMsg}`);
+    }
 
     if (!obsConnected || !hasFetchedStats) {
       return;
@@ -4169,36 +4194,43 @@ function OverlayPage() {
     const isAlreadyOnLow = activeScene === lowScene || activeScene.includes('low');
     const isAlreadyOnLive = activeScene === liveScene || (activeScene.includes('live') && !activeScene.includes('vertical'));
 
+    const canAutoSwitchNow = Date.now() - lastAutoSwitchActionAtRef.current >= 8000;
+
     // Auto-switch to offline scene (when stream is live/low or on live scene, AND Belabox is offline for required checks)
-    if (settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
+    if (canAutoSwitchNow && settings.obsAutoSwitchSceneToggle && settings.obsOfflineSceneName && hasFetchedStats) {
       const wasLiveOrLow = lastBitrateStateRef.current === 'live' || lastBitrateStateRef.current === 'low' || isCurLive || isCurLow;
       if (isOffline && (wasLiveOrLow || isCurLive || isCurLow) && consecutiveOfflineChecksRef.current >= requiredChecks && !isAlreadyOnOffline) {
-        console.log(`📡 Stream confirmed offline (${consecutiveOfflineChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
+        lastAutoSwitchActionAtRef.current = Date.now();
+        console.log(`📡 Stream confirmed offline (${consecutiveOfflineChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate}, rtt=${currentRtt}, stale=${isStale}), switching to: ${settings.obsOfflineSceneName}`);
         switchSceneViaApi(settings.obsOfflineSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'offline';
         });
+        return;
       }
     }
 
     // Auto-switch to low bitrate scene (only after stream was live or active on live scene, AND required checks met)
-    if (settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
-      const lowScene = settings.obsLowSceneName || 'low';
+    if (canAutoSwitchNow && settings.obsAutoSwitchSceneToggle && hasFetchedStats) {
+      const lowSceneTarget = settings.obsLowSceneName || 'low';
       const wasLiveOrRecovering = lastBitrateStateRef.current === 'live' || isCurLive;
       if (isLow && (wasLiveOrRecovering || isCurLive) && consecutiveLowChecksRef.current >= requiredChecks && !isAlreadyOnLow && !isAlreadyOnOffline) {
-        console.log(`📡 Low bitrate confirmed (${consecutiveLowChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate} < ${lowThreshold}), switching to: ${lowScene}`);
-        switchSceneViaApi(lowScene).then(success => {
+        lastAutoSwitchActionAtRef.current = Date.now();
+        console.log(`📡 Low trigger confirmed (${consecutiveLowChecksRef.current}/${requiredChecks} checks, bitrate=${currentBitrate}, rtt=${currentRtt}), switching to: ${lowSceneTarget}`);
+        switchSceneViaApi(lowSceneTarget).then(success => {
           if (success) lastBitrateStateRef.current = 'low';
         });
+        return;
       }
     }
 
     // Auto-switch to live scene (ONLY when recovering from low or offline)
-    if (settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
+    if (canAutoSwitchNow && settings.obsAutoSwitchSceneToggle && settings.obsLiveSceneName && hasFetchedStats) {
       const needsRecovery = !isSpecialScene && (lastBitrateStateRef.current === 'low' || lastBitrateStateRef.current === 'offline' || isCurLow || isCurOffline);
       const isInstantRecovery = settings.obsInstantRecovery !== false;
       const recoveryRequiredChecks = isInstantRecovery ? 1 : requiredChecks;
       if (isLive && (needsRecovery || isCurLow || isCurOffline) && consecutiveLiveChecksRef.current >= recoveryRequiredChecks && !isAlreadyOnLive) {
-        console.log(`📡 Stream is live (${consecutiveLiveChecksRef.current}/${recoveryRequiredChecks} checks, bitrate=${currentBitrate}), recovering to: ${settings.obsLiveSceneName}`);
+        lastAutoSwitchActionAtRef.current = Date.now();
+        console.log(`📡 Stream recovered (${consecutiveLiveChecksRef.current}/${recoveryRequiredChecks} checks, bitrate=${currentBitrate}, rtt=${currentRtt}), recovering to: ${settings.obsLiveSceneName}`);
         switchSceneViaApi(settings.obsLiveSceneName).then(success => {
           if (success) lastBitrateStateRef.current = 'live';
         });

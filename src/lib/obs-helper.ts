@@ -4,6 +4,106 @@
  * OBS WebSocket v5 (OBS 28+), v4 (OBS 27), and custom output setups.
  */
 
+export const MIN_RTT_THRESHOLD_MS = 150;
+
+export interface StreamHealthEvalInput {
+  bitrate: number | null;
+  rtt: number | null;
+  isStale?: boolean;
+  isCurrentlyDegraded: boolean;
+  lowBitrateEnabled: boolean;
+  lowBitrateThreshold: number;
+  offlineBitrateEnabled: boolean;
+  offlineBitrateThreshold: number;
+  rttEnabled: boolean;
+  rttLowEnabled: boolean;
+  rttLowThreshold: number;
+  rttOfflineEnabled: boolean;
+  rttOfflineThreshold: number;
+}
+
+export interface StreamHealthEvalResult {
+  isBrbByBitrate: boolean;
+  isBrbByRtt: boolean;
+  isOffline: boolean;
+  isLowByBitrate: boolean;
+  isLowByRtt: boolean;
+  isLow: boolean;
+  isLive: boolean;
+}
+
+/**
+ * Shared NOALBS stream health evaluator with hysteresis when recovering from LOW / OFFLINE
+ * so bitrate or RTT hovering around a threshold (e.g. 150ms RTT) cannot rapidly ping-pong scenes.
+ */
+export function evaluateStreamHealth(input: StreamHealthEvalInput): StreamHealthEvalResult {
+  const {
+    bitrate,
+    rtt,
+    isStale = false,
+    isCurrentlyDegraded,
+    lowBitrateEnabled,
+    lowBitrateThreshold,
+    offlineBitrateEnabled,
+    offlineBitrateThreshold,
+    rttEnabled,
+    rttLowEnabled,
+    rttLowThreshold,
+    rttOfflineEnabled,
+    rttOfflineThreshold,
+  } = input;
+
+  const isBrbByBitrate = offlineBitrateEnabled && bitrate !== null && bitrate <= offlineBitrateThreshold;
+  const isBrbByRtt = rttEnabled && rttOfflineEnabled && rtt !== null && rtt >= rttOfflineThreshold;
+  const isOffline = Boolean(isStale) || (bitrate !== null && bitrate === 0) || isBrbByBitrate || isBrbByRtt;
+
+  const isLowByBitrate = !isOffline && lowBitrateEnabled && bitrate !== null && bitrate <= lowThresholdOrZero(lowBitrateThreshold);
+  const isLowByRtt = !isOffline && rttEnabled && rttLowEnabled && rtt !== null && rtt >= rttLowThreshold;
+  const isLow = !isOffline && (isLowByBitrate || isLowByRtt);
+
+  let isLive = !isOffline && !isLow && bitrate !== null && bitrate > 0;
+
+  if (isLive && isCurrentlyDegraded) {
+    // Bitrate recovery hysteresis: require ~12% (min 100 kbps) clear headroom before leaving degraded state
+    const recoveryBitrateFloor = lowBitrateEnabled
+      ? lowBitrateThreshold + Math.max(100, Math.round(lowBitrateThreshold * 0.12))
+      : offlineBitrateEnabled
+        ? offlineBitrateThreshold + Math.max(100, Math.round(offlineBitrateThreshold * 0.25))
+        : 1;
+    const bitrateClear = bitrate !== null && bitrate > recoveryBitrateFloor;
+
+    // RTT recovery hysteresis: require RTT to drop 15% (min 25ms) below the lowest enabled trigger
+    let rttClear = true;
+    if (rttEnabled && rtt !== null) {
+      const activeRttTrigger = rttLowEnabled
+        ? rttLowThreshold
+        : rttOfflineEnabled
+          ? rttOfflineThreshold
+          : null;
+      if (activeRttTrigger !== null) {
+        const rttClearCeiling = Math.max(0, activeRttTrigger - Math.max(25, Math.round(activeRttTrigger * 0.15)));
+        rttClear = rtt <= rttClearCeiling;
+      }
+    }
+
+    isLive = bitrateClear && rttClear;
+  }
+
+  return {
+    isBrbByBitrate,
+    isBrbByRtt,
+    isOffline,
+    isLowByBitrate,
+    isLowByRtt,
+    isLow,
+    isLive,
+  };
+}
+
+function lowThresholdOrZero(v: number): number {
+  return Number.isFinite(v) ? Math.max(0, v) : 0;
+}
+
 export function formatObsError(err: any): string {
   if (!err) return 'Unknown OBS error';
   if (typeof err === 'string') return err;

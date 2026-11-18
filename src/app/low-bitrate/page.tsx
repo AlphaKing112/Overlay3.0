@@ -7,6 +7,8 @@ import { fetchBitrateStats } from '@/utils/api-utils';
 import {
   safeObsSwitchScene,
   findMatchingObsScene,
+  evaluateStreamHealth,
+  MIN_RTT_THRESHOLD_MS,
   safeObsStreamControlResult,
   safeObsRefreshCycle,
   getObsSceneItems,
@@ -1430,7 +1432,27 @@ function LowBitrateContent() {
     }
   };
 
+  const sliderSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSliderUpdatesRef = useRef<Partial<OverlaySettings>>({});
+
+  const debouncedSaveSettingsUpdates = (updates: Partial<OverlaySettings>, delayMs: number = 400) => {
+    const mergedPending = { ...pendingSliderUpdatesRef.current, ...updates };
+    pendingSliderUpdatesRef.current = mergedPending;
+    setSettings(prev => {
+      const next = { ...prev, ...updates };
+      settingsRef.current = next;
+      return next;
+    });
+    if (sliderSaveTimerRef.current) clearTimeout(sliderSaveTimerRef.current);
+    sliderSaveTimerRef.current = setTimeout(() => {
+      const toSave = pendingSliderUpdatesRef.current;
+      pendingSliderUpdatesRef.current = {};
+      saveSettingsUpdates(toSave, { silent: true });
+    }, delayMs);
+  };
+
   const manualOverrideUntilRef = useRef<number>(0);
+  const lastAutoSwitchActionAtRef = useRef<number>(0);
 
   // 5. Scene Switching Execution
   const switchScene = async (sceneName: string, reason: string = 'Manual') => {
@@ -2065,22 +2087,44 @@ function LowBitrateContent() {
       const liveScene = currentSettings.obsLiveSceneName || 'live';
       const lowScene = currentSettings.obsLowSceneName || 'low';
       const offlineScene = currentSettings.obsOfflineSceneName || 'offline';
+      const safeRttLowThreshold = Math.max(MIN_RTT_THRESHOLD_MS, rttLowThreshold);
+      const safeRttBrbThreshold = Math.max(MIN_RTT_THRESHOLD_MS, rttBrbThreshold);
 
-      // Direct State Evaluation:
-      // 1. BRB / OFFLINE (Bitrate <= BRB threshold or feed gone, or RTT >= BRB RTT threshold)
-      const isBrbByBitrate = offTriggerEnabled && (bitrate <= offThreshold);
-      const isBrbByRtt = rttTriggerEnabled && rttBrbTriggerEnabled && rtt !== null && rtt >= rttBrbThreshold;
-      const shouldBeOffline = bitrate === 0 || isBrbByBitrate || isBrbByRtt;
+      const isCurrentlyDegraded =
+        autoSwitchStateRef.current === 'LOW' ||
+        autoSwitchStateRef.current === 'OFFLINE' ||
+        isCurLow ||
+        isCurOffline;
 
-      // 2. LOW (Not offline, and Bitrate <= LOW threshold or RTT >= LOW RTT threshold)
-      const isLowByBitrate = lowTriggerEnabled && (bitrate <= lowThreshold);
-      const isLowByRtt = rttTriggerEnabled && rttLowTriggerEnabled && rtt !== null && rtt >= rttLowThreshold;
-      const shouldBeLow = !shouldBeOffline && (isLowByBitrate || isLowByRtt);
-
-      // 3. LIVE (Bitrate above LOW threshold, RTT below limit)
-      const shouldBeLive = !shouldBeOffline && !shouldBeLow;
+      // Direct State Evaluation with recovery hysteresis so threshold jitter (e.g. ~150ms RTT) cannot ping-pong scenes
+      const {
+        isBrbByRtt,
+        isOffline: shouldBeOffline,
+        isLowByRtt,
+        isLow: shouldBeLow,
+        isLive: shouldBeLive,
+      } = evaluateStreamHealth({
+        bitrate,
+        rtt,
+        isCurrentlyDegraded,
+        lowBitrateEnabled: lowTriggerEnabled,
+        lowBitrateThreshold: lowThreshold,
+        offlineBitrateEnabled: offTriggerEnabled,
+        offlineBitrateThreshold: offThreshold,
+        rttEnabled: rttTriggerEnabled,
+        rttLowEnabled: rttLowTriggerEnabled,
+        rttLowThreshold: safeRttLowThreshold,
+        rttOfflineEnabled: rttBrbTriggerEnabled,
+        rttOfflineThreshold: safeRttBrbThreshold,
+      });
 
       const wasLiveOrLow = autoSwitchStateRef.current === 'LIVE' || autoSwitchStateRef.current === 'LOW' || isCurLive || isCurLow;
+      // Avoid competing with the OBS Overlay Browser Source when it is actively online on PC
+      const overlayManagingLocally =
+        !localObsRef.current &&
+        Boolean(curTel?.online) &&
+        (Date.now() - (curTel?.updatedAt || 0) < 120000);
+      const canAutoSwitchNow = !overlayManagingLocally && (Date.now() - lastAutoSwitchActionAtRef.current >= 8000);
 
       // A. Evaluate OFFLINE / BRB
       if (shouldBeOffline) {
@@ -2090,10 +2134,13 @@ function LowBitrateContent() {
 
         if ((wasLiveOrLow || isCurLive || isCurLow) && offlineCountRef.current >= offDelaySec && !isCurOffline) {
           setAutoSwitchState('OFFLINE');
-          const reason = isBrbByRtt
-            ? `Critical latency spike (RTT: ${rtt}ms >= ${rttBrbThreshold}ms)`
-            : `Bitrate dropped to ${bitrate} kbps (<= ${offThreshold} kbps)`;
-          switchScene(offlineScene, reason);
+          if (canAutoSwitchNow) {
+            lastAutoSwitchActionAtRef.current = Date.now();
+            const reason = isBrbByRtt
+              ? `Critical latency spike (RTT: ${rtt}ms >= ${safeRttBrbThreshold}ms)`
+              : `Bitrate dropped to ${bitrate} kbps (<= ${offThreshold} kbps)`;
+            switchScene(offlineScene, reason);
+          }
         }
       }
       // B. Evaluate LOW BITRATE
@@ -2104,10 +2151,13 @@ function LowBitrateContent() {
 
         if ((wasLiveOrLow || isCurLive) && lowCountRef.current >= delaySec && !isCurLow && !isCurOffline) {
           setAutoSwitchState('LOW');
-          const reason = isLowByRtt
-            ? `High latency detected (RTT: ${rtt}ms >= ${rttLowThreshold}ms)`
-            : `Bitrate dropped to ${bitrate} kbps (<= ${lowThreshold} kbps)`;
-          switchScene(lowScene, reason);
+          if (canAutoSwitchNow) {
+            lastAutoSwitchActionAtRef.current = Date.now();
+            const reason = isLowByRtt
+              ? `High latency detected (RTT: ${rtt}ms >= ${safeRttLowThreshold}ms)`
+              : `Bitrate dropped to ${bitrate} kbps (<= ${lowThreshold} kbps)`;
+            switchScene(lowScene, reason);
+          }
         }
       }
       // C. Evaluate LIVE (Stream Healthy)
@@ -2121,7 +2171,10 @@ function LowBitrateContent() {
 
         if (liveCountRef.current >= liveRecoveryDelay && (needsRecovery || isCurLow || isCurOffline) && !isCurLive) {
           setAutoSwitchState('LIVE');
-          switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
+          if (canAutoSwitchNow) {
+            lastAutoSwitchActionAtRef.current = Date.now();
+            switchScene(liveScene, `Bitrate recovered (${bitrate} kbps, RTT: ${rtt ?? 0}ms)`);
+          }
         }
       }
     };
@@ -4921,7 +4974,7 @@ function LowBitrateContent() {
                       max={6000}
                       step={50}
                       value={settings.obsLowBitrateThreshold ?? 1100}
-                      onChange={(e) => saveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
+                      onChange={(e) => debouncedSaveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
                       style={{ width: '100%', accentColor: '#facc15', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
                     />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4931,7 +4984,7 @@ function LowBitrateContent() {
                         max={20000}
                         step={50}
                         value={settings.obsLowBitrateThreshold ?? 1100}
-                        onChange={(e) => saveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
+                        onChange={(e) => debouncedSaveSettingsUpdates({ obsLowBitrateThreshold: Number(e.target.value) || 0 })}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
                       />
                       <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>kbps</span>
@@ -4957,7 +5010,7 @@ function LowBitrateContent() {
                       max={2500}
                       step={25}
                       value={settings.obsOfflineBitrateThreshold ?? 400}
-                      onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
+                      onChange={(e) => debouncedSaveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
                       style={{ width: '100%', accentColor: '#ef4444', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
                     />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4967,7 +5020,7 @@ function LowBitrateContent() {
                         max={10000}
                         step={25}
                         value={settings.obsOfflineBitrateThreshold ?? 400}
-                        onChange={(e) => saveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
+                        onChange={(e) => debouncedSaveSettingsUpdates({ obsOfflineBitrateThreshold: Number(e.target.value) || 0 })}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
                       />
                       <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>kbps</span>
@@ -5069,21 +5122,31 @@ function LowBitrateContent() {
                     {/* Range Slider */}
                     <input
                       type="range"
-                      min={200}
+                      min={MIN_RTT_THRESHOLD_MS}
                       max={6000}
                       step={50}
-                      value={settings.obsRttThreshold ?? 2500}
-                      onChange={(e) => saveSettingsUpdates({ obsRttThreshold: Number(e.target.value) || 0 })}
+                      value={Math.max(MIN_RTT_THRESHOLD_MS, settings.obsRttThreshold ?? 2500)}
+                      onChange={(e) => debouncedSaveSettingsUpdates({ obsRttThreshold: Math.max(MIN_RTT_THRESHOLD_MS, Number(e.target.value) || MIN_RTT_THRESHOLD_MS) })}
                       style={{ width: '100%', accentColor: '#facc15', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
                     />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="number"
-                        min={0}
+                        min={MIN_RTT_THRESHOLD_MS}
                         max={15000}
                         step={50}
                         value={settings.obsRttThreshold ?? 2500}
-                        onChange={(e) => saveSettingsUpdates({ obsRttThreshold: Number(e.target.value) || 0 })}
+                        onChange={(e) => {
+                          const parsed = Number(e.target.value) || 0;
+                          setSettings(prev => ({ ...prev, obsRttThreshold: parsed }));
+                          if (parsed >= MIN_RTT_THRESHOLD_MS) {
+                            debouncedSaveSettingsUpdates({ obsRttThreshold: parsed });
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const clamped = Math.max(MIN_RTT_THRESHOLD_MS, Number(e.target.value) || MIN_RTT_THRESHOLD_MS);
+                          debouncedSaveSettingsUpdates({ obsRttThreshold: clamped }, 50);
+                        }}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
                       />
                       <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>ms</span>
@@ -5105,21 +5168,31 @@ function LowBitrateContent() {
                     {/* Range Slider */}
                     <input
                       type="range"
-                      min={500}
+                      min={MIN_RTT_THRESHOLD_MS}
                       max={8000}
                       step={50}
-                      value={settings.obsRttOfflineThreshold ?? 3500}
-                      onChange={(e) => saveSettingsUpdates({ obsRttOfflineThreshold: Number(e.target.value) || 0 })}
+                      value={Math.max(MIN_RTT_THRESHOLD_MS, settings.obsRttOfflineThreshold ?? 3500)}
+                      onChange={(e) => debouncedSaveSettingsUpdates({ obsRttOfflineThreshold: Math.max(MIN_RTT_THRESHOLD_MS, Number(e.target.value) || MIN_RTT_THRESHOLD_MS) })}
                       style={{ width: '100%', accentColor: '#ef4444', cursor: 'pointer', height: '6px', marginBottom: '10px' }}
                     />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input
                         type="number"
-                        min={0}
+                        min={MIN_RTT_THRESHOLD_MS}
                         max={20000}
                         step={50}
                         value={settings.obsRttOfflineThreshold ?? 3500}
-                        onChange={(e) => saveSettingsUpdates({ obsRttOfflineThreshold: Number(e.target.value) || 0 })}
+                        onChange={(e) => {
+                          const parsed = Number(e.target.value) || 0;
+                          setSettings(prev => ({ ...prev, obsRttOfflineThreshold: parsed }));
+                          if (parsed >= MIN_RTT_THRESHOLD_MS) {
+                            debouncedSaveSettingsUpdates({ obsRttOfflineThreshold: parsed });
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const clamped = Math.max(MIN_RTT_THRESHOLD_MS, Number(e.target.value) || MIN_RTT_THRESHOLD_MS);
+                          debouncedSaveSettingsUpdates({ obsRttOfflineThreshold: clamped }, 50);
+                        }}
                         style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}
                       />
                       <span style={{ fontSize: '0.82rem', opacity: 0.6 }}>ms</span>
