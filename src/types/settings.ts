@@ -4,6 +4,8 @@ export type LocationDisplayMode = 'neighbourhood' | 'city' | 'state' | 'country'
 export type MapZoomLevel = 'neighbourhood' | 'city' | 'state' | 'country' | 'ocean' | 'continental';
 export type DisplayMode = 'always' | 'auto' | 'hidden';
 
+export type TodoSubSource = 'daily' | 'total';
+
 export interface TodoItem {
   id: string;
   text: string;
@@ -11,6 +13,10 @@ export interface TodoItem {
   current?: number;
   goal?: number;
   hidden?: boolean;
+  /** 'task' = standard to-do / manual counter; 'sub_challenge' = triggers "do challenge" when subs >= subGoal */
+  type?: 'task' | 'sub_challenge';
+  subGoal?: number;
+  subSource?: TodoSubSource;
 }
 
 export interface UrlItem {

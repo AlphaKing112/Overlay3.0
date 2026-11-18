@@ -231,6 +231,48 @@
   border-style: dashed;
 }
 
+.todo-item-admin.challenge-met {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.16), rgba(16, 185, 129, 0.1));
+  border-color: rgba(251, 191, 36, 0.65);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.2);
+}
+
+.todo-item-admin.challenge-waiting {
+  border-color: rgba(145, 70, 255, 0.4);
+  background: rgba(145, 70, 255, 0.06);
+}
+
+.todo-mode-tabs {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.todo-mode-tab {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.todo-mode-tab.active-task {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.todo-mode-tab.active-challenge {
+  background: linear-gradient(90deg, #9146ff, #7c3aed);
+  color: #ffffff;
+}
+
 .todo-action-btn {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);

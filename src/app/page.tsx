@@ -7,6 +7,7 @@ import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoom
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
+import { getEffectiveDailySubs, getTodoSubProgress, sortTodosForDisplay } from '@/utils/todo-challenges';
 import { API_KEYS } from '@/utils/overlay-constants';
 import * as workerTimers from 'worker-timers';
 import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
@@ -292,9 +293,19 @@ export default function AdminPage() {
   const [customLocationInput, setCustomLocationInput] = useState('');
   const customLocationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Todo editing state
+  // Todo add & editing state (supports both standard tasks and Twitch Sub-Goal Challenges)
+  const [newTodoType, setNewTodoType] = useState<'task' | 'sub_challenge'>('task');
+  const [newTodoText, setNewTodoText] = useState('');
+  const [newTodoGoal, setNewTodoGoal] = useState('');
+  const [newTodoSubGoal, setNewTodoSubGoal] = useState('10');
+  const [newTodoSubSource, setNewTodoSubSource] = useState<'daily' | 'total'>('daily');
+
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingTodoText, setEditingTodoText] = useState('');
+  const [editingTodoType, setEditingTodoType] = useState<'task' | 'sub_challenge'>('task');
+  const [editingTodoGoal, setEditingTodoGoal] = useState('');
+  const [editingTodoSubGoal, setEditingTodoSubGoal] = useState('10');
+  const [editingTodoSubSource, setEditingTodoSubSource] = useState<'daily' | 'total'>('daily');
 
   // Page Transition State
   const [isNavigatingToSettings, setIsNavigatingToSettings] = useState(false);
@@ -5168,10 +5179,10 @@ export default function AdminPage() {
             </div>
           </CollapsibleSection>
 
-          {/* To-Do List Section */}
+          {/* To-Do List & Sub Challenges Section */}
           <CollapsibleSection
             id="todo"
-            title="To-Do List"
+            title="To-Do List & Sub Challenges"
             icon="✅"
             headerRight={
               <label className="checkbox-label" style={{ margin: 0 }}>
@@ -5187,399 +5198,568 @@ export default function AdminPage() {
             isCollapsed={isSectionCollapsed('todo')}
             onToggle={() => toggleSection('todo')}
           >
+            {(() => {
+              const allTodos = settings.todos || [];
+              const liveDailySubs = getEffectiveDailySubs(settings);
+              const liveTotalSubs = settings.totalSubCurrent || 0;
+              const sortedTodos = sortTodosForDisplay(allTodos, settings);
+              const metChallengesCount = allTodos.filter((t) => getTodoSubProgress(t, settings).status === 'do_challenge').length;
+              const pendingTasksCount = allTodos.filter((t) => !t.completed).length;
 
-            <div className="setting-group">
-              <label className="group-label">List Header / Title (Optional)</label>
-              <input
-                type="text"
-                placeholder="Leave blank for no title (e.g. TODAY'S TASKS)"
-                value={settings.todoTitle || ''}
-                onChange={(e) => handleSettingsChange({ todoTitle: e.target.value })}
-                className="text-input"
-                style={{ width: '100%' }}
-              />
+              const handleAddTodo = () => {
+                const text = newTodoText.trim();
+                if (!text) return;
 
-              {/* List Header Scale Size Slider */}
-              <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' }}>
-                  <label style={{ fontSize: '0.85em', opacity: 0.85, fontWeight: 'bold' }}>Header Text Scale Size</label>
-                  <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#53FC19' }}>
-                    {Math.round((settings.todoTitleScale || 1.0) * 100)}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="2.5"
-                  step="0.05"
-                  value={settings.todoTitleScale || 1.0}
-                  onChange={(e) => handleSettingsChange({ todoTitleScale: parseFloat(e.target.value) })}
-                  className="slider"
-                  style={{ width: '100%' }}
-                />
-              </div>
-            </div>
+                if (newTodoType === 'sub_challenge') {
+                  const subTarget = Math.max(1, parseInt(newTodoSubGoal, 10) || 10);
+                  const newTodo: TodoItem = {
+                    id: Date.now().toString(),
+                    text,
+                    completed: false,
+                    type: 'sub_challenge',
+                    subGoal: subTarget,
+                    subSource: newTodoSubSource,
+                  };
+                  handleSettingsChange({ todos: [...allTodos, newTodo] });
+                  setNewTodoText('');
+                  return;
+                }
 
-            <div className="setting-group">
-              <label className="group-label">To-Do List Position</label>
-              <RadioGroup
-                value={settings.todoListPosition || 'left'}
-                onChange={(value) => handleSettingsChange({ todoListPosition: value as 'left' | 'right' })}
-                options={[
-                  { value: 'left', label: 'Top Left', icon: '⬅️', description: 'Below time overlay' },
-                  { value: 'right', label: 'Top Right', icon: '➡️', description: 'Below location overlay' }
-                ]}
-              />
-            </div>
+                const goalVal = newTodoGoal ? parseInt(newTodoGoal, 10) : undefined;
+                const newTodo: TodoItem = {
+                  id: Date.now().toString(),
+                  text,
+                  completed: false,
+                  type: 'task',
+                  ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {}),
+                };
+                handleSettingsChange({ todos: [...allTodos, newTodo] });
+                setNewTodoText('');
+                setNewTodoGoal('');
+              };
 
-            {/* To-Do List Scale & Position Controls */}
-            <div className="setting-group">
-              <label className="group-label">Scale & Position Fine-Tuning</label>
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '14px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                {/* Scale Control */}
-                <div style={{ flex: 1, minWidth: '150px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
-                    <span style={{ fontSize: '0.85em', fontWeight: 'bold' }}>{Math.round((settings.todoScale || 1) * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2.0"
-                    step="0.05"
-                    value={settings.todoScale || 1}
-                    onChange={(e) => handleSettingsChange({ todoScale: parseFloat(e.target.value) })}
-                    style={{ width: '100%' }}
-                  />
-                </div>
+              const startEditingTodo = (todo: TodoItem) => {
+                setEditingTodoId(todo.id);
+                setEditingTodoText(todo.text);
+                setEditingTodoType(todo.type === 'sub_challenge' ? 'sub_challenge' : 'task');
+                setEditingTodoGoal(todo.goal && todo.goal > 0 ? String(todo.goal) : '');
+                setEditingTodoSubGoal(todo.subGoal && todo.subGoal > 0 ? String(todo.subGoal) : '10');
+                setEditingTodoSubSource(todo.subSource === 'total' ? 'total' : 'daily');
+              };
 
-                {/* Position Controls (D-Pad) */}
-                <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>
-                    Position Offset ({settings.todoX || 0}, {settings.todoY || 0})
-                  </label>
+              const saveEditingTodo = () => {
+                if (!editingTodoId) return;
+                const trimmed = editingTodoText.trim();
+                if (!trimmed) {
+                  setEditingTodoId(null);
+                  return;
+                }
 
-                  {/* Up Button */}
-                  <button
-                    className="btn btn-secondary btn-small"
-                    style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                    onClick={() => handleSettingsChange({ todoY: (settings.todoY || 0) + 10 })}
-                  >
-                    ▲
-                  </button>
+                const updatedTodos = allTodos.map((t) => {
+                  if (t.id !== editingTodoId) return t;
+                  if (editingTodoType === 'sub_challenge') {
+                    const parsedSub = Math.max(1, parseInt(editingTodoSubGoal, 10) || 10);
+                    return {
+                      id: t.id,
+                      text: trimmed,
+                      completed: t.completed,
+                      hidden: t.hidden,
+                      type: 'sub_challenge' as const,
+                      subGoal: parsedSub,
+                      subSource: editingTodoSubSource,
+                    };
+                  }
+                  const parsedGoal = editingTodoGoal ? parseInt(editingTodoGoal, 10) : undefined;
+                  return {
+                    id: t.id,
+                    text: trimmed,
+                    completed: t.completed,
+                    hidden: t.hidden,
+                    type: 'task' as const,
+                    ...(parsedGoal && parsedGoal > 0
+                      ? { goal: parsedGoal, current: Math.min(t.current ?? 0, parsedGoal) }
+                      : {}),
+                  };
+                });
 
-                  {/* Left, Reset, Right */}
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ todoX: (settings.todoX || 0) - 10 })}
-                    >
-                      ◀
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ todoX: 0, todoY: 0, todoScale: 1 })}
-                    >
-                      Reset
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                      onClick={() => handleSettingsChange({ todoX: (settings.todoX || 0) + 10 })}
-                    >
-                      ▶
-                    </button>
-                  </div>
+                handleSettingsChange({ todos: updatedTodos });
+                setEditingTodoId(null);
+              };
 
-                  {/* Down Button */}
-                  <button
-                    className="btn btn-secondary btn-small"
-                    style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
-                    onClick={() => handleSettingsChange({ todoY: (settings.todoY || 0) - 10 })}
-                  >
-                    ▼
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="setting-group">
-              <div className="todo-input-group" style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="Add a new task..."
-                  className="todo-input"
-                  style={{ flex: 1 }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                      const text = e.currentTarget.value.trim();
-                      const parent = e.currentTarget.parentElement;
-                      const goalInput = parent?.querySelector('.todo-goal-input') as HTMLInputElement;
-                      const goalVal = goalInput && goalInput.value ? parseInt(goalInput.value) : undefined;
-                      
-                      const newTodo: TodoItem = {
-                        id: Date.now().toString(),
-                        text,
-                        completed: false,
-                        ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {})
-                      };
-                      const updatedTodos = [...(settings.todos || []), newTodo];
-                      handleSettingsChange({ todos: updatedTodos });
-                      e.currentTarget.value = '';
-                      if (goalInput) goalInput.value = '';
-                    }
-                  }}
-                />
-                <input
-                  type="number"
-                  placeholder="Goal (optional)"
-                  className="todo-goal-input"
-                  min="1"
-                  style={{ width: '120px', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const parent = e.currentTarget.parentElement;
-                      const textInput = parent?.querySelector('.todo-input') as HTMLInputElement;
-                      const goalVal = e.currentTarget.value ? parseInt(e.currentTarget.value) : undefined;
-                      if (textInput && textInput.value.trim()) {
-                        const text = textInput.value.trim();
-                        const newTodo: TodoItem = {
-                          id: Date.now().toString(),
-                          text,
-                          completed: false,
-                          ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {})
-                        };
-                        const updatedTodos = [...(settings.todos || []), newTodo];
-                        handleSettingsChange({ todos: updatedTodos });
-                        textInput.value = '';
-                        e.currentTarget.value = '';
-                      }
-                    }
-                  }}
-                />
-                <button
-                  className="btn btn-primary btn-small"
-                  onClick={(e) => {
-                    const parent = e.currentTarget.parentElement;
-                    const textInput = parent?.querySelector('.todo-input') as HTMLInputElement;
-                    const goalInput = parent?.querySelector('.todo-goal-input') as HTMLInputElement;
-                    if (textInput && textInput.value.trim()) {
-                      const text = textInput.value.trim();
-                      const goalVal = goalInput && goalInput.value ? parseInt(goalInput.value) : undefined;
-                      
-                      const newTodo: TodoItem = {
-                        id: Date.now().toString(),
-                        text,
-                        completed: false,
-                        ...(goalVal && goalVal > 0 ? { current: 0, goal: goalVal } : {})
-                      };
-                      const updatedTodos = [...(settings.todos || []), newTodo];
-                      handleSettingsChange({ todos: updatedTodos });
-                      textInput.value = '';
-                      if (goalInput) goalInput.value = '';
-                    }
-                  }}
-                >
-                  Add
-                </button>
-              </div>
-
-
-              {settings.todos && settings.todos.length > 0 && (
+              return (
                 <>
-                  <div className="todo-list-actions">
-                    <button
-                      className="btn btn-secondary btn-small"
-                      onClick={() => {
-                        if (confirm('Are you sure you want to delete all tasks?')) {
-                          handleSettingsChange({ todos: [] });
-                        }
-                      }}
-                      disabled={!settings.todos || settings.todos.length === 0}
-                    >
-                      🗑️ Delete All
-                    </button>
+                  {/* Live Sub Progress Banner */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '14px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.3)' }}>
+                    <span style={{ fontSize: '0.82em', fontWeight: 'bold', color: '#c4b5fd', marginRight: '4px' }}>🔔 Live Sub Counters:</span>
+                    <span style={{ fontSize: '0.82em', background: 'rgba(0,0,0,0.35)', padding: '3px 9px', borderRadius: '999px', color: '#fff', fontWeight: 700 }}>
+                      Daily Subs: <span style={{ color: '#a855f7' }}>{liveDailySubs}</span>
+                    </span>
+                    <span style={{ fontSize: '0.82em', background: 'rgba(0,0,0,0.35)', padding: '3px 9px', borderRadius: '999px', color: '#fff', fontWeight: 700 }}>
+                      Total Subs: <span style={{ color: '#c084fc' }}>{liveTotalSubs}</span>
+                    </span>
+                    {metChallengesCount > 0 && (
+                      <span style={{ fontSize: '0.82em', background: 'rgba(245, 158, 11, 0.22)', border: '1px solid rgba(251, 191, 36, 0.6)', padding: '3px 9px', borderRadius: '999px', color: '#fcd34d', fontWeight: 800 }}>
+                        🔥 {metChallengesCount} Challenge{metChallengesCount > 1 ? 's' : ''} Ready!
+                      </span>
+                    )}
                   </div>
-                  <div className="todo-list">
-                    {[...(settings.todos || [])]
-                      .sort((a, b) => {
-                        // Incomplete tasks first, then completed tasks
-                        if (a.completed === b.completed) return 0;
-                        return a.completed ? 1 : -1;
-                      })
-                      .map((todo) => (
-                        <div key={todo.id} className={`todo-item-admin ${todo.hidden ? 'item-hidden' : ''}`}>
-                          <label className="todo-checkbox-label">
-                            <input
-                              type="checkbox"
-                              checked={todo.completed}
-                              onChange={() => {
-                                const updatedTodos = settings.todos!.map(t => {
-                                  if (t.id === todo.id) {
-                                    const nextCompleted = !t.completed;
-                                    const updated = { ...t, completed: nextCompleted };
-                                    if (t.goal !== undefined && t.goal > 0) {
-                                      updated.current = nextCompleted ? t.goal : 0;
-                                    }
-                                    return updated;
-                                  }
-                                  return t;
-                                });
-                                handleSettingsChange({ todos: updatedTodos });
-                              }}
-                              className="todo-checkbox"
-                              disabled={editingTodoId === todo.id}
-                            />
-                            {editingTodoId === todo.id ? (
-                              <input
-                                type="text"
-                                value={editingTodoText}
-                                onChange={(e) => setEditingTodoText(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    if (editingTodoText.trim()) {
-                                      const updatedTodos = settings.todos!.map(t =>
-                                        t.id === todo.id ? { ...t, text: editingTodoText.trim() } : t
-                                      );
-                                      handleSettingsChange({ todos: updatedTodos });
-                                    }
-                                    setEditingTodoId(null);
-                                    setEditingTodoText('');
-                                  } else if (e.key === 'Escape') {
-                                    setEditingTodoId(null);
-                                    setEditingTodoText('');
-                                  }
-                                }}
-                                onBlur={() => {
-                                  if (editingTodoText.trim()) {
-                                    const updatedTodos = settings.todos!.map(t =>
-                                      t.id === todo.id ? { ...t, text: editingTodoText.trim() } : t
-                                    );
-                                    handleSettingsChange({ todos: updatedTodos });
-                                  }
-                                  setEditingTodoId(null);
-                                  setEditingTodoText('');
-                                }}
-                                className="todo-edit-input"
-                                autoFocus
-                              />
-                            ) : (
-                              <span
-                                className={`todo-text-admin ${todo.completed ? 'completed' : ''}`}
-                                onDoubleClick={() => {
-                                  setEditingTodoId(todo.id);
-                                  setEditingTodoText(todo.text);
-                                }}
-                                style={{ cursor: 'pointer' }}
-                                title="Double-click to edit"
-                              >
-                                {todo.text}
-                                {todo.goal !== undefined && todo.goal > 0 && (
-                                  <span style={{ fontSize: '0.85em', opacity: 0.7, marginLeft: '6px', fontWeight: 'bold' }}>
-                                    ({todo.current ?? 0}/{todo.goal})
-                                  </span>
-                                )}
-                                {todo.hidden && (
-                                  <span style={{ fontSize: '0.75em', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 600 }}>
-                                    Hidden
-                                  </span>
-                                )}
-                              </span>
-                            )}
-                          </label>
-                          <div className="todo-actions">
-                            {editingTodoId !== todo.id && todo.goal !== undefined && todo.goal > 0 && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
-                                <button
-                                  className="btn btn-secondary btn-small"
-                                  style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
-                                  onClick={() => {
-                                    const updatedTodos = settings.todos!.map(t => {
-                                      if (t.id === todo.id) {
-                                        const newCurrent = Math.max(0, (t.current ?? 0) - 1);
-                                        return {
-                                          ...t,
-                                          current: newCurrent,
-                                          completed: newCurrent >= t.goal!
-                                        };
-                                      }
-                                      return t;
-                                    });
-                                    handleSettingsChange({ todos: updatedTodos });
-                                  }}
-                                  title="Decrease"
-                                >
-                                  -
-                                </button>
-                                <button
-                                  className="btn btn-secondary btn-small"
-                                  style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
-                                  onClick={() => {
-                                    const updatedTodos = settings.todos!.map(t => {
-                                      if (t.id === todo.id) {
-                                        const newCurrent = Math.min(t.goal!, (t.current ?? 0) + 1);
-                                        return {
-                                          ...t,
-                                          current: newCurrent,
-                                          completed: newCurrent >= t.goal!
-                                        };
-                                      }
-                                      return t;
-                                    });
-                                    handleSettingsChange({ todos: updatedTodos });
-                                  }}
-                                  title="Increase"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            )}
-                            <button
-                              className={`todo-visibility-btn ${todo.hidden ? 'hidden-item' : ''}`}
-                              onClick={() => {
-                                const updatedTodos = settings.todos!.map(t =>
-                                  t.id === todo.id ? { ...t, hidden: !t.hidden } : t
-                                );
-                                handleSettingsChange({ todos: updatedTodos });
-                              }}
-                              title={todo.hidden ? 'Show on overlay' : 'Hide from overlay'}
-                              aria-label={todo.hidden ? 'Show on overlay' : 'Hide from overlay'}
-                              disabled={editingTodoId === todo.id}
-                            >
-                              {todo.hidden ? '🚫' : '👁️'}
-                            </button>
-                            {editingTodoId !== todo.id && (
-                              <button
-                                className="todo-edit-btn"
-                                onClick={() => {
-                                  setEditingTodoId(todo.id);
-                                  setEditingTodoText(todo.text);
-                                }}
-                                aria-label="Edit task"
-                              >
-                                ✏️
-                              </button>
-                            )}
-                            <button
-                              className="todo-delete-btn"
-                              onClick={() => {
-                                const updatedTodos = settings.todos!.filter(t => t.id !== todo.id);
-                                handleSettingsChange({ todos: updatedTodos });
-                              }}
-                              aria-label="Delete task"
-                              disabled={editingTodoId === todo.id}
-                            >
-                              ✕
-                            </button>
-                          </div>
+
+                  {/* Header, Background & Layout Settings */}
+                  <div className="setting-group">
+                    <label className="group-label">List Header / Title (Optional)</label>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        placeholder="Leave blank for no title (e.g. TO-DO & CHALLENGES)"
+                        value={settings.todoTitle || ''}
+                        onChange={(e) => handleSettingsChange({ todoTitle: e.target.value })}
+                        className="text-input"
+                        style={{ flex: '1 1 240px' }}
+                      />
+                      <label className="checkbox-label" style={{ margin: 0, padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.todoShowBackground ?? true}
+                          onChange={(e) => handleSettingsChange({ todoShowBackground: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        <span className="checkbox-text" style={{ fontSize: '0.85em' }}>Card Background</span>
+                      </label>
+                    </div>
+
+                    <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' }}>
+                        <label style={{ fontSize: '0.85em', opacity: 0.85, fontWeight: 'bold' }}>Header Text Scale Size</label>
+                        <span style={{ fontSize: '0.85em', fontWeight: 'bold', color: '#53FC19' }}>
+                          {Math.round((settings.todoTitleScale || 1.0) * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.5"
+                        step="0.05"
+                        value={settings.todoTitleScale || 1.0}
+                        onChange={(e) => handleSettingsChange({ todoTitleScale: parseFloat(e.target.value) })}
+                        className="slider"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="setting-group">
+                    <label className="group-label">Overlay Position</label>
+                    <RadioGroup
+                      value={settings.todoListPosition || 'left'}
+                      onChange={(value) => handleSettingsChange({ todoListPosition: value as 'left' | 'right' })}
+                      options={[
+                        { value: 'left', label: 'Top Left', icon: '⬅️', description: 'Below time overlay' },
+                        { value: 'right', label: 'Top Right', icon: '➡️', description: 'Below location overlay' }
+                      ]}
+                    />
+                  </div>
+
+                  {/* Scale & Position Controls */}
+                  <div className="setting-group">
+                    <label className="group-label">Scale &amp; Position Fine-Tuning</label>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '14px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                      <div style={{ flex: 1, minWidth: '150px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <label style={{ fontSize: '0.85em', opacity: 0.8 }}>Scale</label>
+                          <span style={{ fontSize: '0.85em', fontWeight: 'bold' }}>{Math.round((settings.todoScale || 1) * 100)}%</span>
                         </div>
-                      ))}
+                        <input
+                          type="range"
+                          min="0.5"
+                          max="2.0"
+                          step="0.05"
+                          value={settings.todoScale || 1}
+                          onChange={(e) => handleSettingsChange({ todoScale: parseFloat(e.target.value) })}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <label style={{ fontSize: '0.85em', opacity: 0.8, marginBottom: '2px' }}>
+                          Position Offset ({settings.todoX || 0}, {settings.todoY || 0})
+                        </label>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ todoY: (settings.todoY || 0) + 10 })}
+                        >▲</button>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                            onClick={() => handleSettingsChange({ todoX: (settings.todoX || 0) - 10 })}
+                          >◀</button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 8px', fontSize: '0.7em', lineHeight: 1 }}
+                            onClick={() => handleSettingsChange({ todoX: 0, todoY: 0, todoScale: 1 })}
+                          >Reset</button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                            onClick={() => handleSettingsChange({ todoX: (settings.todoX || 0) + 10 })}
+                          >▶</button>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          style={{ padding: '2px 10px', fontSize: '1.2em', lineHeight: 1 }}
+                          onClick={() => handleSettingsChange({ todoY: (settings.todoY || 0) - 10 })}
+                        >▼</button>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Add To-Do Task or Sub-Goal Challenge */}
+                  <div className="setting-group" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+                      <div className="todo-mode-tabs">
+                        <button
+                          type="button"
+                          className={`todo-mode-tab ${newTodoType === 'task' ? 'active-task' : ''}`}
+                          onClick={() => setNewTodoType('task')}
+                        >
+                          📋 Regular To-Do Task
+                        </button>
+                        <button
+                          type="button"
+                          className={`todo-mode-tab ${newTodoType === 'sub_challenge' ? 'active-challenge' : ''}`}
+                          onClick={() => setNewTodoType('sub_challenge')}
+                        >
+                          🔔 Sub Goal → Challenge
+                        </button>
+                      </div>
+                      <span style={{ fontSize: '0.76em', opacity: 0.72 }}>
+                        {newTodoType === 'sub_challenge'
+                          ? 'Auto-tracks live Twitch subs and lights up "DO CHALLENGE" once the goal is met'
+                          : 'Simple checklist item (optional manual counter)'}
+                      </span>
+                    </div>
+
+                    <div className="todo-input-group" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: 0 }}>
+                      <input
+                        type="text"
+                        placeholder={newTodoType === 'sub_challenge'
+                          ? 'Challenge when sub goal is met (e.g. Walk backwards to Central Park)...'
+                          : 'Add a to-do task (e.g. Grab pizza, Visit Times Square)...'}
+                        value={newTodoText}
+                        onChange={(e) => setNewTodoText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleAddTodo();
+                        }}
+                        className="todo-input"
+                        style={{ flex: '1 1 240px' }}
+                      />
+
+                      {newTodoType === 'sub_challenge' ? (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input
+                              type="number"
+                              min="1"
+                              value={newTodoSubGoal}
+                              onChange={(e) => setNewTodoSubGoal(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleAddTodo();
+                              }}
+                              title="Sub goal threshold"
+                              className="todo-input"
+                              style={{ width: '78px', textAlign: 'center', padding: '8px' }}
+                            />
+                            <select
+                              value={newTodoSubSource}
+                              onChange={(e) => setNewTodoSubSource(e.target.value as 'daily' | 'total')}
+                              className="todo-input"
+                              style={{ width: 'auto', padding: '8px 10px' }}
+                            >
+                              <option value="daily">Daily Subs</option>
+                              <option value="total">Total Subs</option>
+                            </select>
+                          </div>
+                        </>
+                      ) : (
+                        <input
+                          type="number"
+                          placeholder="Count goal (opt.)"
+                          min="1"
+                          value={newTodoGoal}
+                          onChange={(e) => setNewTodoGoal(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddTodo();
+                          }}
+                          className="todo-input"
+                          style={{ width: '135px' }}
+                        />
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-small"
+                        onClick={handleAddTodo}
+                        disabled={!newTodoText.trim()}
+                        style={{
+                          background: newTodoType === 'sub_challenge' ? '#9146ff' : undefined,
+                          borderColor: newTodoType === 'sub_challenge' ? '#a855f7' : undefined,
+                        }}
+                      >
+                        {newTodoType === 'sub_challenge' ? '+ Add Challenge' : '+ Add Task'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Items List */}
+                  {allTodos.length > 0 && (
+                    <div className="setting-group" style={{ marginBottom: 0 }}>
+                      <div className="todo-list-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontSize: '0.82em', opacity: 0.75 }}>
+                          Showing {allTodos.filter((t) => !t.hidden).length} of {allTodos.length} on overlay • {pendingTasksCount} unfinished
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() => {
+                            if (confirm('Are you sure you want to delete all tasks & challenges?')) {
+                              handleSettingsChange({ todos: [] });
+                            }
+                          }}
+                        >
+                          🗑️ Delete All
+                        </button>
+                      </div>
+
+                      <div className="todo-list">
+                        {sortedTodos.map((todo) => {
+                          const progress = getTodoSubProgress(todo, settings);
+                          const isEditing = editingTodoId === todo.id;
+                          const rowStateClass = todo.hidden
+                            ? 'item-hidden'
+                            : progress.status === 'do_challenge'
+                              ? 'challenge-met'
+                              : progress.status === 'waiting_subs'
+                                ? 'challenge-waiting'
+                                : '';
+
+                          return (
+                            <div key={todo.id} className={`todo-item-admin ${rowStateClass}`}>
+                              {isEditing ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <div className="todo-mode-tabs">
+                                      <button
+                                        type="button"
+                                        className={`todo-mode-tab ${editingTodoType === 'task' ? 'active-task' : ''}`}
+                                        onClick={() => setEditingTodoType('task')}
+                                      >
+                                        📋 Task
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`todo-mode-tab ${editingTodoType === 'sub_challenge' ? 'active-challenge' : ''}`}
+                                        onClick={() => setEditingTodoType('sub_challenge')}
+                                      >
+                                        🔔 Sub Challenge
+                                      </button>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={editingTodoText}
+                                      onChange={(e) => setEditingTodoText(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveEditingTodo();
+                                        else if (e.key === 'Escape') setEditingTodoId(null);
+                                      }}
+                                      className="todo-edit-input"
+                                      style={{ flex: '1 1 200px' }}
+                                      autoFocus
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    {editingTodoType === 'sub_challenge' ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontSize: '0.8em', opacity: 0.75 }}>Goal:</span>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={editingTodoSubGoal}
+                                          onChange={(e) => setEditingTodoSubGoal(e.target.value)}
+                                          className="todo-edit-input"
+                                          style={{ width: '76px', flex: 'none', textAlign: 'center' }}
+                                        />
+                                        <select
+                                          value={editingTodoSubSource}
+                                          onChange={(e) => setEditingTodoSubSource(e.target.value as 'daily' | 'total')}
+                                          className="todo-edit-input"
+                                          style={{ width: 'auto', flex: 'none' }}
+                                        >
+                                          <option value="daily">Daily Subs</option>
+                                          <option value="total">Total Subs</option>
+                                        </select>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontSize: '0.8em', opacity: 0.75 }}>Counter Goal (opt.):</span>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          placeholder="None"
+                                          value={editingTodoGoal}
+                                          onChange={(e) => setEditingTodoGoal(e.target.value)}
+                                          className="todo-edit-input"
+                                          style={{ width: '90px', flex: 'none' }}
+                                        />
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <button type="button" className="btn btn-secondary btn-small" style={{ padding: '4px 10px' }} onClick={() => setEditingTodoId(null)}>
+                                        Cancel
+                                      </button>
+                                      <button type="button" className="btn btn-primary btn-small" style={{ padding: '4px 12px' }} onClick={saveEditingTodo}>
+                                        Save
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <label className="todo-checkbox-label">
+                                    <input
+                                      type="checkbox"
+                                      checked={todo.completed}
+                                      onChange={() => {
+                                        const updatedTodos = allTodos.map((t) => {
+                                          if (t.id !== todo.id) return t;
+                                          const nextCompleted = !t.completed;
+                                          const updated = { ...t, completed: nextCompleted };
+                                          if (t.type !== 'sub_challenge' && t.goal !== undefined && t.goal > 0) {
+                                            updated.current = nextCompleted ? t.goal : 0;
+                                          }
+                                          return updated;
+                                        });
+                                        handleSettingsChange({ todos: updatedTodos });
+                                      }}
+                                      className="todo-checkbox"
+                                    />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                                      <span className={`todo-text-admin ${todo.completed ? 'completed' : ''}`}>
+                                        {todo.text}
+                                        {!progress.isSubChallenge && todo.goal !== undefined && todo.goal > 0 && (
+                                          <span style={{ fontSize: '0.85em', opacity: 0.75, marginLeft: '6px', fontWeight: 'bold' }}>
+                                            ({todo.current ?? 0}/{todo.goal})
+                                          </span>
+                                        )}
+                                      </span>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                                        {progress.status === 'do_challenge' && (
+                                          <span style={{ fontSize: '0.75em', background: 'linear-gradient(90deg, #f59e0b, #eab308)', color: '#111827', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
+                                            🔥 GOAL MET ({progress.subCurrent}/{progress.subTarget} {progress.subSource === 'total' ? 'Total' : 'Daily'} Subs) — DO CHALLENGE!
+                                          </span>
+                                        )}
+                                        {progress.status === 'waiting_subs' && (
+                                          <span style={{ fontSize: '0.75em', background: 'rgba(145, 70, 255, 0.25)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#d8b4fe', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                                            🔔 {progress.subCurrent}/{progress.subTarget} {progress.subSource === 'total' ? 'Total' : 'Daily'} Subs
+                                          </span>
+                                        )}
+                                        {progress.isSubChallenge && todo.completed && (
+                                          <span style={{ fontSize: '0.75em', background: 'rgba(34, 197, 94, 0.2)', color: '#86efac', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                                            ✅ Challenge Completed ({progress.subTarget} Subs)
+                                          </span>
+                                        )}
+                                        {todo.hidden && (
+                                          <span style={{ fontSize: '0.75em', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                            Hidden
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </label>
+
+                                  <div className="todo-actions">
+                                    {!progress.isSubChallenge && todo.goal !== undefined && todo.goal > 0 && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-small"
+                                          style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
+                                          onClick={() => {
+                                            const updatedTodos = allTodos.map((t) => {
+                                              if (t.id !== todo.id) return t;
+                                              const newCurrent = Math.max(0, (t.current ?? 0) - 1);
+                                              return { ...t, current: newCurrent, completed: newCurrent >= t.goal! };
+                                            });
+                                            handleSettingsChange({ todos: updatedTodos });
+                                          }}
+                                          title="Decrease"
+                                        >-</button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-small"
+                                          style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
+                                          onClick={() => {
+                                            const updatedTodos = allTodos.map((t) => {
+                                              if (t.id !== todo.id) return t;
+                                              const newCurrent = Math.min(t.goal!, (t.current ?? 0) + 1);
+                                              return { ...t, current: newCurrent, completed: newCurrent >= t.goal! };
+                                            });
+                                            handleSettingsChange({ todos: updatedTodos });
+                                          }}
+                                          title="Increase"
+                                        >+</button>
+                                      </div>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className={`todo-visibility-btn ${todo.hidden ? 'hidden-item' : ''}`}
+                                      onClick={() => {
+                                        const updatedTodos = allTodos.map((t) =>
+                                          t.id === todo.id ? { ...t, hidden: !t.hidden } : t
+                                        );
+                                        handleSettingsChange({ todos: updatedTodos });
+                                      }}
+                                      title={todo.hidden ? 'Show on overlay' : 'Hide from overlay'}
+                                      aria-label={todo.hidden ? 'Show on overlay' : 'Hide from overlay'}
+                                    >
+                                      {todo.hidden ? '🚫' : '👁️'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="todo-edit-btn"
+                                      onClick={() => startEditingTodo(todo)}
+                                      aria-label="Edit item"
+                                      title="Edit task or sub goal"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="todo-delete-btn"
+                                      onClick={() => {
+                                        handleSettingsChange({ todos: allTodos.filter((t) => t.id !== todo.id) });
+                                      }}
+                                      aria-label="Delete item"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </>
-              )}
-            </div>
+              );
+            })()}
           </CollapsibleSection>
 
           {/* Social Media Rotator Section */}

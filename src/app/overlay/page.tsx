@@ -10,6 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
 import { parseClipCommandInput } from '@/utils/twitch-clips';
+import { getTodoSubProgress, sortTodosForDisplay } from '@/utils/todo-challenges';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
 import {
@@ -992,8 +993,109 @@ function OverlayPage() {
       return [];
     }
 
-    return settings.todos.filter((todo) => !todo.hidden);
-  }, [settings.todos]);
+    return sortTodosForDisplay(
+      settings.todos.filter((todo) => !todo.hidden),
+      settings
+    );
+  }, [settings]);
+
+  const renderTodoListBox = useCallback((position: 'left' | 'right') => {
+    if (!settings.showTodoList || visibleTodos.length === 0 || (settings.todoListPosition || 'left') !== position) {
+      return null;
+    }
+
+    const isRight = position === 'right';
+    const hideTodoBg = !settings.showBackground || settings.todoShowBackground === false;
+
+    return (
+      <div
+        className={`todo-list-box ${hideTodoBg ? 'no-background' : 'overlay-box'}`}
+        style={{
+          marginTop: '12px',
+          alignSelf: isRight ? 'flex-end' : 'flex-start',
+          transform: `translate(${settings.todoX || 0}px, ${-(settings.todoY || 0)}px) scale(${settings.todoScale || 1.0})`,
+          transformOrigin: isRight ? 'top right' : 'top left',
+          ...(!hideTodoBg ? { padding: '10px 14px', borderRadius: '12px' } : {}),
+        }}
+      >
+        {settings.todoTitle && (
+          <div
+            className="todo-header-title"
+            style={{
+              fontSize: `${((settings.todoTitleScale ?? 1.0) * 0.8).toFixed(3)}em`,
+              fontWeight: 'bold',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              opacity: 0.9,
+              paddingBottom: '6px',
+              marginBottom: '6px',
+              borderBottom: '1px solid rgba(255,255,255,0.18)',
+            }}
+          >
+            {settings.todoTitle}
+          </div>
+        )}
+        {visibleTodos.map((todo) => {
+          const progress = getTodoSubProgress(todo, settings);
+          const pct = progress.subTarget > 0
+            ? Math.min(100, (progress.subCurrent / progress.subTarget) * 100)
+            : 0;
+
+          if (progress.status === 'do_challenge') {
+            return (
+              <div key={todo.id} className="todo-item challenge-ready">
+                <span className="todo-checkbox-icon">🔥</span>
+                <span className="todo-text">
+                  {todo.text}
+                  <span className="todo-sub-pill ready">
+                    DO CHALLENGE • {progress.subCurrent}/{progress.subTarget}
+                  </span>
+                </span>
+              </div>
+            );
+          }
+
+          if (progress.status === 'waiting_subs') {
+            return (
+              <div key={todo.id} className="todo-item challenge-waiting">
+                <div className="todo-challenge-row">
+                  <span className="todo-checkbox-icon">🔔</span>
+                  <span className="todo-text">
+                    {todo.text}
+                    <span className="todo-sub-pill waiting">
+                      {progress.subCurrent}/{progress.subTarget} {progress.subSource === 'total' ? 'SUBS' : 'DAILY'}
+                    </span>
+                  </span>
+                </div>
+                <div className="todo-sub-mini-track">
+                  <div className="todo-sub-mini-fill" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
+              <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
+              <span className="todo-text">
+                {todo.text}
+                {progress.isSubChallenge && todo.completed && (
+                  <span className="todo-sub-pill ready" style={{ opacity: 0.75 }}>
+                    DONE • {progress.subTarget} SUBS
+                  </span>
+                )}
+                {!progress.isSubChallenge && todo.goal !== undefined && todo.goal > 0 && (
+                  <span className="todo-goal-progress" style={{ opacity: 0.8, fontSize: '0.85em', fontWeight: 'bold', marginLeft: '6px' }}>
+                    ({todo.current ?? 0}/{todo.goal})
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }, [settings, visibleTodos]);
 
   // Donation goals memoized JSX — only custom goals list (no Total Tips / Daily Tips)
   const donationGoalsJSX = useMemo(() => {
@@ -1541,6 +1643,21 @@ function OverlayPage() {
               OverlayLogger.error(`record-sub failed HTTP ${res.status}:`, body);
             } else {
               OverlayLogger.overlay(`record-sub OK: ${subCount} sub(s) applied to goals`);
+              const json = await res.json().catch(() => null);
+              if (json && typeof json.totalSubCurrent === 'number') {
+                seSettingsRef.current = {
+                  ...seSettingsRef.current,
+                  totalSubCurrent: json.totalSubCurrent,
+                  dailySubCurrent: typeof json.dailySubCurrent === 'number' ? json.dailySubCurrent : seSettingsRef.current.dailySubCurrent,
+                  dailySubLastReset: clientDate,
+                };
+                setSettings(prev => ({
+                  ...prev,
+                  totalSubCurrent: json.totalSubCurrent,
+                  dailySubCurrent: typeof json.dailySubCurrent === 'number' ? json.dailySubCurrent : prev.dailySubCurrent,
+                  dailySubLastReset: clientDate,
+                }));
+              }
             }
           }).catch(err => {
             OverlayLogger.error('Failed to reach record-sub API:', err);
@@ -5380,38 +5497,7 @@ function OverlayPage() {
           )}
 
           {/* To-Do List - Top Left (below time) */}
-          {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'left' && (
-            <div
-              className="todo-list-box no-background"
-              style={{
-                marginTop: '12px',
-                alignSelf: 'flex-start',
-                transform: `translate(${settings.todoX || 0}px, ${-(settings.todoY || 0)}px) scale(${settings.todoScale || 1.0})`,
-                transformOrigin: 'top left',
-              }}
-            >
-              {settings.todoTitle && (
-                <div className="todo-header-title" style={{ fontSize: `${((settings.todoTitleScale ?? 1.0) * 0.8).toFixed(3)}em`, fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
-                  {settings.todoTitle}
-                </div>
-              )}
-              {visibleTodos
-                .sort((a, b) => (a.completed === b.completed ? 0 : a.completed ? 1 : -1))
-                .map((todo) => (
-                  <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
-                    <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
-                    <span className="todo-text">
-                      {todo.text}
-                      {todo.goal !== undefined && todo.goal > 0 && (
-                        <span className="todo-goal-progress" style={{ opacity: 0.8, fontSize: '0.85em', fontWeight: 'bold', marginLeft: '6px' }}>
-                          ({todo.current ?? 0}/{todo.goal})
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
+          {renderTodoListBox('left')}
           {settings.todoListPosition === 'left' && donationGoalsJSX}
           {settings.todoListPosition === 'left' && !donationGoalsJSX && settings.showDonationGoals && donationToast && (
             <div
@@ -5475,43 +5561,7 @@ function OverlayPage() {
           )}
 
           {/* To-Do List - Top Right (below location) */}
-          {/* Show todo list when enabled and there are visible todos */}
-          {settings.showTodoList && visibleTodos.length > 0 && settings.todoListPosition === 'right' && (
-            <div
-              className="todo-list-box no-background"
-              style={{
-                marginTop: '12px',
-                alignSelf: 'flex-end',
-                transform: `translate(${settings.todoX || 0}px, ${-(settings.todoY || 0)}px) scale(${settings.todoScale || 1.0})`,
-                transformOrigin: 'top right',
-              }}
-            >
-              {settings.todoTitle && (
-                <div className="todo-header-title" style={{ fontSize: `${((settings.todoTitleScale ?? 1.0) * 0.8).toFixed(3)}em`, fontWeight: 'bold', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, paddingBottom: '6px', marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
-                  {settings.todoTitle}
-                </div>
-              )}
-              {visibleTodos
-                .sort((a, b) => {
-                  // Incomplete tasks first, then completed tasks
-                  if (a.completed === b.completed) return 0;
-                  return a.completed ? 1 : -1;
-                })
-                .map((todo) => (
-                  <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
-                    <span className="todo-checkbox-icon">{todo.completed ? '✓' : '☐'}</span>
-                    <span className="todo-text">
-                      {todo.text}
-                      {todo.goal !== undefined && todo.goal > 0 && (
-                        <span className="todo-goal-progress" style={{ opacity: 0.8, fontSize: '0.85em', fontWeight: 'bold', marginLeft: '6px' }}>
-                          ({todo.current ?? 0}/{todo.goal})
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
+          {renderTodoListBox('right')}
           {settings.todoListPosition === 'right' && donationGoalsJSX}
           {settings.todoListPosition === 'right' && !donationGoalsJSX && settings.showDonationGoals && donationToast && (
             <div

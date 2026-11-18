@@ -94,6 +94,15 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
             if (todoObj.goal !== undefined && typeof todoObj.goal === 'number') {
               validTodo.goal = todoObj.goal;
             }
+            if (todoObj.type === 'task' || todoObj.type === 'sub_challenge') {
+              validTodo.type = todoObj.type;
+            }
+            if (typeof todoObj.subGoal === 'number' && todoObj.subGoal >= 1) {
+              validTodo.subGoal = Math.round(todoObj.subGoal);
+            }
+            if (todoObj.subSource === 'daily' || todoObj.subSource === 'total') {
+              validTodo.subSource = todoObj.subSource;
+            }
             validTodos.push(validTodo);
           }
         }
