@@ -17,6 +17,7 @@ export interface TodoItem {
   type?: 'task' | 'sub_challenge';
   subGoal?: number;
   subSource?: TodoSubSource;
+  subLabel?: string;
 }
 
 export interface UrlItem {
@@ -127,6 +128,8 @@ export interface OverlaySettings {
   todoListPosition?: 'left' | 'right';
   todoTitle?: string;
   todoTitleScale?: number;
+  todoDailySubsLabel?: string;
+  todoTotalSubsLabel?: string;
   todoX?: number;
   todoY?: number;
   todoScale?: number;
@@ -444,6 +447,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   todoListPosition: 'left',
   todoTitle: '',
   todoTitleScale: 1.0,
+  todoDailySubsLabel: 'DAILY SUBS',
+  todoTotalSubsLabel: 'TOTAL SUBS',
   todoX: 0,
   todoY: 0,
   todoScale: 1.0,
@@ -709,6 +714,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   todoListPosition: 'string',
   todoTitle: 'string',
   todoTitleScale: 'number',
+  todoDailySubsLabel: 'string',
+  todoTotalSubsLabel: 'string',
   todoX: 'number',
   todoY: 'number',
   todoScale: 'number',

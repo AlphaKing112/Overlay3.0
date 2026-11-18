@@ -5369,6 +5369,37 @@ export default function AdminPage() {
                         style={{ width: '100%' }}
                       />
                     </div>
+
+                    {/* Customizable Sub Badge Text on Overlay */}
+                    <div style={{ marginTop: '10px', padding: '10px 14px', background: 'rgba(145, 70, 255, 0.06)', border: '1px solid rgba(145, 70, 255, 0.22)', borderRadius: '8px' }}>
+                      <label style={{ display: 'block', fontSize: '0.84em', fontWeight: 'bold', color: '#c4b5fd', marginBottom: '8px' }}>
+                        Overlay Sub Badge Text (shown next to counter, e.g. 0/10 DAILY SUBS)
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.75em', opacity: 0.75, marginBottom: '4px' }}>Daily Subs Badge Text</span>
+                          <input
+                            type="text"
+                            placeholder="DAILY SUBS"
+                            value={settings.todoDailySubsLabel ?? 'DAILY SUBS'}
+                            onChange={(e) => handleSettingsChange({ todoDailySubsLabel: e.target.value })}
+                            className="text-input"
+                            style={{ width: '100%', padding: '6px 10px', fontSize: '0.85em' }}
+                          />
+                        </div>
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.75em', opacity: 0.75, marginBottom: '4px' }}>Total Subs Badge Text</span>
+                          <input
+                            type="text"
+                            placeholder="TOTAL SUBS"
+                            value={settings.todoTotalSubsLabel ?? 'TOTAL SUBS'}
+                            onChange={(e) => handleSettingsChange({ todoTotalSubsLabel: e.target.value })}
+                            className="text-input"
+                            style={{ width: '100%', padding: '6px 10px', fontSize: '0.85em' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="setting-group">
@@ -5684,18 +5715,45 @@ export default function AdminPage() {
                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                                         {progress.status === 'do_challenge' && (
                                           <span style={{ fontSize: '0.75em', background: 'linear-gradient(90deg, #f59e0b, #eab308)', color: '#111827', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
-                                            🔥 GOAL MET ({progress.subCurrent}/{progress.subTarget} {progress.subSource === 'total' ? 'Total' : 'Daily'} Subs) — DO CHALLENGE!
+                                            🔥 GOAL MET ({progress.subCurrent}/{progress.subTarget} {progress.subLabel}) — DO CHALLENGE!
                                           </span>
                                         )}
                                         {progress.status === 'waiting_subs' && (
                                           <span style={{ fontSize: '0.75em', background: 'rgba(145, 70, 255, 0.25)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#d8b4fe', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
-                                            🔔 {progress.subCurrent}/{progress.subTarget} {progress.subSource === 'total' ? 'Total' : 'Daily'} Subs
+                                            🔔 {progress.subCurrent}/{progress.subTarget} {progress.subLabel}
                                           </span>
                                         )}
                                         {progress.isSubChallenge && todo.completed && (
                                           <span style={{ fontSize: '0.75em', background: 'rgba(34, 197, 94, 0.2)', color: '#86efac', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
-                                            ✅ Challenge Completed ({progress.subTarget} Subs)
+                                            ✅ Challenge Completed ({progress.subTarget} {progress.subLabel})
                                           </span>
+                                        )}
+                                        {progress.isSubChallenge && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              const nextSource = progress.subSource === 'total' ? 'daily' : 'total';
+                                              const updatedTodos = allTodos.map((t) =>
+                                                t.id === todo.id ? { ...t, subSource: nextSource as 'daily' | 'total' } : t
+                                              );
+                                              handleSettingsChange({ todos: updatedTodos });
+                                            }}
+                                            title="Click to switch between Daily Subs and Total Subs"
+                                            style={{
+                                              fontSize: '0.72em',
+                                              background: 'rgba(255, 255, 255, 0.08)',
+                                              border: '1px solid rgba(255, 255, 255, 0.18)',
+                                              color: '#e5e7eb',
+                                              padding: '2px 7px',
+                                              borderRadius: '999px',
+                                              cursor: 'pointer',
+                                              fontWeight: 600,
+                                            }}
+                                          >
+                                            ⇄ Switch to {progress.subSource === 'total' ? 'Daily Subs' : 'Total Subs'}
+                                          </button>
                                         )}
                                         {todo.hidden && (
                                           <span style={{ fontSize: '0.75em', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>

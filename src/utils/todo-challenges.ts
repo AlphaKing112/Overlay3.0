@@ -5,6 +5,7 @@ export type TodoDisplayStatus = 'do_challenge' | 'waiting_subs' | 'pending' | 'c
 export interface TodoProgressInfo {
   isSubChallenge: boolean;
   subSource: TodoSubSource;
+  subLabel: string;
   subCurrent: number;
   subTarget: number;
   goalMet: boolean;
@@ -29,6 +30,10 @@ export function getTodoSubProgress(
 ): TodoProgressInfo {
   const isSubChallenge = todo.type === 'sub_challenge' && (todo.subGoal ?? 0) > 0;
   const subSource: TodoSubSource = todo.subSource === 'total' ? 'total' : 'daily';
+  const defaultLabel = subSource === 'total'
+    ? (settings.todoTotalSubsLabel?.trim() || 'TOTAL SUBS')
+    : (settings.todoDailySubsLabel?.trim() || 'DAILY SUBS');
+  const subLabel = todo.subLabel?.trim() || defaultLabel;
   const subCurrent = subSource === 'total'
     ? (settings.totalSubCurrent || 0)
     : getEffectiveDailySubs(settings);
@@ -45,6 +50,7 @@ export function getTodoSubProgress(
   return {
     isSubChallenge,
     subSource,
+    subLabel,
     subCurrent,
     subTarget,
     goalMet,

@@ -1049,7 +1049,7 @@ function OverlayPage() {
                 <span className="todo-text">
                   {todo.text}
                   <span className="todo-sub-pill ready">
-                    DO CHALLENGE • {progress.subCurrent}/{progress.subTarget}
+                    DO CHALLENGE • {progress.subCurrent}/{progress.subTarget} {progress.subLabel}
                   </span>
                 </span>
               </div>
@@ -1064,7 +1064,7 @@ function OverlayPage() {
                   <span className="todo-text">
                     {todo.text}
                     <span className="todo-sub-pill waiting">
-                      {progress.subCurrent}/{progress.subTarget} {progress.subSource === 'total' ? 'SUBS' : 'DAILY'}
+                      {progress.subCurrent}/{progress.subTarget} {progress.subLabel}
                     </span>
                   </span>
                 </div>
@@ -1082,7 +1082,7 @@ function OverlayPage() {
                 {todo.text}
                 {progress.isSubChallenge && todo.completed && (
                   <span className="todo-sub-pill ready" style={{ opacity: 0.75 }}>
-                    DONE • {progress.subTarget} SUBS
+                    DONE • {progress.subTarget} {progress.subLabel}
                   </span>
                 )}
                 {!progress.isSubChallenge && todo.goal !== undefined && todo.goal > 0 && (

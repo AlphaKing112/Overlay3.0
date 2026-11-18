@@ -103,6 +103,9 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
             if (todoObj.subSource === 'daily' || todoObj.subSource === 'total') {
               validTodo.subSource = todoObj.subSource;
             }
+            if (typeof todoObj.subLabel === 'string' && todoObj.subLabel.trim()) {
+              validTodo.subLabel = todoObj.subLabel.trim().slice(0, 40);
+            }
             validTodos.push(validTodo);
           }
         }
@@ -603,6 +606,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     testFillProgress: typeof cleanSettings.testFillProgress === 'number' ? cleanSettings.testFillProgress : undefined,
     todoTitle: cleanSettings.todoTitle ?? DEFAULT_OVERLAY_SETTINGS.todoTitle,
     todoTitleScale: typeof cleanSettings.todoTitleScale === 'number' ? Math.min(Math.max(cleanSettings.todoTitleScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoTitleScale,
+    todoDailySubsLabel: cleanSettings.todoDailySubsLabel ?? DEFAULT_OVERLAY_SETTINGS.todoDailySubsLabel,
+    todoTotalSubsLabel: cleanSettings.todoTotalSubsLabel ?? DEFAULT_OVERLAY_SETTINGS.todoTotalSubsLabel,
     todoX: typeof cleanSettings.todoX === 'number' ? Math.min(Math.max(cleanSettings.todoX, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoX,
     todoY: typeof cleanSettings.todoY === 'number' ? Math.min(Math.max(cleanSettings.todoY, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoY,
     todoScale: typeof cleanSettings.todoScale === 'number' ? Math.min(Math.max(cleanSettings.todoScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoScale,
