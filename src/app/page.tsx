@@ -10,7 +10,14 @@ import { API_KEYS } from '@/utils/overlay-constants';
 import * as workerTimers from 'worker-timers';
 import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
 import { DistanceTracker } from '@/components/DistanceTracker';
-import { safeObsStreamControl, safeObsStreamControlResult, safeObsRefreshCycle, formatObsError } from '@/lib/obs-helper';
+import {
+  safeObsStreamControl,
+  safeObsStreamControlResult,
+  safeObsRefreshCycle,
+  withTempObsConnection,
+  disconnectObsSafely,
+  formatObsError
+} from '@/lib/obs-helper';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
 
@@ -976,12 +983,15 @@ export default function AdminPage() {
     obsRef.current = obs;
 
     setObsStatus('connecting');
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const connectPromise = obs.connect(obsUrlInput, obsPasswordInput || undefined);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Connection timed out after 5 seconds. Check your IP/DDNS, port forwarding, and firewall.")), 5000)
-      );
+      connectPromise.catch(() => {});
+      const timeoutPromise = new Promise((_, reject) => {
+        connectTimer = setTimeout(() => reject(new Error("Connection timed out after 5 seconds. Check your IP/DDNS, port forwarding, and firewall.")), 5000);
+      });
       await Promise.race([connectPromise, timeoutPromise]);
+      if (connectTimer) clearTimeout(connectTimer);
       setObsStatus('connected');
       setObsErrorLog(null);
       try {
@@ -1006,9 +1016,14 @@ export default function AdminPage() {
       setToast({ type: 'saved', message: 'Connected to OBS successfully!' });
       setTimeout(() => setToast(null), 2000);
     } catch (error: any) {
-      console.warn('OBS Connection Error:', error?.message || error);
+      if (connectTimer) clearTimeout(connectTimer);
+      if (obsRef.current === obs) {
+        await disconnectObsSafely(obs);
+        obsRef.current = null;
+      }
+      console.warn('OBS Connection Error:', formatObsError(error));
       setObsStatus('disconnected');
-      setObsErrorLog(error?.message || String(error) || 'Unknown connection error');
+      setObsErrorLog(formatObsError(error) || 'Unknown connection error');
       setToast({ type: 'error', message: 'Failed to connect to OBS.' });
       setTimeout(() => setToast(null), 3000);
     }
@@ -1071,16 +1086,11 @@ export default function AdminPage() {
         try {
           const targetUrl = obsUrlInput || settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
           const targetPass = obsPasswordInput || settings.obsWebsocketPassword || '';
-          const tempObs = new OBSWebSocket();
-          tempObs.on('ConnectionClosed', () => {});
-          tempObs.on('ConnectionError', () => {});
-
-          const connectPromise = tempObs.connect(targetUrl, targetPass || undefined);
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 2500));
-          await Promise.race([connectPromise, timeoutPromise]);
-
-          const onDemandRes = await safeObsStreamControlResult(tempObs, action);
-          try { await tempObs.disconnect(); } catch {}
+          const onDemandRes = await withTempObsConnection(
+            OBSWebSocket,
+            { url: targetUrl, port: settings.obsWebsocketPort || 4455, password: targetPass, timeoutMs: 2500 },
+            (tempObs) => safeObsStreamControlResult(tempObs, action)
+          );
 
           if (onDemandRes.success) {
             executedLocally = true;
@@ -1089,7 +1099,7 @@ export default function AdminPage() {
           }
         } catch (onDemandErr: any) {
           if (!localError) {
-            localError = onDemandErr?.message || String(onDemandErr);
+            localError = formatObsError(onDemandErr);
           }
         }
       }
@@ -1161,16 +1171,16 @@ export default function AdminPage() {
         try {
           const targetUrl = obsUrlInput || settings.obsWebsocketUrl || 'ws://127.0.0.1:4455';
           const targetPass = obsPasswordInput || settings.obsWebsocketPassword || '';
-          const tempObs = new OBSWebSocket();
-          tempObs.on('ConnectionClosed', () => {});
-          tempObs.on('ConnectionError', () => {});
-          await tempObs.connect(targetUrl, targetPass || undefined);
-          cycleRes = await safeObsRefreshCycle(tempObs, refreshScene, liveScene, 6000, {
-            isLiveBitrate: isStreaming
-          });
-          try { await tempObs.disconnect(); } catch {}
+          cycleRes = await withTempObsConnection(
+            OBSWebSocket,
+            { url: targetUrl, port: settings.obsWebsocketPort || 4455, password: targetPass, timeoutMs: 2500 },
+            (tempObs) =>
+              safeObsRefreshCycle(tempObs, refreshScene, liveScene, 6000, {
+                isLiveBitrate: isStreaming
+              })
+          );
         } catch (onDemandErr: any) {
-          cycleRes = { success: false, error: onDemandErr?.message };
+          cycleRes = { success: false, error: formatObsError(onDemandErr) };
         }
       }
 

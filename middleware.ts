@@ -41,6 +41,7 @@ export function middleware(request: NextRequest) {
     '/api/twitch-announcement',
     '/api/obs-telemetry',
     '/api/obs-stream-control',
+    '/api/obs-sources',
     '/api/auth-check',
     '/api/pic-command',
     '/api/clip-command',

@@ -108,15 +108,28 @@ function startBackgroundService() {
 
     const tryConnect = async (targetUrl: string) => {
       const tempObs = new OBSWebSocket();
+      const noop = () => {};
       tempObs.on('ConnectionClosed', () => { state.obsStatus = 'disconnected'; });
       tempObs.on('ConnectionError', () => { state.obsStatus = 'disconnected'; });
-      
-      const connectPromise = tempObs.connect(targetUrl, state.settings.obsWebsocketPassword || undefined);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out.")), 5000));
-      await Promise.race([connectPromise, timeoutPromise]);
-      
-      state.obsRef = tempObs;
-      state.obsStatus = 'connected';
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const connectPromise = tempObs.connect(targetUrl, state.settings.obsWebsocketPassword || undefined);
+        connectPromise.catch(noop);
+        const timeoutPromise = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Connection timed out.')), 5000);
+        });
+        await Promise.race([connectPromise, timeoutPromise]);
+        if (timer) clearTimeout(timer);
+
+        state.obsRef = tempObs;
+        state.obsStatus = 'connected';
+      } catch (err) {
+        if (timer) clearTimeout(timer);
+        try { tempObs.removeAllListeners(); } catch {}
+        try { await tempObs.disconnect(); } catch {}
+        throw err;
+      }
     };
 
     try {

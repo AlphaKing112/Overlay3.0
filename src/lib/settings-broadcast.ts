@@ -68,9 +68,11 @@ export async function broadcastSettings(settings: OverlaySettings) {
     console.log(`[BROADCAST] Starting broadcast to ${connections.size} connected clients`);
   }
   
-  // If no connections, don't wait - overlay will poll for updates
+  // If no connections in this lambda instance, SSE poller/fallback polling picks up KV update
   if (connections.size === 0) {
-    console.warn(`[BROADCAST] ⚠️  No active SSE connections! Settings will be available on next overlay poll.`);
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`[BROADCAST] ⚠️  No active SSE connections! Settings will be available on next overlay poll.`);
+    }
     return { success: true, reason: 'no_connections_but_saved' };
   }
   

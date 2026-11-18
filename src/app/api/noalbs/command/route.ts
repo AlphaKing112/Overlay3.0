@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { broadcastSettings } from '@/lib/settings-broadcast';
-import { safeObsSwitchScene, safeObsRefreshCycle, getCurrentObsScene, safeObsStreamControlResult, safeObsFixFeed, safeObsRecordControl } from '@/lib/obs-helper';
+import {
+  safeObsSwitchScene,
+  safeObsRefreshCycle,
+  getCurrentObsScene,
+  safeObsStreamControlResult,
+  safeObsFixFeed,
+  safeObsRecordControl,
+  connectLocalObsWithFallback,
+  disconnectObsSafely,
+  isCloudUnreachableObsUrl
+} from '@/lib/obs-helper';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import { CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 
@@ -27,6 +37,7 @@ async function saveSettingsPatch(patch: Record<string, any>) {
   if (typeof globalThis !== 'undefined') {
     (globalThis as any).__cachedOverlaySettings = updated;
     (globalThis as any).__cachedOverlaySettingsTime = now;
+    (globalThis as any).__cachedOverlayModifiedTime = now;
   }
 
   try {
@@ -99,19 +110,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Connect to OBS helper with fast timeout for Vercel serverless
+    // Connect to OBS helper (skipped immediately on Vercel cloud when configured with loopback IP)
     const wsPort = settings.obsWebsocketPort || 4455;
     const obsUrl = settings.obsWebsocketUrl || `ws://127.0.0.1:${wsPort}`;
     const obsPassword = settings.obsWebsocketPassword || '';
+    const isUnreachableLoopback = isCloudUnreachableObsUrl(obsUrl);
 
     const connectObs = async () => {
+      if (isUnreachableLoopback) {
+        throw new Error('OBS loopback URL unreachable from cloud serverless runtime');
+      }
       const { default: OBSWebSocket } = await import('obs-websocket-js');
-      const obs = new OBSWebSocket();
-      obs.on('ConnectionClosed', () => {});
-      obs.on('ConnectionError', () => {});
-      const connectPromise = obs.connect(obsUrl, obsPassword || undefined);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 2500));
-      await Promise.race([connectPromise, timeoutPromise]);
+      const { obs } = await connectLocalObsWithFallback(OBSWebSocket, {
+        url: obsUrl,
+        port: wsPort,
+        password: obsPassword,
+        timeoutMs: 2500
+      });
       return obs;
     };
 
@@ -157,12 +172,19 @@ export async function POST(req: NextRequest) {
 
       try {
         const obs = await connectObs();
-        activeScene = (await getCurrentObsScene(obs)) || 'unknown';
-        const streamStatus: any = await obs.call('GetStreamStatus');
-        isStreaming = Boolean(streamStatus?.outputActive);
-        await obs.disconnect();
+        try {
+          activeScene = (await getCurrentObsScene(obs)) || 'unknown';
+          const streamStatus: any = await obs.call('GetStreamStatus');
+          isStreaming = Boolean(streamStatus?.outputActive);
+        } finally {
+          await disconnectObsSafely(obs);
+        }
       } catch {
-        activeScene = settings.obsLiveSceneName || 'live';
+        const telemetry =
+          (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsTelemetry : null) ||
+          (await kv.get<any>('obs_telemetry').catch(() => null));
+        activeScene = telemetry?.currentScene || settings.obsLiveSceneName || 'live';
+        isStreaming = Boolean(telemetry?.streaming);
       }
 
       const autoSwitchOn = Boolean(settings.obsAutoSwitchSceneToggle);
@@ -217,12 +239,15 @@ export async function POST(req: NextRequest) {
         obsSceneSwitchSignal: { sceneName: targetScene, timestamp: now }
       });
 
-      // Attempt direct WS if available locally
+      // Attempt direct WS if reachable
       let switchedDirect = false;
       try {
         const obs = await connectObs();
-        switchedDirect = await safeObsSwitchScene(obs, targetScene);
-        await obs.disconnect();
+        try {
+          switchedDirect = await safeObsSwitchScene(obs, targetScene);
+        } finally {
+          await disconnectObsSafely(obs);
+        }
       } catch {}
 
       return NextResponse.json({
@@ -243,25 +268,62 @@ export async function POST(req: NextRequest) {
         obsStreamCommandSignal: { action: 'fix', timestamp: now }
       });
 
-      // Also attempt direct WS if local
+      // Attempt direct WS ONLY when reachable (skipped on Vercel cloud when loopback IP is used)
       let fixResult: any = null;
-      try {
-        const obs = await connectObs();
-        fixResult = await safeObsFixFeed(obs, liveScene);
-        try { await obs.disconnect(); } catch {}
-      } catch {}
+      if (!isUnreachableLoopback) {
+        try {
+          const obs = await connectObs();
+          try {
+            fixResult = await safeObsFixFeed(obs, liveScene);
+          } finally {
+            await disconnectObsSafely(obs);
+          }
+        } catch {}
+      }
 
-      const scene = fixResult?.scene || liveScene;
-      const sources: string[] = fixResult?.sources || [];
-      const msg = fixResult
-        ? fixResult.message
-        : `🔧 Signal dispatched to fix feed on active scene (${liveScene})`;
+      if (fixResult) {
+        return NextResponse.json({
+          success: Boolean(fixResult.success),
+          scene: fixResult.scene || liveScene,
+          sources: fixResult.sources || [],
+          message: fixResult.message,
+          error: fixResult.error
+        });
+      }
+
+      // Check KV telemetry to verify OBS overlay liveness & active stream source names when relaying via cloud
+      const telemetry =
+        (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsTelemetry : null) ||
+        (await kv.get<any>('obs_telemetry').catch(() => null));
+      const telemetryScene = telemetry?.currentScene || liveScene;
+      const telemetryAgeMs = telemetry?.updatedAt ? now - Number(telemetry.updatedAt) : Infinity;
+      const telemetryFresh = Boolean(telemetry?.online) && telemetryAgeMs < 120000;
+      const enabledStreamNames: string[] = Array.isArray(telemetry?.currentSceneSources)
+        ? telemetry.currentSceneSources
+            .filter(
+              (s: any) =>
+                s?.enabled !== false &&
+                (s?.kind === 'ffmpeg_source' ||
+                  s?.kind === 'vlc_source' ||
+                  s?.kind === 'irl_source' ||
+                  /bela|belabox|srt|feed/i.test(String(s?.name || '')))
+            )
+            .map((s: any) => String(s.name))
+        : [];
+
+      const relayMessage = telemetryFresh
+        ? enabledStreamNames.length > 0
+          ? `🔧 Signal dispatched to OBS overlay to fix ${enabledStreamNames.join(', ')} on "${telemetryScene}"`
+          : `🔧 Signal dispatched to OBS overlay to fix feed on "${telemetryScene}"`
+        : `⚠️ Fix signal dispatched, but OBS overlay is offline/stale in telemetry — make sure OBS Studio & the overlay browser source are open.`;
 
       return NextResponse.json({
         success: true,
-        scene,
-        sources,
-        message: msg
+        relayed: true,
+        obsOnline: telemetryFresh,
+        scene: telemetryScene,
+        ...(enabledStreamNames.length > 0 ? { sources: enabledStreamNames } : {}),
+        message: relayMessage
       });
     }
 
@@ -275,13 +337,15 @@ export async function POST(req: NextRequest) {
         obsStreamCommandSignal: { action: 'refresh', timestamp: now }
       });
 
-      try {
-        const obs = await connectObs();
-        safeObsRefreshCycle(obs, refreshScene, liveScene, 6000)
-          .finally(async () => {
-            try { await obs.disconnect(); } catch {}
-          });
-      } catch {}
+      if (!isUnreachableLoopback) {
+        try {
+          const obs = await connectObs();
+          safeObsRefreshCycle(obs, refreshScene, liveScene, 6000)
+            .finally(async () => {
+              await disconnectObsSafely(obs);
+            });
+        } catch {}
+      }
 
       return NextResponse.json({
         success: true,
@@ -424,30 +488,34 @@ export async function POST(req: NextRequest) {
         obsStreamCommandSignal: { action: signalAction, timestamp: now }
       });
 
-      try {
-        const obs = await connectObs();
-        if (cmdName === '!start' || cmdName === '!stop') {
-          const action = cmdName === '!start' ? 'start' : 'stop';
-          const res = await safeObsStreamControlResult(obs, action);
-          await obs.disconnect();
-          return NextResponse.json({
-            success: res.success,
-            message: res.success ? `🎬 OBS Stream ${action.toUpperCase()} command sent.` : `Failed: ${res.error}`
-          });
-        } else if (cmdName === '!rec') {
-          const res = await safeObsRecordControl(obs, 'toggle');
-          await obs.disconnect();
-          return NextResponse.json({
-            success: res.success,
-            message: res.isRecording ? '⏺️ OBS Recording started.' : '⏹️ OBS Recording stopped.'
-          });
-        }
-      } catch (err: any) {
-        return NextResponse.json({
-          success: true,
-          message: `📡 Dispatched ${signalAction.toUpperCase()} command signal to OBS overlay.`
-        });
+      if (!isUnreachableLoopback) {
+        try {
+          const obs = await connectObs();
+          try {
+            if (cmdName === '!start' || cmdName === '!stop') {
+              const action = cmdName === '!start' ? 'start' : 'stop';
+              const res = await safeObsStreamControlResult(obs, action);
+              return NextResponse.json({
+                success: res.success,
+                message: res.success ? `🎬 OBS Stream ${action.toUpperCase()} command sent.` : `Failed: ${res.error}`
+              });
+            } else if (cmdName === '!rec') {
+              const res = await safeObsRecordControl(obs, 'toggle');
+              return NextResponse.json({
+                success: res.success,
+                message: res.isRecording ? '⏺️ OBS Recording started.' : '⏹️ OBS Recording stopped.'
+              });
+            }
+          } finally {
+            await disconnectObsSafely(obs);
+          }
+        } catch {}
       }
+
+      return NextResponse.json({
+        success: true,
+        message: `📡 Dispatched ${signalAction.toUpperCase()} command signal to OBS overlay.`
+      });
     }
 
     // 15b. !clip / !cliptheclip / !replay / !highlight

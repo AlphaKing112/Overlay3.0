@@ -4,7 +4,19 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } fro
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 import { fetchBitrateStats } from '@/utils/api-utils';
-import { safeObsSwitchScene, safeObsStreamControlResult, safeObsRefreshCycle, getObsSceneItems, toggleObsSceneItem, removeObsSceneItem, type ObsSceneItemInfo } from '@/lib/obs-helper';
+import {
+  safeObsSwitchScene,
+  safeObsStreamControlResult,
+  safeObsRefreshCycle,
+  getObsSceneItems,
+  toggleObsSceneItem,
+  removeObsSceneItem,
+  connectLocalObsWithFallback,
+  withTempObsConnection,
+  disconnectObsSafely,
+  formatObsError,
+  type ObsSceneItemInfo
+} from '@/lib/obs-helper';
 import { API_KEYS } from '@/utils/overlay-constants';
 import type { ObsTelemetryStats } from '@/types/obs-telemetry';
 import '@/styles/admin.css';
@@ -338,21 +350,51 @@ function LowBitrateContent() {
 
   // Local OBS WebSocket connection on streamer's PC (works in BOTH dashboard & overlay modes)
   useEffect(() => {
+    if (loading) return;
+
     let isActive = true;
-    let retryTimer: NodeJS.Timeout;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let statusPollTimer: ReturnType<typeof setInterval> | null = null;
+    let activeObs: any = null;
+
+    const scheduleRetry = () => {
+      if (!isActive) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(connectLocalObs, 5000);
+    };
 
     const connectLocalObs = async () => {
       if (!isActive) return;
       try {
+        if (statusPollTimer) {
+          clearInterval(statusPollTimer);
+          statusPollTimer = null;
+        }
+        if (localObsRef.current) {
+          await disconnectObsSafely(localObsRef.current);
+          localObsRef.current = null;
+        }
+        if (activeObs) {
+          await disconnectObsSafely(activeObs);
+          activeObs = null;
+        }
+
         const { default: OBSWebSocket } = await import('obs-websocket-js');
-        const obs = new OBSWebSocket();
-        const wsPort = settings.obsWebsocketPort || 4455;
-        const targetUrl = `ws://127.0.0.1:${wsPort}`;
-        const targetPass = settings.obsWebsocketPassword || '';
+        const currentCfg = settingsRef.current;
+        const { obs } = await connectLocalObsWithFallback(OBSWebSocket, {
+          url: currentCfg.obsWebsocketUrl || settings.obsWebsocketUrl,
+          port: currentCfg.obsWebsocketPort || settings.obsWebsocketPort || 4455,
+          password: currentCfg.obsWebsocketPassword || settings.obsWebsocketPassword || '',
+          timeoutMs: 3000,
+          isCancelled: () => !isActive
+        });
 
-        await obs.connect(targetUrl, targetPass || undefined);
-        if (!isActive) { obs.disconnect(); return; }
+        if (!isActive) {
+          await disconnectObsSafely(obs);
+          return;
+        }
 
+        activeObs = obs;
         localObsRef.current = obs;
         setObsConnected(true);
 
@@ -424,7 +466,7 @@ function LowBitrateContent() {
         if (scenes.length > 0) updateAvailableScenes(scenes);
 
         await syncObsOutputStatus();
-        const statusPollTimer = setInterval(syncObsOutputStatus, 1500);
+        statusPollTimer = setInterval(syncObsOutputStatus, 1500);
 
         fetch('/api/obs-telemetry', {
           method: 'POST',
@@ -574,19 +616,32 @@ function LowBitrateContent() {
           }).catch(() => {});
         });
 
+        obs.on('ConnectionError', () => {
+          if (statusPollTimer) {
+            clearInterval(statusPollTimer);
+            statusPollTimer = null;
+          }
+          if (localObsRef.current === obs) localObsRef.current = null;
+          setObsConnected(false);
+        });
+
         obs.on('ConnectionClosed', () => {
-          clearInterval(statusPollTimer);
-          localObsRef.current = null;
+          if (statusPollTimer) {
+            clearInterval(statusPollTimer);
+            statusPollTimer = null;
+          }
+          if (localObsRef.current === obs) localObsRef.current = null;
+          if (activeObs === obs) activeObs = null;
           setObsConnected(false);
           setLocalStreaming(null);
           setLocalRecording(null);
-          if (isActive) retryTimer = setTimeout(connectLocalObs, 5000);
+          scheduleRetry();
         });
       } catch {
         setObsConnected(false);
         setLocalStreaming(null);
         setLocalRecording(null);
-        if (isActive) retryTimer = setTimeout(connectLocalObs, 5000);
+        scheduleRetry();
       }
     };
 
@@ -595,12 +650,17 @@ function LowBitrateContent() {
     return () => {
       isActive = false;
       if (retryTimer) clearTimeout(retryTimer);
+      if (statusPollTimer) clearInterval(statusPollTimer);
+      if (activeObs) {
+        disconnectObsSafely(activeObs);
+        activeObs = null;
+      }
       if (localObsRef.current) {
-        try { localObsRef.current.disconnect(); } catch {}
+        disconnectObsSafely(localObsRef.current);
         localObsRef.current = null;
       }
     };
-  }, [settings.obsWebsocketPort, settings.obsWebsocketPassword]);
+  }, [loading, settings.obsWebsocketPort, settings.obsWebsocketUrl, settings.obsWebsocketPassword]);
 
   // Cloud Scene Switch Signal Listener when mode === 'overlay'
   const lastProcessedSceneSignalRef = useRef<number>(0);
@@ -1071,18 +1131,19 @@ function LowBitrateContent() {
         }
       }
 
-      // 2. Try fresh connection to local OBS WebSocket
+      // 2. Try fresh isolated connection to local OBS WebSocket (no socket leak)
       try {
         const { default: OBSWebSocket } = await import('obs-websocket-js');
-        const obs = new OBSWebSocket();
-        const wsPort = settings.obsWebsocketPort || 4455;
-        const targetUrl = `ws://127.0.0.1:${wsPort}`;
-        const targetPass = settings.obsWebsocketPassword || '';
-        await obs.connect(targetUrl, targetPass || undefined);
-        localObsRef.current = obs;
-        setObsConnected(true);
-
-        const sceneData: any = await obs.call('GetSceneList').catch(() => null);
+        const sceneData = await withTempObsConnection(
+          OBSWebSocket,
+          {
+            url: settings.obsWebsocketUrl,
+            port: settings.obsWebsocketPort || 4455,
+            password: settings.obsWebsocketPassword || '',
+            timeoutMs: 2500
+          },
+          (obs) => obs.call('GetSceneList').catch(() => null)
+        );
         const scenes = sceneData?.scenes ? sceneData.scenes.map((s: any) => String(s.sceneName || s.name || '')).filter(Boolean) : [];
         if (scenes.length > 0) {
           updateAvailableScenes(scenes);
@@ -1097,7 +1158,7 @@ function LowBitrateContent() {
           return;
         }
       } catch (connErr) {
-        console.warn('Direct WebSocket scan failed, checking telemetry fallback:', connErr);
+        console.warn('Direct WebSocket scan failed, checking telemetry fallback:', formatObsError(connErr));
       }
 
       // 3. Fallback: Query telemetry KV endpoint
@@ -1511,10 +1572,7 @@ function LowBitrateContent() {
 
     if (!executedDirectly) {
       try {
-        await saveSettingsUpdates({
-          obsStreamCommandSignal: { action: 'fix', timestamp: Date.now() }
-        }, { silent: true });
-
+        lastProcessedSignalRef.current = Date.now() + 2000;
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1569,10 +1627,7 @@ function LowBitrateContent() {
 
     if (!executedDirectly) {
       try {
-        await saveSettingsUpdates({
-          obsStreamCommandSignal: { action: 'refresh', timestamp: Date.now() }
-        }, { silent: true });
-
+        lastProcessedSignalRef.current = Date.now() + 2000;
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1623,10 +1678,7 @@ function LowBitrateContent() {
 
     if (!executedDirectly) {
       try {
-        await saveSettingsUpdates({
-          obsStreamCommandSignal: { action: willRecord ? 'start_record' : 'stop_record', timestamp: Date.now() }
-        }, { silent: true });
-
+        lastProcessedSignalRef.current = Date.now() + 2000;
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1675,11 +1727,7 @@ function LowBitrateContent() {
     // 2. Cloud signal fallback ONLY if not executed directly via local WebSocket
     if (!executedDirectly) {
       try {
-        const action = willStream ? 'start' : 'stop';
-        await saveSettingsUpdates({
-          obsStreamCommandSignal: { action, timestamp: Date.now() }
-        }, { silent: true });
-
+        lastProcessedSignalRef.current = Date.now() + 2000;
         const res = await fetch('/api/noalbs/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1782,21 +1830,30 @@ function LowBitrateContent() {
     }
   };
 
-  // 7b. Listen for Cloud Stream Command Signals (e.g. !fix, !refresh triggered via chat/cloud)
+  // 7b. Listen for Cloud Stream Command Signals (ONLY execute when this tab has an active local OBS WebSocket!)
+  // Prevents mobile/remote dashboard tabs from re-broadcasting incoming cloud signals into an infinite loop.
   const lastProcessedSignalRef = useRef<number>(Date.now());
   useEffect(() => {
     const signal = settings.obsStreamCommandSignal;
     if (!signal || !signal.timestamp || !signal.action) return;
-    if (signal.timestamp <= lastProcessedSignalRef.current || (Date.now() - signal.timestamp > 15000)) {
+    if (signal.timestamp <= lastProcessedSignalRef.current || (Date.now() - signal.timestamp > 45000)) {
+      return;
+    }
+    if (!localObsRef.current) {
       return;
     }
     lastProcessedSignalRef.current = signal.timestamp;
 
-    if (signal.action === 'fix') {
-      handleFixFeed();
-    } else if (signal.action === 'refresh') {
-      handleRefreshCycle();
-    }
+    const currentCfg = settingsRef.current;
+    safeObsStreamControlResult(localObsRef.current, signal.action, {
+      refreshScene: currentCfg.obsRefreshSceneName || 'refresh',
+      liveScene: currentSceneRef.current || currentCfg.obsLiveSceneName || 'live',
+      delayMs: 6000
+    }).then((res) => {
+      if (res.success) {
+        refreshObsScenes();
+      }
+    }).catch(() => {});
   }, [settings.obsStreamCommandSignal]);
 
 

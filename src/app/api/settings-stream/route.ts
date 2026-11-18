@@ -44,7 +44,12 @@ export async function GET(request: NextRequest): Promise<Response> {
           const currentModified = (kvModified as number) || 0;
 
           if (currentModified > lastModified || !lastModified) {
-            const kvSettings = await kv.get('overlay_settings');
+            const cachedModified = typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlayModifiedTime : 0;
+            const cachedSettings = typeof globalThis !== 'undefined' ? (globalThis as any).__cachedOverlaySettings : null;
+            const kvSettings =
+              cachedSettings && currentModified && cachedModified === currentModified
+                ? cachedSettings
+                : await kv.get('overlay_settings');
             if (kvSettings && typeof kvSettings === 'object') {
               const settings = kvSettings;
               lastModified = currentModified || now;

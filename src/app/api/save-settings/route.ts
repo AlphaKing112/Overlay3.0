@@ -141,6 +141,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         'startLat', 'startLon', 'distanceCurrent', 'donationGoals',
         'shoutout', 'totalTipCurrent', 'dailyTipCurrent', 'totalSubCurrent', 'dailySubCurrent',
         'obsStreamCommandSignal', 'obsSceneSwitchSignal',
+        'obsSourceToggleSignal', 'obsSourceRemoveSignal',
         'obsTelemetryEnabled', 'obsTelemetryInterval',
         'obsAutoSwitchSceneToggle', 'obsSwitchOnlyWhileStreaming', 'obsInstantRecovery',
         'obsChatAlertsEnabled', 'obsChecksBeforeSwitching', 'obsSwitchDelaySeconds',

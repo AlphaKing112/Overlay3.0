@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getObsSceneItems, toggleObsSceneItem, removeObsSceneItem } from '@/lib/obs-helper';
+import {
+  getObsSceneItems,
+  toggleObsSceneItem,
+  removeObsSceneItem,
+  withTempObsConnection,
+  isCloudUnreachableObsUrl
+} from '@/lib/obs-helper';
 import { kv } from '@vercel/kv';
 import { broadcastSettings } from '@/lib/settings-broadcast';
 
@@ -50,51 +56,46 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const sceneName = searchParams.get('sceneName') || '';
 
-    // 1. Try local direct WebSocket if available
+    // 1. Try local direct WebSocket if reachable from this runtime
     let sources: any[] = [];
     const { url, password, port } = await getObsConnectionInfo();
-    const urlsToTry = [
-      url,
-      `ws://127.0.0.1:${port}`,
-      `ws://localhost:${port}`,
-      'ws://127.0.0.1:4455',
-      'ws://localhost:4455'
-    ].filter((v, i, a) => a.indexOf(v) === i);
 
-    try {
-      const { default: OBSWebSocket } = await import('obs-websocket-js');
-      const obs = new OBSWebSocket();
-      obs.on('ConnectionClosed', () => {});
-      obs.on('ConnectionError', () => {});
-
-      let connected = false;
-      for (const targetUrl of urlsToTry) {
-        try {
-          const connectPromise = obs.connect(targetUrl, password || undefined);
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500));
-          await Promise.race([connectPromise, timeoutPromise]);
-          connected = true;
-          break;
-        } catch {}
-      }
-
-      if (connected) {
-        const targetScene = sceneName || (await obs.call('GetCurrentProgramScene' as any).then((r: any) => r.currentProgramSceneName || r.sceneName).catch(() => ''));
-        if (targetScene) {
-          sources = await getObsSceneItems(obs, targetScene);
-        }
-        await obs.disconnect();
-      }
-    } catch {}
+    if (!isCloudUnreachableObsUrl(url)) {
+      try {
+        const { default: OBSWebSocket } = await import('obs-websocket-js');
+        sources = await withTempObsConnection(
+          OBSWebSocket,
+          { url, port, password, timeoutMs: 500 },
+          async (obs) => {
+            const targetScene =
+              sceneName ||
+              (await obs
+                .call('GetCurrentProgramScene' as any)
+                .then((r: any) => r.currentProgramSceneName || r.sceneName)
+                .catch(() => ''));
+            return targetScene ? await getObsSceneItems(obs, targetScene) : [];
+          }
+        );
+      } catch {}
+    }
 
     // 2. Fallback to Upstash KV telemetry cache (crucial for mobile devices connecting via cloud!)
     if (sources.length === 0) {
       try {
-        let telemetry = (typeof globalThis !== 'undefined' ? (globalThis as any).__cachedObsTelemetry : null);
+        const now = Date.now();
+        const cachedTime = typeof globalThis !== 'undefined' ? ((globalThis as any).__cachedObsTelemetryTime || 0) : 0;
+        let telemetry =
+          typeof globalThis !== 'undefined' && now - cachedTime < 1500
+            ? (globalThis as any).__cachedObsTelemetry
+            : null;
         if (!telemetry || !telemetry.currentSceneSources || telemetry.currentSceneSources.length === 0) {
           const kvData = await kv.get<any>('obs_telemetry');
           if (kvData && typeof kvData === 'object') {
             telemetry = kvData;
+            if (typeof globalThis !== 'undefined') {
+              (globalThis as any).__cachedObsTelemetry = telemetry;
+              (globalThis as any).__cachedObsTelemetryTime = now;
+            }
           }
         }
         if (telemetry?.currentSceneSources && Array.isArray(telemetry.currentSceneSources)) {
@@ -172,43 +173,23 @@ export async function POST(request: NextRequest) {
       console.warn('⚠️ [API] Source action signal dispatch warning:', sigErr);
     }
 
-    // 2. Also attempt direct local WS if available
+    // 2. Also attempt direct local WS if reachable
     let actionViaDirect = false;
     const { url, password, port } = await getObsConnectionInfo(obsUrl, obsPassword);
-    const urlsToTry = [
-      url,
-      `ws://127.0.0.1:${port}`,
-      `ws://localhost:${port}`,
-      'ws://127.0.0.1:4455',
-      'ws://localhost:4455'
-    ].filter((v, i, a) => a.indexOf(v) === i);
 
-    try {
-      const { default: OBSWebSocket } = await import('obs-websocket-js');
-      const obs = new OBSWebSocket();
-      obs.on('ConnectionClosed', () => {});
-      obs.on('ConnectionError', () => {});
-
-      let connected = false;
-      for (const targetUrl of urlsToTry) {
-        try {
-          const connectPromise = obs.connect(targetUrl, password || undefined);
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500));
-          await Promise.race([connectPromise, timeoutPromise]);
-          connected = true;
-          break;
-        } catch {}
-      }
-
-      if (connected) {
-        if (isRemove) {
-          actionViaDirect = await removeObsSceneItem(obs, sceneName, Number(sceneItemId), sourceName);
-        } else {
-          actionViaDirect = await toggleObsSceneItem(obs, sceneName, Number(sceneItemId), Boolean(enabled), sourceName);
-        }
-        await obs.disconnect();
-      }
-    } catch {}
+    if (!isCloudUnreachableObsUrl(url)) {
+      try {
+        const { default: OBSWebSocket } = await import('obs-websocket-js');
+        actionViaDirect = await withTempObsConnection(
+          OBSWebSocket,
+          { url, port, password, timeoutMs: 500 },
+          async (obs) =>
+            isRemove
+              ? removeObsSceneItem(obs, sceneName, Number(sceneItemId), sourceName)
+              : toggleObsSceneItem(obs, sceneName, Number(sceneItemId), Boolean(enabled), sourceName)
+        );
+      } catch {}
+    }
 
     return NextResponse.json({
       success: true,

@@ -10,11 +10,139 @@ export function formatObsError(err: any): string {
   const msg = err.message || err.comment || err.error || err.status || '';
   const code = err.code !== undefined ? ` [Code ${err.code}]` : '';
   if (msg) return `${msg}${code}`;
+  if (code) return `OBS WebSocket closed${code}`;
   try {
     const str = JSON.stringify(err);
     return str !== '{}' ? str : String(err);
   } catch {
     return String(err);
+  }
+}
+
+export function isLoopbackObsUrl(url?: string): boolean {
+  const target = (url || 'ws://127.0.0.1:4455').trim();
+  return /^wss?:\/\/(127\.0\.0\.1|localhost|\[::1\]|::1|0\.0\.0\.0)(?::\d+)?(?:\/|$)/i.test(target);
+}
+
+export function isCloudUnreachableObsUrl(url?: string): boolean {
+  return Boolean(typeof process !== 'undefined' && process.env?.VERCEL && isLoopbackObsUrl(url));
+}
+
+export function buildObsWebsocketUrls(options?: { url?: string; port?: number }): string[] {
+  const port = options?.port || 4455;
+  const urls = [
+    options?.url || `ws://127.0.0.1:${port}`,
+    `ws://127.0.0.1:${port}`,
+    `ws://localhost:${port}`,
+    'ws://127.0.0.1:4455',
+    'ws://localhost:4455',
+  ]
+    .map(u => String(u || '').trim())
+    .filter(Boolean);
+  return urls.filter((v, i, a) => a.indexOf(v) === i);
+}
+
+export async function disconnectObsSafely(obs: any): Promise<void> {
+  if (!obs) return;
+  try {
+    obs.removeAllListeners?.();
+  } catch {}
+  try {
+    await obs.disconnect?.();
+  } catch {}
+}
+
+export interface ConnectObsFallbackOptions {
+  url?: string;
+  port?: number;
+  password?: string;
+  timeoutMs?: number;
+  isCancelled?: () => boolean;
+}
+
+/**
+ * Connects to local OBS WebSocket across candidate loopback/configured URLs.
+ * Uses an isolated instance per probe and forcibly cleans up failed/timed-out sockets
+ * so repeated retries never leak half-open WebSocket connections inside OBS.
+ */
+export async function connectLocalObsWithFallback<T = any>(
+  OBSWebSocketCtor: new () => T,
+  options: ConnectObsFallbackOptions = {}
+): Promise<{ obs: T; url: string }> {
+  const urlsToTry = buildObsWebsocketUrls({ url: options.url, port: options.port });
+  const timeoutMs = options.timeoutMs ?? 2500;
+  const password = options.password || '';
+  let lastErr: any = null;
+
+  for (const targetUrl of urlsToTry) {
+    if (options.isCancelled?.()) {
+      throw new Error('OBS WebSocket connection cancelled');
+    }
+
+    const attemptObs: any = new OBSWebSocketCtor();
+    const noop = () => {};
+    try {
+      attemptObs.on?.('ConnectionClosed', noop);
+      attemptObs.on?.('ConnectionError', noop);
+    } catch {}
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const connectPromise = Promise.resolve(attemptObs.connect(targetUrl, password || undefined));
+      connectPromise.catch(noop);
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`OBS WebSocket connection timeout (${timeoutMs}ms) for ${targetUrl}`)),
+          timeoutMs
+        );
+      });
+
+      await Promise.race([connectPromise, timeoutPromise]);
+      if (timer) clearTimeout(timer);
+
+      if (options.isCancelled?.()) {
+        await disconnectObsSafely(attemptObs);
+        throw new Error('OBS WebSocket connection cancelled');
+      }
+
+      try {
+        if (typeof attemptObs.off === 'function') {
+          attemptObs.off('ConnectionClosed', noop);
+          attemptObs.off('ConnectionError', noop);
+        } else if (typeof attemptObs.removeListener === 'function') {
+          attemptObs.removeListener('ConnectionClosed', noop);
+          attemptObs.removeListener('ConnectionError', noop);
+        }
+      } catch {}
+
+      return { obs: attemptObs as T, url: targetUrl };
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      lastErr = err;
+      await disconnectObsSafely(attemptObs);
+      if (options.isCancelled?.()) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastErr || new Error('Failed to connect to OBS WebSocket');
+}
+
+/**
+ * Opens an on-demand OBS WebSocket connection, runs a task, and guarantees socket cleanup.
+ */
+export async function withTempObsConnection<TResult, TObs = any>(
+  OBSWebSocketCtor: new () => TObs,
+  options: ConnectObsFallbackOptions,
+  fn: (obs: TObs, url: string) => Promise<TResult>
+): Promise<TResult> {
+  const { obs, url } = await connectLocalObsWithFallback(OBSWebSocketCtor, options);
+  try {
+    return await fn(obs, url);
+  } finally {
+    await disconnectObsSafely(obs);
   }
 }
 
@@ -423,18 +551,39 @@ export async function safeObsFixFeed(
 
   console.log(`🔧 [OBS] Executing NOALBS !fix: Checking for playing media stream sources on air...`);
   try {
-    const currentScene = (await getCurrentObsScene(obs)) || liveScene || 'live';
+    const detectedScene = await getCurrentObsScene(obs);
+    const currentScene = detectedScene || liveScene || 'live';
 
     // 1. Get scene items on the active program scene
     let items: any[] = [];
+    let sceneListFetched = false;
+    let sceneListError: any = null;
     try {
       const sceneItemsRes = await obs.call('GetSceneItemList', { sceneName: currentScene });
       items = (sceneItemsRes?.sceneItems as any[]) || [];
-    } catch {
+      sceneListFetched = true;
+    } catch (errV5) {
+      sceneListError = errV5;
       try {
         const v4Res = await obs.call('GetSceneItemList' as any, { 'scene-name': currentScene });
         items = (v4Res?.sceneItems || v4Res?.sources as any[]) || [];
-      } catch {}
+        sceneListFetched = true;
+      } catch (errV4) {
+        sceneListError = errV4 || errV5;
+      }
+    }
+
+    if (!sceneListFetched) {
+      const errDetail = formatObsError(sceneListError);
+      console.warn(`[OBS !fix] Failed to query scene items on "${currentScene}": ${errDetail}`);
+      return {
+        success: false,
+        scene: currentScene,
+        sources: [],
+        reconnectedCount: 0,
+        message: `OBS WebSocket error querying "${currentScene}": ${errDetail}`,
+        error: errDetail
+      };
     }
 
     if (!items || items.length === 0) {
@@ -448,50 +597,59 @@ export async function safeObsFixFeed(
       };
     }
 
-    // 1. First pass: Ensure all browser sources (like your Stream Overlay) are NEVER hidden!
-    // If the overlay source was disabled, restore its visibility to true immediately:
+    // Cache GetInputSettings results once per source name to avoid duplicate IPC calls
+    const inputInfoCache = new Map<string, { inputKind: string; inputSettings: Record<string, any> }>();
+    const getCachedInputInfo = async (sourceName: string, fallbackKind: string = '') => {
+      const cached = inputInfoCache.get(sourceName);
+      if (cached) return cached;
+      let inputKind = fallbackKind;
+      let inputSettings: Record<string, any> = {};
+      try {
+        const settingsRes = await obs.call('GetInputSettings', { inputName: sourceName });
+        inputKind = settingsRes?.inputKind || inputKind;
+        inputSettings = settingsRes?.inputSettings || {};
+      } catch {}
+      const info = { inputKind, inputSettings };
+      inputInfoCache.set(sourceName, info);
+      return info;
+    };
+
+    // 1. First pass: Ensure primary overlay browser source(s) stay visible if accidentally hidden,
+    // without touching intentionally hidden widgets/chat or making unnecessary calls when already enabled.
     for (const item of items) {
+      if (item.sceneItemEnabled !== false) continue;
       const sourceName: string = item.sourceName || item.name || '';
       const itemId = item.sceneItemId ?? item.itemId;
       if (!sourceName || itemId === undefined) continue;
 
-      let itemKind = item.inputKind || '';
-      if (!itemKind) {
-        try {
-          const sRes = await obs.call('GetInputSettings', { inputName: sourceName });
-          itemKind = sRes?.inputKind || '';
-        } catch {}
-      }
+      const isExplicitOverlay = options?.overlaySourceName && sourceName.toLowerCase() === options.overlaySourceName.toLowerCase();
+      const info = item.inputKind
+        ? { inputKind: item.inputKind, inputSettings: {} }
+        : await getCachedInputInfo(sourceName, item.inputKind || '');
 
-      const isOverlayOrBrowser =
-        itemKind === 'browser_source' ||
-        /(overlay|browser|alert|chat|widget|hud|screen)/i.test(sourceName);
+      const isPrimaryOverlay =
+        isExplicitOverlay ||
+        (info.inputKind === 'browser_source' && /\boverlay\b/i.test(sourceName) && !/(chat|alert|poll|heart)/i.test(sourceName));
 
-      if (isOverlayOrBrowser) {
+      if (isPrimaryOverlay) {
         try {
           await obs.call('SetSceneItemEnabled', {
             sceneName: currentScene,
             sceneItemId: itemId,
             sceneItemEnabled: true
           });
-          console.log(`👁️ [OBS !fix] Ensured overlay/browser source "${sourceName}" is visible`);
+          console.log(`👁️ [OBS !fix] Restored visibility of overlay source "${sourceName}"`);
         } catch {}
       }
     }
 
     // Helper: Identify if an item is strictly a network media stream input (NOALBS ffmpeg/vlc/irl/smooth_media)
-    const isBelaboxStreamItem = async (item: any): Promise<{ isStream: boolean; inputKind: string }> => {
+    const isBelaboxStreamItem = async (item: any): Promise<{ isStream: boolean; inputKind: string; inputSettings: Record<string, any> }> => {
       const sourceName: string = item.sourceName || item.name || '';
       const s = sourceName.toLowerCase().trim();
-      let kind: string = item.inputKind || '';
-
-      // Query input settings to inspect exact inputKind and settings
-      let inputSettings: any = {};
-      try {
-        const settingsRes = await obs.call('GetInputSettings', { inputName: sourceName });
-        kind = settingsRes?.inputKind || kind;
-        inputSettings = settingsRes?.inputSettings || {};
-      } catch {}
+      const cached = await getCachedInputInfo(sourceName, item.inputKind || '');
+      const kind = cached.inputKind;
+      const inputSettings = cached.inputSettings;
 
       // Browser sources, image sources, audio captures, text sources are NEVER media stream players!
       if (
@@ -501,14 +659,14 @@ export async function safeObsFixFeed(
         kind === 'text_gdiplus_v2' ||
         kind === 'wasapi_input_capture' ||
         kind === 'wasapi_output_capture' ||
-        /(overlay|chat|alert|widget|browser|hud)/i.test(sourceName)
+        /(overlay|chat|alert|widget|browser|hud|poll|heart)/i.test(sourceName)
       ) {
-        return { isStream: false, inputKind: kind };
+        return { isStream: false, inputKind: kind, inputSettings };
       }
 
       // User custom stream source name override
       if (options?.streamSourceName && s === options.streamSourceName.toLowerCase().trim()) {
-        return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+        return { isStream: true, inputKind: kind || 'ffmpeg_source', inputSettings };
       }
 
       // Check inputKind against NOALBS supported media kinds
@@ -524,36 +682,58 @@ export async function safeObsFixFeed(
         url.includes('belabox');
 
       if (isKnownMediaKind && isNetworkStreamUrl) {
-        return { isStream: true, inputKind: kind };
+        return { isStream: true, inputKind: kind, inputSettings };
       }
 
       // Name heuristics: Belabox, Bela, SRT, Stream feed (strictly non-browser)
       if (/bela|belabox/i.test(s) && kind !== 'browser_source') {
-        return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+        return { isStream: true, inputKind: kind || 'ffmpeg_source', inputSettings };
       }
 
       if (/(srt|feed|stream|irl|camera|cam\b)/i.test(s) && !/(chat|alert|audio|mic|bot|sub|goal|music|spotify|webcam|scene|overlay|browser)/i.test(s) && kind !== 'browser_source') {
-        return { isStream: true, inputKind: kind || 'ffmpeg_source' };
+        return { isStream: true, inputKind: kind || 'ffmpeg_source', inputSettings };
       }
 
-      return { isStream: isKnownMediaKind && isNetworkStreamUrl, inputKind: kind };
+      return { isStream: false, inputKind: kind, inputSettings };
     };
 
     // 2. Find candidate stream sources on the current active scene
-    const candidateSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
+    interface StreamCandidate {
+      item: any;
+      sourceName: string;
+      itemId?: number;
+      inputKind: string;
+      inputSettings: Record<string, any>;
+      wasEnabled: boolean;
+      isExplicitTarget: boolean;
+      isLive?: boolean;
+    }
+
+    const candidateSources: StreamCandidate[] = [];
     for (const item of items) {
       const sourceName: string = item.sourceName || item.name || '';
       const itemId = item.sceneItemId ?? item.itemId;
       if (!sourceName) continue;
 
       // Skip browser sources (overlay, chat, alerts) from being treated as media stream players
-      if (item.inputKind === 'browser_source' || /(overlay|chat|alert|widget|browser)/i.test(sourceName)) {
+      if (item.inputKind === 'browser_source' || /(overlay|chat|alert|widget|browser|poll|heart)/i.test(sourceName)) {
         continue;
       }
 
       const check = await isBelaboxStreamItem(item);
       if (check.isStream) {
-        candidateSources.push({ item, sourceName, itemId, inputKind: check.inputKind });
+        const isExplicitTarget = Boolean(
+          options?.streamSourceName && sourceName.toLowerCase() === options.streamSourceName.toLowerCase().trim()
+        );
+        candidateSources.push({
+          item,
+          sourceName,
+          itemId,
+          inputKind: check.inputKind,
+          inputSettings: check.inputSettings,
+          wasEnabled: item.sceneItemEnabled !== false,
+          isExplicitTarget
+        });
       }
     }
 
@@ -565,30 +745,44 @@ export async function safeObsFixFeed(
         if (!sourceName || item.inputKind === 'browser_source' || /(overlay|chat|alert|widget|browser)/i.test(sourceName)) continue;
 
         if (/(bela|belabox|srt|feed)/i.test(sourceName) && !/(chat|alert|overlay|audio|mic|browser)/i.test(sourceName)) {
-          candidateSources.push({ item, sourceName, itemId, inputKind: item.inputKind || 'ffmpeg_source' });
+          candidateSources.push({
+            item,
+            sourceName,
+            itemId,
+            inputKind: item.inputKind || 'ffmpeg_source',
+            inputSettings: {},
+            wasEnabled: item.sceneItemEnabled !== false,
+            isExplicitTarget: false
+          });
         }
       }
     }
 
-    // 4. Third pass (Target Stream Source Identification):
-    // Prioritize stream sources reporting active playing/buffering/opening states.
-    // If none report playing (e.g. the feed dropped, froze, or ended — the exact reason !fix was triggered!),
-    // target all candidate stream sources on the scene so the broken feed is revived.
-    const playingStreamSources: { item: any; sourceName: string; itemId?: number; inputKind: string }[] = [];
-    for (const candidate of candidateSources) {
-      const { sourceName } = candidate;
-      const mediaStatus = await getObsMediaInputStatus(obs, sourceName);
+    // Prioritize currently ENABLED stream sources so disabled backup cameras (e.g. Sony Action Cam / irl.de)
+    // are NEVER accidentally un-hidden when the active Belabox stream is frozen or dropped!
+    const enabledCandidates = candidateSources.filter(c => c.wasEnabled || c.isExplicitTarget);
+    const inspectionPool = enabledCandidates.length > 0 ? enabledCandidates : candidateSources;
 
-      const isExplicitTarget = options?.streamSourceName && sourceName.toLowerCase() === options.streamSourceName.toLowerCase();
-      if (mediaStatus?.isLive || isExplicitTarget) {
-        console.log(`📡 [OBS !fix] Media feed "${sourceName}" detected LIVE (${mediaStatus?.state || 'TARGETED'})`);
+    // 4. Third pass (Target Stream Source Identification — checked in parallel):
+    const statusResults = await Promise.all(
+      inspectionPool.map(async (candidate) => ({
+        candidate,
+        mediaStatus: await getObsMediaInputStatus(obs, candidate.sourceName)
+      }))
+    );
+
+    const playingStreamSources: StreamCandidate[] = [];
+    for (const { candidate, mediaStatus } of statusResults) {
+      candidate.isLive = Boolean(mediaStatus?.isLive);
+      if (mediaStatus?.isLive || candidate.isExplicitTarget) {
+        console.log(`📡 [OBS !fix] Media feed "${candidate.sourceName}" detected LIVE (${mediaStatus?.state || 'TARGETED'})`);
         playingStreamSources.push(candidate);
       } else {
-        console.log(`⏸️ [OBS !fix] Media source "${sourceName}" state is ${mediaStatus?.state || 'UNKNOWN'}`);
+        console.log(`⏸️ [OBS !fix] Media source "${candidate.sourceName}" state is ${mediaStatus?.state || 'UNKNOWN'}`);
       }
     }
 
-    const targetSources = playingStreamSources.length > 0 ? playingStreamSources : candidateSources;
+    const targetSources = playingStreamSources.length > 0 ? playingStreamSources : inspectionPool;
 
     // If NO candidate stream source exists on the active scene, return friendly message
     if (targetSources.length === 0) {
@@ -606,24 +800,25 @@ export async function safeObsFixFeed(
     // 5. Execute NOALBS In-Place Reconnect on the target media sources
     const fixedSources: string[] = [];
     for (const stream of targetSources) {
-      const { sourceName, itemId, inputKind } = stream;
+      const { sourceName, itemId, inputKind, inputSettings, wasEnabled, isLive } = stream;
       console.log(`🎯 [OBS !fix] Reconnecting media stream source "${sourceName}" (${inputKind || 'media'})...`);
 
-      // NOALBS Method A: TriggerMediaInputAction Restart (for irl_source or media inputs)
+      // NOALBS Method A: TriggerMediaInputAction Restart (for irl_source, ffmpeg_source, or vlc_source)
+      let restartSent = false;
       try {
         await obs.call('TriggerMediaInputAction', {
           inputName: sourceName,
           mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
         });
+        restartSent = true;
         console.log(`✅ [OBS !fix] MediaAction Restart sent to "${sourceName}"`);
       } catch {}
 
       // NOALBS Method B: Settings rewrite callback (for ffmpeg_source / vlc_source)
-      // Empty inputSettings rewrite triggers the underlying FFmpeg network reconnect callback
       try {
         await obs.call('SetInputSettings', {
           inputName: sourceName,
-          inputSettings: {},
+          inputSettings: inputSettings && Object.keys(inputSettings).length > 0 ? inputSettings : {},
           overlay: true
         });
         console.log(`✅ [OBS !fix] SetInputSettings callback sent to "${sourceName}"`);
@@ -639,15 +834,31 @@ export async function safeObsFixFeed(
         console.log(`✅ [OBS !fix] obs-smooth-media RestartSource sent to "${sourceName}"`);
       } catch {}
 
-      // Method D: Ensure Belabox scene item is enabled (toggle if stuck to re-initialize socket)
-      if (itemId !== undefined) {
+      // Method D: For already-enabled streams that are hung/stopped (e.g. dead ffmpeg_source SRT socket),
+      // pulse visibility off -> on if already visible so OBS tears down and reopens the socket cleanly.
+      // Never enable disabled backup sources!
+      if (itemId !== undefined && wasEnabled && !isLive && (!restartSent || inputKind === 'ffmpeg_source')) {
+        try {
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: currentScene,
+            sceneItemId: itemId,
+            sceneItemEnabled: false
+          });
+          await new Promise(resolve => setTimeout(resolve, 150));
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: currentScene,
+            sceneItemId: itemId,
+            sceneItemEnabled: true
+          });
+          console.log(`🔄 [OBS !fix] Toggled visibility reset on hung source "${sourceName}"`);
+        } catch {}
+      } else if (itemId !== undefined && !wasEnabled && stream.isExplicitTarget) {
         try {
           await obs.call('SetSceneItemEnabled', {
             sceneName: currentScene,
             sceneItemId: itemId,
             sceneItemEnabled: true
           });
-          console.log(`✅ [OBS !fix] Ensured Belabox scene item "${sourceName}" is enabled`);
         } catch {}
       }
 
