@@ -153,6 +153,8 @@ export interface OverlaySettings {
   distanceStyle?: 'default' | 'compact' | 'cyberpunk' | 'minimal-bar' | 'no-background' | 'borderless';
   distanceFont?: 'default' | 'neon' | 'retro' | 'bold' | 'impact';
   distanceShowCurrentLocation?: boolean;
+  distanceShowRemaining?: boolean;
+  distanceResetTimestamp?: number;
   distanceX?: number;
   distanceY?: number;
   distanceScale?: number;
@@ -473,6 +475,8 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   distanceStyle: 'default',
   distanceFont: 'default',
   distanceShowCurrentLocation: true,
+  distanceShowRemaining: true,
+  distanceResetTimestamp: 0,
   distanceX: 0,
   distanceY: 0,
   distanceScale: 1.0,
@@ -741,6 +745,8 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   distanceStyle: 'string',
   distanceFont: 'string',
   distanceShowCurrentLocation: 'boolean',
+  distanceShowRemaining: 'boolean',
+  distanceResetTimestamp: 'number',
   distanceX: 'number',
   distanceY: 'number',
   distanceScale: 'number',

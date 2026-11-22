@@ -103,3 +103,49 @@ export function sortTodosForDisplay(
     return 0;
   });
 }
+
+/**
+ * Adjusts baseline-tracked ("New Subs (Starts at 0)") sub challenges downward when
+ * Twitch's total sub count drops (e.g., an old gift/recurring sub expired), so active
+ * challenge progress neither goes backward nor swallows the next incoming sub.
+ * Returns a new todos array if any item changed, or null if no changes were needed.
+ */
+export function reconcileTodoBaselinesOnTotalDrop(
+  todos: TodoItem[] | undefined,
+  prevTotal: number,
+  nextTotal: number
+): TodoItem[] | null {
+  if (!Array.isArray(todos) || todos.length === 0) return null;
+  if (nextTotal >= prevTotal) return null;
+
+  const dropAmount = prevTotal - nextTotal;
+  let changed = false;
+
+  const updated = todos.map((todo) => {
+    if (todo.type !== 'sub_challenge' || todo.completed) return todo;
+    const subSource: TodoSubSource =
+      todo.subSource === 'total' ? 'total' : todo.subSource === 'daily' ? 'daily' : 'challenge';
+    if (subSource !== 'challenge' || typeof todo.subBaseline !== 'number') return todo;
+
+    const prevDelta = Math.max(0, prevTotal - todo.subBaseline);
+    const beforeProgress = (todo.current ?? 0) + prevDelta;
+    const shiftedBaseline = todo.subBaseline - dropAmount;
+
+    if (shiftedBaseline >= 0) {
+      const clampedBaseline = Math.min(nextTotal, shiftedBaseline);
+      if (clampedBaseline === todo.subBaseline) return todo;
+      changed = true;
+      return { ...todo, subBaseline: clampedBaseline };
+    }
+
+    const preservedCurrent = Math.max(todo.current ?? 0, beforeProgress - nextTotal);
+    changed = true;
+    return {
+      ...todo,
+      current: preservedCurrent,
+      subBaseline: 0,
+    };
+  });
+
+  return changed ? updated : null;
+}

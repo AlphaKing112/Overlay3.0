@@ -7,7 +7,7 @@ import { OverlaySettings, DEFAULT_OVERLAY_SETTINGS, LocationDisplayMode, MapZoom
 import OBSWebSocket from 'obs-websocket-js';
 import { fetchBitrateStats } from '@/utils/api-utils';
 import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
-import { getEffectiveDailySubs, getTodoSubProgress, sortTodosForDisplay } from '@/utils/todo-challenges';
+import { getEffectiveDailySubs, getTodoSubProgress, sortTodosForDisplay, reconcileTodoBaselinesOnTotalDrop } from '@/utils/todo-challenges';
 import { API_KEYS } from '@/utils/overlay-constants';
 import * as workerTimers from 'worker-timers';
 import { parseCoordinateString, distanceInMeters, calculateDistanceProgress } from '@/utils/location-utils';
@@ -336,8 +336,22 @@ export default function AdminPage() {
   const [newGoalCurrent, setNewGoalCurrent] = useState('0');
   const [newGoalDuration, setNewGoalDuration] = useState('0');
 
-  // Fill animation test state
+  // Fill animation test state (runs locally in preview without spamming Redis)
   const [isTestingFillAnimation, setIsTestingFillAnimation] = useState(false);
+  const [localTestFillProgress, setLocalTestFillProgress] = useState<number | null>(null);
+  const testFillTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const testFillResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Distance coordinate inputs (allow typing '-' or partial decimals without snapping to 0) & place search
+  const activeCoordFieldRef = useRef<'destLat' | 'destLon' | 'startLat' | 'startLon' | null>(null);
+  const [destLatInput, setDestLatInput] = useState('');
+  const [destLonInput, setDestLonInput] = useState('');
+  const [startLatInput, setStartLatInput] = useState('');
+  const [startLonInput, setStartLonInput] = useState('');
+  const [destSearchQuery, setDestSearchQuery] = useState('');
+  const [destSearchResults, setDestSearchResults] = useState<Array<{ displayName: string; shortName: string; lat: number; lon: number }>>([]);
+  const [isSearchingDest, setIsSearchingDest] = useState(false);
+  const [destSearchError, setDestSearchError] = useState('');
 
   // Debounce save ref
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -840,45 +854,115 @@ export default function AdminPage() {
     }
   }, [settings, router]);
 
+  useEffect(() => {
+    if (activeCoordFieldRef.current !== 'destLat') {
+      setDestLatInput(settings.destinationLat !== undefined ? String(settings.destinationLat) : '25.7617');
+    }
+    if (activeCoordFieldRef.current !== 'destLon') {
+      setDestLonInput(settings.destinationLon !== undefined ? String(settings.destinationLon) : '-80.1918');
+    }
+    if (activeCoordFieldRef.current !== 'startLat') {
+      setStartLatInput(settings.startLat != null ? String(settings.startLat) : '');
+    }
+    if (activeCoordFieldRef.current !== 'startLon') {
+      setStartLonInput(settings.startLon != null ? String(settings.startLon) : '');
+    }
+  }, [settings.destinationLat, settings.destinationLon, settings.startLat, settings.startLon]);
+
+  useEffect(() => {
+    return () => {
+      if (testFillTimerRef.current) clearInterval(testFillTimerRef.current);
+      if (testFillResetTimerRef.current) clearTimeout(testFillResetTimerRef.current);
+    };
+  }, []);
+
+  const handleSearchDestination = useCallback(async () => {
+    const query = destSearchQuery.trim();
+    if (!query) return;
+    setIsSearchingDest(true);
+    setDestSearchError('');
+    try {
+      let mapped: Array<{ displayName: string; shortName: string; lat: number; lon: number }> = [];
+      if (API_KEYS.LOCATIONIQ) {
+        const res = await fetch(
+          `https://us1.locationiq.com/v1/search?key=${encodeURIComponent(API_KEYS.LOCATIONIQ)}&q=${encodeURIComponent(query)}&format=json&limit=5`
+        );
+        if (res.ok) {
+          const rows = await res.json();
+          if (Array.isArray(rows)) {
+            mapped = rows
+              .filter((r: any) => r?.lat && r?.lon)
+              .map((r: any) => {
+                const full = String(r.display_name || query);
+                return {
+                  displayName: full,
+                  shortName: full.split(',')[0].trim() || query,
+                  lat: parseFloat(r.lat),
+                  lon: parseFloat(r.lon),
+                };
+              });
+          }
+        }
+      }
+      if (mapped.length === 0) {
+        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`);
+        if (res.ok) {
+          const data = await res.json();
+          const features = Array.isArray(data?.features) ? data.features : [];
+          mapped = features
+            .filter((f: any) => Array.isArray(f?.geometry?.coordinates))
+            .map((f: any) => {
+              const p = f.properties || {};
+              const nameParts = [p.name, p.city || p.town || p.village, p.state, p.country].filter(Boolean);
+              return {
+                displayName: nameParts.join(', ') || query,
+                shortName: String(p.name || p.city || query),
+                lat: Number(f.geometry.coordinates[1]),
+                lon: Number(f.geometry.coordinates[0]),
+              };
+            });
+        }
+      }
+      if (mapped.length === 0) {
+        setDestSearchError('No matching places found. Try including a city/state or paste Google Maps coords.');
+      }
+      setDestSearchResults(mapped);
+    } catch {
+      setDestSearchError('Search failed. Check your connection or paste Google Maps coords below.');
+    } finally {
+      setIsSearchingDest(false);
+    }
+  }, [destSearchQuery]);
+
   const runTestFillAnimation = useCallback(() => {
     if (isTestingFillAnimation) return;
-    setIsTestingFillAnimation(true);
+    if (testFillTimerRef.current) clearInterval(testFillTimerRef.current);
+    if (testFillResetTimerRef.current) clearTimeout(testFillResetTimerRef.current);
 
-    const initialValue = settings.distanceCurrent || 0;
-    const goal = settings.distanceGoal || 0.5;
+    setIsTestingFillAnimation(true);
+    setLocalTestFillProgress(0);
+
     const steps = 20;
     let currentStep = 0;
 
-    handleSettingsChange({
-      isTestingFill: true,
-      testFillProgress: 0,
-      distanceCurrent: 0
-    });
-
-    const interval = setInterval(() => {
+    testFillTimerRef.current = setInterval(() => {
       currentStep++;
       const pct = Math.round((currentStep / steps) * 100);
-      const nextVal = Math.round(((currentStep / steps) * goal) * 10) / 10;
-
-      handleSettingsChange({
-        isTestingFill: true,
-        testFillProgress: pct,
-        distanceCurrent: nextVal
-      });
+      setLocalTestFillProgress(pct);
 
       if (currentStep >= steps) {
-        clearInterval(interval);
-        setTimeout(() => {
-          handleSettingsChange({
-            isTestingFill: false,
-            testFillProgress: undefined,
-            distanceCurrent: initialValue
-          });
+        if (testFillTimerRef.current) {
+          clearInterval(testFillTimerRef.current);
+          testFillTimerRef.current = null;
+        }
+        testFillResetTimerRef.current = setTimeout(() => {
+          setLocalTestFillProgress(null);
           setIsTestingFillAnimation(false);
+          testFillResetTimerRef.current = null;
         }, 1500);
       }
     }, 250);
-  }, [isTestingFillAnimation, settings.distanceCurrent, settings.distanceGoal, handleSettingsChange]);
+  }, [isTestingFillAnimation]);
 
   // Debounced custom location handler
   const handleCustomLocationChange = useCallback((value: string) => {
@@ -927,10 +1011,15 @@ export default function AdminPage() {
     try {
       const result = await fetchTwitchSubPoints(settings.twitchBroadcasterId, settings.twitchToken, clientId);
       const subTotal = typeof result.total === 'number' ? result.total : (result.points ?? 0);
-      
+      const prevTotal = settings.totalSubCurrent ?? 0;
+
       if (subTotal !== settings.totalSubCurrent) {
+        const reconciledTodos = subTotal < prevTotal
+          ? reconcileTodoBaselinesOnTotalDrop(settingsRef.current?.todos ?? settings.todos, prevTotal, subTotal)
+          : null;
         handleSettingsChange({
-          totalSubCurrent: subTotal
+          totalSubCurrent: subTotal,
+          ...(reconciledTodos ? { todos: reconciledTodos } : {}),
         });
       }
       
@@ -2775,35 +2864,30 @@ export default function AdminPage() {
             onToggle={() => toggleSection('distance')}
           >
 
-            <div className="setting-group">
-              <div className="checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={settings.showDistanceTracker ?? false}
-                    onChange={(e) => handleSettingsChange({ showDistanceTracker: e.target.checked })}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-text">Show Distance Progress Bar Overlay</span>
-                </label>
-                <p className="setting-description" style={{ marginLeft: '28px', fontSize: '0.85em', opacity: 0.7 }}>
-                  Displays a sleek, animated glassmorphic progress bar overlay as you travel to your destination.
-                </p>
-              </div>
+            <div className="setting-group" style={{ marginBottom: settings.showDistanceTracker ? '14px' : 0 }}>
+              <p className="setting-description" style={{ fontSize: '0.86em', opacity: 0.72, margin: 0 }}>
+                Displays an animated glassmorphic progress bar overlay as you walk, skate, or travel to your destination.
+                {!settings.showDistanceTracker && ' Toggle "Show on overlay" above to enable and configure it.'}
+              </p>
             </div>
 
             {settings.showDistanceTracker && (
               <>
                 {/* Live Preview Box */}
                 {(() => {
-                  const { current: previewCurrent, goal: previewGoal, pct, unit } = calculateDistanceProgress({
-                    settings,
+                  const previewSettings = localTestFillProgress !== null
+                    ? { ...settings, isTestingFill: true, testFillProgress: localTestFillProgress }
+                    : settings;
+                  const { current: previewCurrent, goal: previewGoal, pct, remaining, unit } = calculateDistanceProgress({
+                    settings: previewSettings,
                   });
+                  const isDest = settings.distanceMode === 'destination';
+                  const missingStartInDest = isDest && (settings.startLat == null || settings.startLon == null);
 
                   return (
                     <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                      <div style={{ fontSize: '0.85em', fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ fontSize: '0.85em', fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                           <span>LIVE OVERLAY PREVIEW</span>
                           <button
                             className="btn btn-primary btn-small"
@@ -2811,10 +2895,15 @@ export default function AdminPage() {
                             onClick={runTestFillAnimation}
                             style={{ padding: '3px 10px', fontSize: '0.8em', background: '#00ff66', color: '#000', fontWeight: 'bold', cursor: 'pointer' }}
                           >
-                            {isTestingFillAnimation ? '⏳ Filling Bar...' : '🎬 Test Fill Animation'}
+                            {isTestingFillAnimation ? '⏳ Filling Preview...' : '🎬 Test Fill Animation'}
                           </button>
+                          {missingStartInDest && (
+                            <span style={{ fontSize: '0.78em', color: '#38bdf8', fontWeight: 500 }}>
+                              Waiting for Start Coords (auto-captures on first GPS update)
+                            </span>
+                          )}
                         </div>
-                        <span>{pct.toFixed(1)}% Completed</span>
+                        <span>{pct.toFixed(1)}% ({remaining.toFixed(1)} {unit} left)</span>
                       </div>
                       <div style={{ padding: '10px 0', overflowX: 'auto', display: 'flex', justifyContent: 'center' }}>
                         <DistanceTracker
@@ -2833,6 +2922,8 @@ export default function AdminPage() {
                           x={0}
                           y={0}
                           isDemo={true}
+                          showRemaining={settings.distanceShowRemaining ?? true}
+                          isDestinationMode={isDest}
                         />
                       </div>
                     </div>
@@ -2868,17 +2959,92 @@ export default function AdminPage() {
                       <span style={{ fontSize: '0.85em', opacity: 0.8, color: '#ffffff' }}>Auto-calculates progress from GPS</span>
                     </label>
 
-                    {/* Destination Name */}
+                    {/* Destination Name & Place Search */}
                     <div style={{ marginBottom: '14px' }}>
                       <label style={{ display: 'block', fontSize: '0.85em', opacity: 0.8, marginBottom: '6px' }}>Destination Name / Label</label>
                       <input
                         type="text"
-                        placeholder="e.g. Flushing, NY"
+                        placeholder="e.g. Central Park, NY"
                         value={settings.destinationName || ''}
                         onChange={(e) => handleSettingsChange({ destinationName: e.target.value })}
                         className="text-input"
                         style={{ width: '100%' }}
                       />
+                    </div>
+
+                    {/* Place Search Lookup */}
+                    <div style={{ marginBottom: '14px', background: 'rgba(0, 210, 255, 0.06)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(0, 210, 255, 0.25)' }}>
+                      <label style={{ display: 'block', fontSize: '0.85em', color: '#38bdf8', fontWeight: 'bold', marginBottom: '6px' }}>
+                        🔍 Search Place / Landmark (Auto-fills Destination Name &amp; Coords)
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <input
+                          type="text"
+                          placeholder="Type e.g. Times Square, NYC or Golden Gate Bridge..."
+                          value={destSearchQuery}
+                          onChange={(e) => {
+                            setDestSearchQuery(e.target.value);
+                            if (destSearchError) setDestSearchError('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSearchDestination();
+                            }
+                          }}
+                          className="text-input"
+                          style={{ flex: '1 1 200px', fontSize: '0.9em' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSearchDestination}
+                          disabled={isSearchingDest || !destSearchQuery.trim()}
+                          className="btn btn-primary btn-small"
+                          style={{ padding: '6px 14px', fontWeight: 'bold' }}
+                        >
+                          {isSearchingDest ? 'Searching...' : 'Search'}
+                        </button>
+                      </div>
+                      {destSearchError && (
+                        <div style={{ fontSize: '0.78em', color: '#f87171', marginTop: '6px' }}>{destSearchError}</div>
+                      )}
+                      {destSearchResults.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+                          {destSearchResults.map((item, idx) => (
+                            <button
+                              key={`${item.lat}_${item.lon}_${idx}`}
+                              type="button"
+                              onClick={() => {
+                                handleSettingsChange({
+                                  destinationName: item.shortName,
+                                  destinationLat: parseFloat(item.lat.toFixed(6)),
+                                  destinationLon: parseFloat(item.lon.toFixed(6)),
+                                });
+                                setDestSearchResults([]);
+                                setDestSearchQuery('');
+                              }}
+                              style={{
+                                textAlign: 'left',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                background: 'rgba(0,0,0,0.45)',
+                                color: '#e5e7eb',
+                                fontSize: '0.82em',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                              }}
+                            >
+                              <span>📍 {item.displayName}</span>
+                              <span style={{ opacity: 0.65, whiteSpace: 'nowrap' }}>
+                                {item.lat.toFixed(4)}, {item.lon.toFixed(4)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Quick Paste Coords from Google Maps */}
@@ -2926,15 +3092,36 @@ export default function AdminPage() {
                           <div>
                             <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Latitude</span>
                             <input
-                              type="number"
-                              step="any"
-                              value={settings.destinationLat ?? 40.763621}
-                              onChange={(e) => handleSettingsChange({ destinationLat: parseFloat(e.target.value) || 0 })}
+                              type="text"
+                              inputMode="decimal"
+                              value={destLatInput}
+                              onFocus={() => { activeCoordFieldRef.current = 'destLat'; }}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setDestLatInput(raw);
+                                const parsed = parseFloat(raw);
+                                if (raw.trim() !== '' && raw !== '-' && !raw.endsWith('.') && Number.isFinite(parsed) && parsed >= -90 && parsed <= 90) {
+                                  handleSettingsChange({ destinationLat: parsed });
+                                }
+                              }}
+                              onBlur={() => {
+                                activeCoordFieldRef.current = null;
+                                const parsed = parseFloat(destLatInput);
+                                if (Number.isFinite(parsed) && parsed >= -90 && parsed <= 90) {
+                                  handleSettingsChange({ destinationLat: parsed });
+                                  setDestLatInput(String(parsed));
+                                } else {
+                                  setDestLatInput(settings.destinationLat !== undefined ? String(settings.destinationLat) : '25.7617');
+                                }
+                              }}
                               onPaste={(e) => {
                                 const text = e.clipboardData.getData('text');
                                 const parsed = parseCoordinateString(text);
                                 if (parsed) {
                                   e.preventDefault();
+                                  activeCoordFieldRef.current = null;
+                                  setDestLatInput(String(parsed.lat));
+                                  setDestLonInput(String(parsed.lon));
                                   handleSettingsChange({
                                     destinationLat: parsed.lat,
                                     destinationLon: parsed.lon,
@@ -2948,15 +3135,36 @@ export default function AdminPage() {
                           <div>
                             <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Longitude</span>
                             <input
-                              type="number"
-                              step="any"
-                              value={settings.destinationLon ?? -73.828090}
-                              onChange={(e) => handleSettingsChange({ destinationLon: parseFloat(e.target.value) || 0 })}
+                              type="text"
+                              inputMode="decimal"
+                              value={destLonInput}
+                              onFocus={() => { activeCoordFieldRef.current = 'destLon'; }}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setDestLonInput(raw);
+                                const parsed = parseFloat(raw);
+                                if (raw.trim() !== '' && raw !== '-' && !raw.endsWith('.') && Number.isFinite(parsed) && parsed >= -180 && parsed <= 180) {
+                                  handleSettingsChange({ destinationLon: parsed });
+                                }
+                              }}
+                              onBlur={() => {
+                                activeCoordFieldRef.current = null;
+                                const parsed = parseFloat(destLonInput);
+                                if (Number.isFinite(parsed) && parsed >= -180 && parsed <= 180) {
+                                  handleSettingsChange({ destinationLon: parsed });
+                                  setDestLonInput(String(parsed));
+                                } else {
+                                  setDestLonInput(settings.destinationLon !== undefined ? String(settings.destinationLon) : '-80.1918');
+                                }
+                              }}
                               onPaste={(e) => {
                                 const text = e.clipboardData.getData('text');
                                 const parsed = parseCoordinateString(text);
                                 if (parsed) {
                                   e.preventDefault();
+                                  activeCoordFieldRef.current = null;
+                                  setDestLatInput(String(parsed.lat));
+                                  setDestLonInput(String(parsed.lon));
                                   handleSettingsChange({
                                     destinationLat: parsed.lat,
                                     destinationLon: parsed.lon,
@@ -2977,11 +3185,37 @@ export default function AdminPage() {
                           <div>
                             <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Latitude</span>
                             <input
-                              type="number"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="Auto-captured"
-                              value={settings.startLat ?? ''}
-                              onChange={(e) => handleSettingsChange({ startLat: e.target.value ? parseFloat(e.target.value) : undefined })}
+                              value={startLatInput}
+                              onFocus={() => { activeCoordFieldRef.current = 'startLat'; }}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setStartLatInput(raw);
+                                if (raw.trim() === '') {
+                                  handleSettingsChange({ startLat: null });
+                                  return;
+                                }
+                                const parsed = parseFloat(raw);
+                                if (raw !== '-' && !raw.endsWith('.') && Number.isFinite(parsed) && parsed >= -90 && parsed <= 90) {
+                                  handleSettingsChange({ startLat: parsed });
+                                }
+                              }}
+                              onBlur={() => {
+                                activeCoordFieldRef.current = null;
+                                if (startLatInput.trim() === '') {
+                                  handleSettingsChange({ startLat: null });
+                                } else {
+                                  const parsed = parseFloat(startLatInput);
+                                  if (Number.isFinite(parsed) && parsed >= -90 && parsed <= 90) {
+                                    handleSettingsChange({ startLat: parsed });
+                                    setStartLatInput(String(parsed));
+                                  } else {
+                                    setStartLatInput(settings.startLat != null ? String(settings.startLat) : '');
+                                  }
+                                }
+                              }}
                               className="text-input"
                               style={{ width: '100%', fontSize: '0.9em' }}
                             />
@@ -2989,11 +3223,37 @@ export default function AdminPage() {
                           <div>
                             <span style={{ fontSize: '0.75em', opacity: 0.7 }}>Longitude</span>
                             <input
-                              type="number"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="Auto-captured"
-                              value={settings.startLon ?? ''}
-                              onChange={(e) => handleSettingsChange({ startLon: e.target.value ? parseFloat(e.target.value) : undefined })}
+                              value={startLonInput}
+                              onFocus={() => { activeCoordFieldRef.current = 'startLon'; }}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setStartLonInput(raw);
+                                if (raw.trim() === '') {
+                                  handleSettingsChange({ startLon: null });
+                                  return;
+                                }
+                                const parsed = parseFloat(raw);
+                                if (raw !== '-' && !raw.endsWith('.') && Number.isFinite(parsed) && parsed >= -180 && parsed <= 180) {
+                                  handleSettingsChange({ startLon: parsed });
+                                }
+                              }}
+                              onBlur={() => {
+                                activeCoordFieldRef.current = null;
+                                if (startLonInput.trim() === '') {
+                                  handleSettingsChange({ startLon: null });
+                                } else {
+                                  const parsed = parseFloat(startLonInput);
+                                  if (Number.isFinite(parsed) && parsed >= -180 && parsed <= 180) {
+                                    handleSettingsChange({ startLon: parsed });
+                                    setStartLonInput(String(parsed));
+                                  } else {
+                                    setStartLonInput(settings.startLon != null ? String(settings.startLon) : '');
+                                  }
+                                }
+                              }}
                               className="text-input"
                               style={{ width: '100%', fontSize: '0.9em' }}
                             />
@@ -3026,6 +3286,7 @@ export default function AdminPage() {
                               startLat: null,
                               startLon: null,
                               distanceCurrent: 0,
+                              distanceResetTimestamp: Date.now(),
                             });
                             setToast({ type: 'saved', message: '🚀 Journey reset! Next GPS signal will auto-set your new start location.' });
                           }}
@@ -3141,7 +3402,14 @@ export default function AdminPage() {
                         </button>
                         <button
                           className="btn btn-danger btn-small"
-                          onClick={() => handleSettingsChange({ distanceCurrent: 0 })}
+                          onClick={() => {
+                            handleSettingsChange({
+                              distanceCurrent: 0,
+                              distanceResetTimestamp: Date.now(),
+                            });
+                            setToast({ type: 'saved', message: 'Distance & Auto-GPS counter reset to 0!' });
+                            setTimeout(() => setToast(null), 2500);
+                          }}
                           style={{ padding: '6px 12px' }}
                         >
                           Reset to 0
@@ -3257,18 +3525,31 @@ export default function AdminPage() {
                   </div>
 
                   <div>
-                    <label className="group-label">Live Location Label</label>
-                    <label className="checkbox-label" style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', borderRadius: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', height: '42px' }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.distanceShowCurrentLocation ?? true}
-                        onChange={(e) => handleSettingsChange({ distanceShowCurrentLocation: e.target.checked })}
-                        className="checkbox-input"
-                      />
-                      <span className="checkbox-text" style={{ fontSize: '0.85em', color: '#fff' }}>
-                        Include Live Current Area
-                      </span>
-                    </label>
+                    <label className="group-label">Overlay Labels</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label className="checkbox-label" style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', borderRadius: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.distanceShowCurrentLocation ?? true}
+                          onChange={(e) => handleSettingsChange({ distanceShowCurrentLocation: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        <span className="checkbox-text" style={{ fontSize: '0.85em', color: '#fff' }}>
+                          Include Live Current Area (IN: ...)
+                        </span>
+                      </label>
+                      <label className="checkbox-label" style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', borderRadius: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.distanceShowRemaining ?? true}
+                          onChange={(e) => handleSettingsChange({ distanceShowRemaining: e.target.checked })}
+                          className="checkbox-input"
+                        />
+                        <span className="checkbox-text" style={{ fontSize: '0.85em', color: '#fff' }}>
+                          Show Remaining Distance (e.g. 2.4 mi left)
+                        </span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 

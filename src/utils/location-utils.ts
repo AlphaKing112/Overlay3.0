@@ -759,8 +759,12 @@ export interface DistanceProgressResult {
   current: number;
   goal: number;
   pct: number;
+  remaining: number;
   unit: 'mi' | 'km' | 'm';
 }
+
+const DEFAULT_DEST_LAT = 25.7617;
+const DEFAULT_DEST_LON = -80.1918;
 
 /**
  * Unified distance progress calculator for overlay and live overlay preview
@@ -784,14 +788,24 @@ export function calculateDistanceProgress({
 
   // 1) Test Fill Animation taking priority
   if (settings.isTestingFill && typeof settings.testFillProgress === 'number') {
-    goal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 0.5;
+    if (settings.distanceMode === 'destination') {
+      const destLat = settings.destinationLat ?? DEFAULT_DEST_LAT;
+      const destLon = settings.destinationLon ?? DEFAULT_DEST_LON;
+      const startLat = settings.startLat ?? (sessionStartCoords ? sessionStartCoords[0] : (currentGpsCoords ? currentGpsCoords[0] : destLat));
+      const startLon = settings.startLon ?? (sessionStartCoords ? sessionStartCoords[1] : (currentGpsCoords ? currentGpsCoords[1] : destLon));
+      const totalMeters = distanceInMeters(startLat, startLon, destLat, destLon);
+      const destGoal = Math.round((totalMeters * unitFactor) * 10) / 10;
+      goal = destGoal > 0 ? destGoal : (settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 1);
+    } else {
+      goal = settings.distanceGoal !== undefined && settings.distanceGoal > 0 ? settings.distanceGoal : 0.5;
+    }
     current = Math.round(((settings.testFillProgress / 100) * goal) * 10) / 10;
     if (settings.testFillProgress >= 100) current = goal;
   }
   // 2) Destination Mode
   else if (settings.distanceMode === 'destination') {
-    const destLat = settings.destinationLat ?? 40.7577;
-    const destLon = settings.destinationLon ?? -73.8252;
+    const destLat = settings.destinationLat ?? DEFAULT_DEST_LAT;
+    const destLon = settings.destinationLon ?? DEFAULT_DEST_LON;
 
     const startLat = settings.startLat ?? (sessionStartCoords ? sessionStartCoords[0] : (currentGpsCoords ? currentGpsCoords[0] : destLat));
     const startLon = settings.startLon ?? (sessionStartCoords ? sessionStartCoords[1] : (currentGpsCoords ? currentGpsCoords[1] : destLon));
@@ -827,7 +841,8 @@ export function calculateDistanceProgress({
   }
 
   const pct = goal > 0 ? Math.min(Math.max((current / goal) * 100, 0), 100) : 0;
+  const remaining = Math.max(0, Math.round((goal - current) * 10) / 10);
 
-  return { current, goal, pct, unit };
+  return { current, goal, pct, remaining, unit };
 }
 

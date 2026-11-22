@@ -619,6 +619,8 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     minimapShape: (cleanSettings.minimapShape === 'circle' || cleanSettings.minimapShape === 'square') ? cleanSettings.minimapShape : DEFAULT_OVERLAY_SETTINGS.minimapShape,
     distanceFont: cleanSettings.distanceFont ?? DEFAULT_OVERLAY_SETTINGS.distanceFont,
     distanceShowCurrentLocation: cleanSettings.distanceShowCurrentLocation ?? DEFAULT_OVERLAY_SETTINGS.distanceShowCurrentLocation,
+    distanceShowRemaining: cleanSettings.distanceShowRemaining ?? DEFAULT_OVERLAY_SETTINGS.distanceShowRemaining,
+    distanceResetTimestamp: typeof cleanSettings.distanceResetTimestamp === 'number' ? cleanSettings.distanceResetTimestamp : DEFAULT_OVERLAY_SETTINGS.distanceResetTimestamp,
     shoutout: cleanSettings.shoutout ?? DEFAULT_OVERLAY_SETTINGS.shoutout,
     shoutoutAnnouncementTemplate: cleanSettings.shoutoutAnnouncementTemplate ?? DEFAULT_OVERLAY_SETTINGS.shoutoutAnnouncementTemplate,
     shoutoutX: typeof cleanSettings.shoutoutX === 'number' ? cleanSettings.shoutoutX : DEFAULT_OVERLAY_SETTINGS.shoutoutX,

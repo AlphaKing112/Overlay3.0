@@ -4,6 +4,7 @@ import { validateAndSanitizeSettings, detectMaliciousKeys, DEPRECATED_SETTINGS_K
 import { verifyAuth, logKVUsage } from '@/lib/api-auth';
 import { broadcastSettings } from '@/lib/settings-broadcast';
 import { OverlayLogger } from '@/lib/logger';
+import { reconcileTodoBaselinesOnTotalDrop } from '@/utils/todo-challenges';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,6 +79,23 @@ async function handlePOST(request: NextRequest) {
         });
       } else if (existingSettings.donationGoals && !settings.donationGoals) {
         settings.donationGoals = existingSettings.donationGoals;
+      }
+
+      if (
+        updates &&
+        updates.todos === undefined &&
+        typeof existingSettings.totalSubCurrent === 'number' &&
+        typeof updates.totalSubCurrent === 'number' &&
+        updates.totalSubCurrent < existingSettings.totalSubCurrent
+      ) {
+        const reconciledTodos = reconcileTodoBaselinesOnTotalDrop(
+          settings.todos,
+          existingSettings.totalSubCurrent,
+          updates.totalSubCurrent
+        );
+        if (reconciledTodos) {
+          settings.todos = reconciledTodos;
+        }
       }
     }
     

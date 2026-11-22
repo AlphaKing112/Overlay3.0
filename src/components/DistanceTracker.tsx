@@ -18,6 +18,8 @@ export interface DistanceTrackerProps {
   x?: number;
   y?: number;
   isDemo?: boolean;
+  showRemaining?: boolean;
+  isDestinationMode?: boolean;
 }
 
 const COLOR_MAPS = {
@@ -79,6 +81,8 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
   x = 0,
   y = 0,
   isDemo = false,
+  showRemaining = true,
+  isDestinationMode = false,
 }) => {
   const [shouldRender, setShouldRender] = useState(visible);
   const [activeLabelIndex, setActiveLabelIndex] = useState(0);
@@ -142,21 +146,30 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
   const displayedLabelText = availableLabels[safeLabelIndex] || availableLabels[0] || '';
 
   useEffect(() => {
-    if (!visible && !isDemo) {
-      const timer = setTimeout(() => setShouldRender(false), 400);
-      return () => clearTimeout(timer);
+    if (visible || isDemo) {
+      setShouldRender(true);
+      return;
     }
+    const timer = setTimeout(() => setShouldRender(false), 400);
+    return () => clearTimeout(timer);
   }, [visible, isDemo]);
-
-  if (visible && !shouldRender) {
-    setShouldRender(true);
-  }
 
   const percentage = useMemo(() => {
     if (!goal || goal <= 0) return 0;
     const calc = (current / goal) * 100;
     return Math.min(Math.max(calc, 0), 100);
   }, [current, goal]);
+
+  const remaining = useMemo(() => {
+    return Math.max(0, Math.round(((goal || 0) - (current || 0)) * 10) / 10);
+  }, [current, goal]);
+
+  const formattedRemaining = useMemo(() => {
+    return Number(remaining).toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: remaining % 1 === 0 ? 0 : 1,
+    });
+  }, [remaining]);
 
   const formattedCurrent = useMemo(() => {
     return Number(current || 0).toLocaleString(undefined, {
@@ -204,7 +217,9 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
             <div
               className="distance-progress-fill"
               style={{ width: `${percentage}%` }}
-            />
+            >
+              {percentage > 2 && <div className="distance-fill-glow" />}
+            </div>
 
             {/* Leading Edge Icon Marker (slips across bar) */}
             <div
@@ -228,7 +243,9 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
           </span>
           <span className={`distance-percentage ${percentage >= 100 ? 'is-completed' : ''}`}>
             <span className="dot-sep"> · </span>
-            {percentage >= 100 ? 'COMPLETED! 🎉' : `${percentage.toFixed(1)}%`}
+            {percentage >= 100
+              ? (isDestinationMode ? 'ARRIVED! 🎉' : 'COMPLETED! 🎉')
+              : `${percentage.toFixed(1)}%${showRemaining ? ` · ${formattedRemaining} ${unit} left` : ''}`}
           </span>
         </div>
       </div>
@@ -245,7 +262,7 @@ export const DistanceTracker: React.FC<DistanceTrackerProps> = ({
           transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
           width: 100%;
           max-width: ${styleVariant === 'compact' ? '480px' : '680px'};
-          pointer-events: auto;
+          pointer-events: ${isDemo ? 'auto' : 'none'};
           box-sizing: border-box;
         }
 

@@ -13,6 +13,7 @@ import {
   isCloudUnreachableObsUrl
 } from '@/lib/obs-helper';
 import { fetchBitrateStats } from '@/utils/api-utils';
+import { calculateDistanceProgress } from '@/utils/location-utils';
 import { parseClipCommandInput } from '@/utils/twitch-clips';
 import { CommandConfigItem, DEFAULT_NOALBS_COMMANDS } from '@/types/settings';
 
@@ -701,9 +702,35 @@ export async function POST(req: NextRequest) {
     }
 
     if (cmdName === '!distance') {
-      const dist = settings.distanceCurrent ?? 0;
-      const unit = settings.distanceUnit || 'mi';
-      return NextResponse.json({ success: true, message: `🗺️ Total Traveled: ${dist.toFixed(2)} ${unit}` });
+      const liveDist = body.distanceProgress;
+      if (liveDist && typeof liveDist.current === 'number' && typeof liveDist.goal === 'number') {
+        const cur = liveDist.current.toFixed(1);
+        const g = liveDist.goal.toFixed(1);
+        const pct = typeof liveDist.pct === 'number' ? liveDist.pct.toFixed(1) : '0.0';
+        const u = liveDist.unit || settings.distanceUnit || 'mi';
+        const rem = typeof liveDist.remaining === 'number' ? liveDist.remaining.toFixed(1) : Math.max(0, liveDist.goal - liveDist.current).toFixed(1);
+        if (liveDist.mode === 'destination' && liveDist.destinationName) {
+          const statusMsg = liveDist.pct >= 100 ? 'ARRIVED! 🎉' : `${pct}% • ${rem} ${u} left`;
+          return NextResponse.json({
+            success: true,
+            message: `🗺️ To ${liveDist.destinationName}: ${cur} / ${g} ${u} (${statusMsg})`
+          });
+        }
+        return NextResponse.json({
+          success: true,
+          message: `🗺️ Distance Progress: ${cur} / ${g} ${u} (${pct}% • ${rem} ${u} left)`
+        });
+      }
+
+      const fallback = calculateDistanceProgress({ settings });
+      const statusMsg = fallback.pct >= 100 ? 'COMPLETED! 🎉' : `${fallback.pct.toFixed(1)}% • ${fallback.remaining.toFixed(1)} ${fallback.unit} left`;
+      const destLabel = settings.distanceMode === 'destination' && settings.destinationName
+        ? `To ${settings.destinationName}`
+        : 'Distance Progress';
+      return NextResponse.json({
+        success: true,
+        message: `🗺️ ${destLabel}: ${fallback.current.toFixed(1)} / ${fallback.goal.toFixed(1)} ${fallback.unit} (${statusMsg})`
+      });
     }
 
     if (cmdName === '!help' || cmdName === '!noalbs') {

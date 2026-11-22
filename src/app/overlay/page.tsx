@@ -10,7 +10,7 @@ import { OverlayLogger } from '@/lib/logger';
 import { celsiusToFahrenheit, kmhToMph, metersToFeet } from '@/utils/unit-conversions';
 import { fetchTwitchSubPoints } from '@/utils/twitch-subs';
 import { parseClipCommandInput } from '@/utils/twitch-clips';
-import { getTodoSubProgress, sortTodosForDisplay } from '@/utils/todo-challenges';
+import { getTodoSubProgress, sortTodosForDisplay, reconcileTodoBaselinesOnTotalDrop } from '@/utils/todo-challenges';
 import { API_KEYS, TIMERS, SPEED_ANIMATION, ELEVATION_ANIMATION, BITRATE_ANIMATION, type RTIRLPayload } from '@/utils/overlay-constants';
 import OBSWebSocket from 'obs-websocket-js';
 import {
@@ -218,12 +218,34 @@ function OverlayPage() {
   const [currentGpsCoords, setCurrentGpsCoords] = useState<[number, number] | null>(null);
   const hasAutoSetStartCoordsRef = useRef(false);
   const sessionStartCoordsRef = useRef<[number, number] | null>(null);
+  const distanceProgressRef = useRef<{
+    current: number;
+    goal: number;
+    pct: number;
+    remaining: number;
+    unit: 'mi' | 'km' | 'm';
+    mode: 'manual' | 'destination';
+    destinationName: string;
+  }>({
+    current: 0,
+    goal: 0,
+    pct: 0,
+    remaining: 0,
+    unit: 'mi',
+    mode: 'manual',
+    destinationName: '',
+  });
 
   useEffect(() => {
-    if (!settings.startLat) {
+    if (settings.startLat == null || settings.startLon == null) {
       sessionStartCoordsRef.current = null;
       hasAutoSetStartCoordsRef.current = false;
-      if (currentGpsCoords) {
+      if (
+        currentGpsCoords &&
+        settings.showDistanceTracker &&
+        settings.distanceMode === 'destination' &&
+        settings.autoSetStartOnGps !== false
+      ) {
         const capturedLat = parseFloat(currentGpsCoords[0].toFixed(5));
         const capturedLon = parseFloat(currentGpsCoords[1].toFixed(5));
         sessionStartCoordsRef.current = [capturedLat, capturedLon];
@@ -240,13 +262,23 @@ function OverlayPage() {
           body: JSON.stringify({ settings: { startLat: capturedLat, startLon: capturedLon, distanceCurrent: 0 } })
         }).catch(err => OverlayLogger.error('Failed to auto-set reset start coords:', err));
       }
-      setTotalDistanceTracked(0);
+      if (settings.distanceMode === 'destination') {
+        setTotalDistanceTracked(0);
+      }
     } else {
-      // Server has startLat, sync sessionStartCoordsRef
-      sessionStartCoordsRef.current = [settings.startLat, settings.startLon || settings.startLat];
+      // Server has startLat/startLon, sync sessionStartCoordsRef
+      sessionStartCoordsRef.current = [settings.startLat, settings.startLon];
       hasAutoSetStartCoordsRef.current = true;
     }
-  }, [settings.destinationLat, settings.destinationLon, settings.startLat]);
+  }, [
+    settings.destinationLat,
+    settings.destinationLon,
+    settings.startLat,
+    settings.startLon,
+    settings.showDistanceTracker,
+    settings.distanceMode,
+    settings.autoSetStartOnGps,
+  ]);
 
   const settingsLoadedRef = useRef(false); // Track if settings have been loaded from API (prevents logging initial default state change)
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -301,6 +333,7 @@ function OverlayPage() {
   const seSettingsRef = useRef(settings);
   const lastCommandExecRef = useRef<Record<string, number>>({});
   const lastRaidAutoStopTimeRef = useRef<number>(0);
+  const lastSubEventTimeRef = useRef<number>(0);
   const handleAutoStopStreamOnRaidRef = useRef<(targetUser?: string) => Promise<void>>(async () => {});
   useEffect(() => { seSettingsRef.current = settings; }, [settings]);
 
@@ -988,6 +1021,22 @@ function OverlayPage() {
   }, [timezone, formatTime]);
 
 
+  const todoProgressSettings = useMemo(() => ({
+    dailySubCurrent: settings.dailySubCurrent,
+    dailySubLastReset: settings.dailySubLastReset,
+    totalSubCurrent: settings.totalSubCurrent,
+    todoTotalSubsLabel: settings.todoTotalSubsLabel,
+    todoDailySubsLabel: settings.todoDailySubsLabel,
+    todoChallengeSubsLabel: settings.todoChallengeSubsLabel,
+  }), [
+    settings.dailySubCurrent,
+    settings.dailySubLastReset,
+    settings.totalSubCurrent,
+    settings.todoTotalSubsLabel,
+    settings.todoDailySubsLabel,
+    settings.todoChallengeSubsLabel,
+  ]);
+
   // Filter todos: show all todos that are not marked hidden
   const visibleTodos = useMemo(() => {
     if (!settings.todos || settings.todos.length === 0) {
@@ -996,9 +1045,9 @@ function OverlayPage() {
 
     return sortTodosForDisplay(
       settings.todos.filter((todo) => !todo.hidden),
-      settings
+      todoProgressSettings
     );
-  }, [settings]);
+  }, [settings.todos, todoProgressSettings]);
 
   const renderTodoListBox = useCallback((position: 'left' | 'right') => {
     if (!settings.showTodoList || visibleTodos.length === 0 || (settings.todoListPosition || 'left') !== position) {
@@ -1037,7 +1086,7 @@ function OverlayPage() {
           </div>
         )}
         {visibleTodos.map((todo) => {
-          const progress = getTodoSubProgress(todo, settings);
+          const progress = getTodoSubProgress(todo, todoProgressSettings);
           const pct = progress.subTarget > 0
             ? Math.min(100, (progress.subCurrent / progress.subTarget) * 100)
             : 0;
@@ -1096,7 +1145,19 @@ function OverlayPage() {
         })}
       </div>
     );
-  }, [settings, visibleTodos]);
+  }, [
+    settings.showTodoList,
+    settings.todoListPosition,
+    settings.showBackground,
+    settings.todoShowBackground,
+    settings.todoX,
+    settings.todoY,
+    settings.todoScale,
+    settings.todoTitle,
+    settings.todoTitleScale,
+    todoProgressSettings,
+    visibleTodos,
+  ]);
 
   // Donation goals memoized JSX — only custom goals list (no Total Tips / Daily Tips)
   const donationGoalsJSX = useMemo(() => {
@@ -1293,6 +1354,10 @@ function OverlayPage() {
   ]);
 
 
+  const lastDistanceSaveAtRef = useRef<number>(0);
+  const distanceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const totalDistanceTrackedRef = useRef<number>(0);
+
   // Clean up legacy completed todo timestamps and load total distance from localStorage on mount
   useEffect(() => {
     try {
@@ -1305,6 +1370,8 @@ function OverlayPage() {
       if (storedDistance) {
         const parsedDistance = parseFloat(storedDistance);
         if (!isNaN(parsedDistance)) {
+          totalDistanceTrackedRef.current = parsedDistance;
+          lastDistanceSaveAtRef.current = Date.now();
           setTotalDistanceTracked(parsedDistance);
           OverlayLogger.overlay(`Loaded total distance from localStorage: ${Math.round(parsedDistance)}m`);
         }
@@ -1312,18 +1379,78 @@ function OverlayPage() {
     } catch (error) {
       OverlayLogger.warn('Failed to load distance from localStorage', { error });
     }
+
+    const flushDistanceOnExit = () => {
+      if (distanceSaveTimerRef.current) {
+        clearTimeout(distanceSaveTimerRef.current);
+        distanceSaveTimerRef.current = null;
+      }
+      if (totalDistanceTrackedRef.current > 0) {
+        try {
+          localStorage.setItem(DISTANCE_STORAGE_KEY, totalDistanceTrackedRef.current.toString());
+        } catch {}
+      }
+    };
+
+    window.addEventListener('pagehide', flushDistanceOnExit);
+    return () => {
+      window.removeEventListener('pagehide', flushDistanceOnExit);
+      flushDistanceOnExit();
+    };
   }, []); // Run once on mount
 
-  // Persist distance to localStorage
+  // Persist distance to localStorage (throttled to at most once every 10s during movement)
   useEffect(() => {
-    try {
-      if (totalDistanceTracked > 0) {
-        localStorage.setItem(DISTANCE_STORAGE_KEY, totalDistanceTracked.toString());
+    totalDistanceTrackedRef.current = totalDistanceTracked;
+    if (totalDistanceTracked <= 0) return;
+
+    const persistDistance = (distance: number) => {
+      try {
+        localStorage.setItem(DISTANCE_STORAGE_KEY, distance.toString());
+        lastDistanceSaveAtRef.current = Date.now();
+      } catch (error) {
+        OverlayLogger.warn('Failed to save distance to localStorage', { error });
       }
-    } catch (error) {
-      OverlayLogger.warn('Failed to save distance to localStorage', { error });
+    };
+
+    const elapsed = Date.now() - lastDistanceSaveAtRef.current;
+    if (elapsed >= 10000) {
+      if (distanceSaveTimerRef.current) {
+        clearTimeout(distanceSaveTimerRef.current);
+        distanceSaveTimerRef.current = null;
+      }
+      persistDistance(totalDistanceTracked);
+    } else if (!distanceSaveTimerRef.current) {
+      distanceSaveTimerRef.current = setTimeout(() => {
+        distanceSaveTimerRef.current = null;
+        if (totalDistanceTrackedRef.current > 0) {
+          persistDistance(totalDistanceTrackedRef.current);
+        }
+      }, 10000 - elapsed);
     }
   }, [totalDistanceTracked]);
+
+  // Clear localStorage Auto-GPS distance when dashboard dispatches a distance reset timestamp
+  useEffect(() => {
+    const resetTs = settings.distanceResetTimestamp || 0;
+    if (resetTs <= 0) return;
+    const DISTANCE_RESET_TS_KEY = 'overlay-distance-reset-ts';
+    try {
+      const lastHandled = Number(localStorage.getItem(DISTANCE_RESET_TS_KEY) || '0');
+      if (resetTs > lastHandled) {
+        localStorage.setItem(DISTANCE_RESET_TS_KEY, String(resetTs));
+        localStorage.removeItem(DISTANCE_STORAGE_KEY);
+        if (distanceSaveTimerRef.current) {
+          clearTimeout(distanceSaveTimerRef.current);
+          distanceSaveTimerRef.current = null;
+        }
+        totalDistanceTrackedRef.current = 0;
+        lastDistanceSaveAtRef.current = Date.now();
+        setTotalDistanceTracked(0);
+        OverlayLogger.overlay(`Cleared tracked Auto-GPS distance from reset signal (${resetTs})`);
+      }
+    } catch {}
+  }, [settings.distanceResetTimestamp]);
 
 
   // StreamElements Realtime Donation Integration
@@ -1632,6 +1759,7 @@ function OverlayPage() {
         }
 
         if (subCount > 0) {
+          lastSubEventTimeRef.current = Date.now();
           const freshToken = seSettingsRef.current.streamElementsToken || token;
           const clientDate = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local time
           fetch('/api/record-sub', {
@@ -1643,6 +1771,7 @@ function OverlayPage() {
               const body = await res.text().catch(() => '(no body)');
               OverlayLogger.error(`record-sub failed HTTP ${res.status}:`, body);
             } else {
+              lastSubEventTimeRef.current = Date.now();
               OverlayLogger.overlay(`record-sub OK: ${subCount} sub(s) applied to goals`);
               const json = await res.json().catch(() => null);
               if (json && typeof json.totalSubCurrent === 'number') {
@@ -1702,10 +1831,33 @@ function OverlayPage() {
       try {
         const data = await fetchTwitchSubPoints(broadcasterId, token, clientId);
         const liveSubTotal = typeof data.total === 'number' ? data.total : (data.points ?? 0);
-        if (typeof liveSubTotal === 'number' && seSettingsRef.current.totalSubCurrent !== liveSubTotal) {
+        const prevTotal = seSettingsRef.current.totalSubCurrent ?? 0;
+        if (typeof liveSubTotal === 'number' && prevTotal !== liveSubTotal) {
+          // Avoid false downward correction if Twitch Helix briefly lags right after a live SE sub event
+          if (liveSubTotal < prevTotal && Date.now() - lastSubEventTimeRef.current < 15000) {
+            OverlayLogger.overlay(`Skipping downward Twitch sub sync (${prevTotal} -> ${liveSubTotal}) shortly after live sub event`);
+            return;
+          }
+          const reconciledTodos = liveSubTotal < prevTotal
+            ? reconcileTodoBaselinesOnTotalDrop(seSettingsRef.current.todos, prevTotal, liveSubTotal)
+            : null;
           OverlayLogger.overlay(`Directly syncing Total Subs from Twitch API: ${liveSubTotal}`);
-          seSettingsRef.current = { ...seSettingsRef.current, totalSubCurrent: liveSubTotal };
-          setSettings(prev => ({ ...prev, totalSubCurrent: liveSubTotal }));
+          seSettingsRef.current = {
+            ...seSettingsRef.current,
+            totalSubCurrent: liveSubTotal,
+            ...(reconciledTodos ? { todos: reconciledTodos } : {}),
+          };
+          setSettings(prev => {
+            const prevStateTotal = prev.totalSubCurrent ?? prevTotal;
+            const stateReconciled = liveSubTotal < prevStateTotal
+              ? reconcileTodoBaselinesOnTotalDrop(prev.todos, prevStateTotal, liveSubTotal)
+              : null;
+            return {
+              ...prev,
+              totalSubCurrent: liveSubTotal,
+              ...(stateReconciled ? { todos: stateReconciled } : {}),
+            };
+          });
           fetch('/api/save-settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2530,7 +2682,8 @@ function OverlayPage() {
                       feelsLike: weatherRef.current.feelsLike,
                       formatted: weatherDisplayRef.current?.temperature
                     } : undefined,
-                    location: formattedLocation
+                    location: formattedLocation,
+                    distanceProgress: distanceProgressRef.current
                   })
                 })
                 .then(res => res.json())
@@ -4619,10 +4772,12 @@ function OverlayPage() {
               lastCoords.current = [lat, lon];
               setCurrentGpsCoords([lat, lon]);
 
-              // Auto-capture initial journey start coordinates if autoSetStartOnGps is active or startLat is unset
+              // Auto-capture initial journey start coordinates when Distance Tracker is enabled in Destination mode
               if (
+                settingsRef.current.showDistanceTracker &&
                 settingsRef.current.distanceMode === 'destination' &&
-                (settingsRef.current.autoSetStartOnGps || !settingsRef.current.startLat) &&
+                settingsRef.current.autoSetStartOnGps !== false &&
+                (settingsRef.current.startLat == null || settingsRef.current.startLon == null) &&
                 !hasAutoSetStartCoordsRef.current
               ) {
                 hasAutoSetStartCoordsRef.current = true;
@@ -5606,6 +5761,26 @@ function OverlayPage() {
     </>
   );
 
+  const distanceDisplayData = useMemo(() => {
+    const startCoords =
+      sessionStartCoordsRef.current ||
+      (currentGpsCoords ? ([currentGpsCoords[0], currentGpsCoords[1]] as [number, number]) : null);
+    return calculateDistanceProgress({
+      settings,
+      currentGpsCoords,
+      sessionStartCoords: startCoords,
+      totalDistanceTracked,
+    });
+  }, [settings, currentGpsCoords, totalDistanceTracked]);
+
+  useEffect(() => {
+    distanceProgressRef.current = {
+      ...distanceDisplayData,
+      mode: settings.distanceMode === 'destination' ? 'destination' : 'manual',
+      destinationName: settings.destinationName || '',
+    };
+  }, [distanceDisplayData, settings.distanceMode, settings.destinationName]);
+
   const showTimeWeatherLocation = settings.showTimeWeatherLocation !== false;
   const showLocationWeather = showTimeWeatherLocation && settings.locationDisplay !== 'hidden' && (!!locationDisplay || !!weatherDisplay || !!altitudeDisplay || !!speedDisplay || (settings.bitrateAnchor !== 'time' && isBitrateVisible));
   const isTimeVisible = (settings.showTime ?? true) && isValidTimezone(timezone) && !!timeDisplay.time;
@@ -5962,16 +6137,7 @@ function OverlayPage() {
         />
 
         {(() => {
-          if (!sessionStartCoordsRef.current && currentGpsCoords) {
-            sessionStartCoordsRef.current = [currentGpsCoords[0], currentGpsCoords[1]];
-          }
-
-          const { current: computedCurrent, goal: computedGoal, unit } = calculateDistanceProgress({
-            settings,
-            currentGpsCoords,
-            sessionStartCoords: sessionStartCoordsRef.current,
-            totalDistanceTracked,
-          });
+          const { current: computedCurrent, goal: computedGoal, unit } = distanceDisplayData;
 
           const destNameFormatted = settings.destinationName
             ? (settings.destinationName.toUpperCase().startsWith('TO:')
@@ -6001,6 +6167,8 @@ function OverlayPage() {
               scale={settings.distanceScale || 1.0}
               x={settings.distanceX || 0}
               y={settings.distanceY || 0}
+              showRemaining={settings.distanceShowRemaining ?? true}
+              isDestinationMode={settings.distanceMode === 'destination'}
             />
           );
         })()}
