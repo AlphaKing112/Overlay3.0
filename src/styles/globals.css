@@ -510,8 +510,10 @@ body.overlay-page {
 }
 
 .todo-sub-pill.ready {
-  background: linear-gradient(90deg, #f59e0b, #eab308);
-  color: #111827;
+  background: linear-gradient(90deg, #d97706, #ea580c);
+  border: 1px solid rgba(253, 224, 71, 0.8);
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 .todo-sub-mini-track {

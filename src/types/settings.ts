@@ -4,7 +4,7 @@ export type LocationDisplayMode = 'neighbourhood' | 'city' | 'state' | 'country'
 export type MapZoomLevel = 'neighbourhood' | 'city' | 'state' | 'country' | 'ocean' | 'continental';
 export type DisplayMode = 'always' | 'auto' | 'hidden';
 
-export type TodoSubSource = 'daily' | 'total';
+export type TodoSubSource = 'challenge' | 'daily' | 'total';
 
 export interface TodoItem {
   id: string;
@@ -18,6 +18,8 @@ export interface TodoItem {
   subGoal?: number;
   subSource?: TodoSubSource;
   subLabel?: string;
+  /** Snapshot of source subs when challenge started or was manually adjusted so it tracks new subs from 0 */
+  subBaseline?: number;
 }
 
 export interface UrlItem {
@@ -128,6 +130,7 @@ export interface OverlaySettings {
   todoListPosition?: 'left' | 'right';
   todoTitle?: string;
   todoTitleScale?: number;
+  todoChallengeSubsLabel?: string;
   todoDailySubsLabel?: string;
   todoTotalSubsLabel?: string;
   todoX?: number;
@@ -447,6 +450,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   todoListPosition: 'left',
   todoTitle: '',
   todoTitleScale: 1.0,
+  todoChallengeSubsLabel: 'SUBS',
   todoDailySubsLabel: 'DAILY SUBS',
   todoTotalSubsLabel: 'TOTAL SUBS',
   todoX: 0,
@@ -714,6 +718,7 @@ export const SETTINGS_CONFIG: Record<Exclude<keyof OverlaySettings, 'todos' | 'u
   todoListPosition: 'string',
   todoTitle: 'string',
   todoTitleScale: 'number',
+  todoChallengeSubsLabel: 'string',
   todoDailySubsLabel: 'string',
   todoTotalSubsLabel: 'string',
   todoX: 'number',

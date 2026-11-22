@@ -100,11 +100,14 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
             if (typeof todoObj.subGoal === 'number' && todoObj.subGoal >= 1) {
               validTodo.subGoal = Math.round(todoObj.subGoal);
             }
-            if (todoObj.subSource === 'daily' || todoObj.subSource === 'total') {
+            if (todoObj.subSource === 'challenge' || todoObj.subSource === 'daily' || todoObj.subSource === 'total') {
               validTodo.subSource = todoObj.subSource;
             }
             if (typeof todoObj.subLabel === 'string' && todoObj.subLabel.trim()) {
               validTodo.subLabel = todoObj.subLabel.trim().slice(0, 40);
+            }
+            if (typeof todoObj.subBaseline === 'number' && !Number.isNaN(todoObj.subBaseline)) {
+              validTodo.subBaseline = Math.max(0, Math.round(todoObj.subBaseline));
             }
             validTodos.push(validTodo);
           }
@@ -606,6 +609,7 @@ export function validateAndSanitizeSettings(input: unknown): OverlaySettings {
     testFillProgress: typeof cleanSettings.testFillProgress === 'number' ? cleanSettings.testFillProgress : undefined,
     todoTitle: cleanSettings.todoTitle ?? DEFAULT_OVERLAY_SETTINGS.todoTitle,
     todoTitleScale: typeof cleanSettings.todoTitleScale === 'number' ? Math.min(Math.max(cleanSettings.todoTitleScale, 0.3), 3.0) : DEFAULT_OVERLAY_SETTINGS.todoTitleScale,
+    todoChallengeSubsLabel: cleanSettings.todoChallengeSubsLabel ?? DEFAULT_OVERLAY_SETTINGS.todoChallengeSubsLabel,
     todoDailySubsLabel: cleanSettings.todoDailySubsLabel ?? DEFAULT_OVERLAY_SETTINGS.todoDailySubsLabel,
     todoTotalSubsLabel: cleanSettings.todoTotalSubsLabel ?? DEFAULT_OVERLAY_SETTINGS.todoTotalSubsLabel,
     todoX: typeof cleanSettings.todoX === 'number' ? Math.min(Math.max(cleanSettings.todoX, -2000), 2000) : DEFAULT_OVERLAY_SETTINGS.todoX,

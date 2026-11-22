@@ -298,14 +298,14 @@ export default function AdminPage() {
   const [newTodoText, setNewTodoText] = useState('');
   const [newTodoGoal, setNewTodoGoal] = useState('');
   const [newTodoSubGoal, setNewTodoSubGoal] = useState('10');
-  const [newTodoSubSource, setNewTodoSubSource] = useState<'daily' | 'total'>('daily');
+  const [newTodoSubSource, setNewTodoSubSource] = useState<'challenge' | 'daily' | 'total'>('challenge');
 
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingTodoText, setEditingTodoText] = useState('');
   const [editingTodoType, setEditingTodoType] = useState<'task' | 'sub_challenge'>('task');
   const [editingTodoGoal, setEditingTodoGoal] = useState('');
   const [editingTodoSubGoal, setEditingTodoSubGoal] = useState('10');
-  const [editingTodoSubSource, setEditingTodoSubSource] = useState<'daily' | 'total'>('daily');
+  const [editingTodoSubSource, setEditingTodoSubSource] = useState<'challenge' | 'daily' | 'total'>('challenge');
 
   // Page Transition State
   const [isNavigatingToSettings, setIsNavigatingToSettings] = useState(false);
@@ -5243,6 +5243,8 @@ export default function AdminPage() {
                     type: 'sub_challenge',
                     subGoal: subTarget,
                     subSource: newTodoSubSource,
+                    current: 0,
+                    ...(newTodoSubSource === 'challenge' ? { subBaseline: liveTotalSubs } : {}),
                   };
                   handleSettingsChange({ todos: [...allTodos, newTodo] });
                   setNewTodoText('');
@@ -5268,7 +5270,9 @@ export default function AdminPage() {
                 setEditingTodoType(todo.type === 'sub_challenge' ? 'sub_challenge' : 'task');
                 setEditingTodoGoal(todo.goal && todo.goal > 0 ? String(todo.goal) : '');
                 setEditingTodoSubGoal(todo.subGoal && todo.subGoal > 0 ? String(todo.subGoal) : '10');
-                setEditingTodoSubSource(todo.subSource === 'total' ? 'total' : 'daily');
+                setEditingTodoSubSource(
+                  todo.subSource === 'total' ? 'total' : todo.subSource === 'daily' ? 'daily' : 'challenge'
+                );
               };
 
               const saveEditingTodo = () => {
@@ -5283,6 +5287,7 @@ export default function AdminPage() {
                   if (t.id !== editingTodoId) return t;
                   if (editingTodoType === 'sub_challenge') {
                     const parsedSub = Math.max(1, parseInt(editingTodoSubGoal, 10) || 10);
+                    const sourceChanged = t.subSource !== editingTodoSubSource;
                     return {
                       id: t.id,
                       text: trimmed,
@@ -5291,6 +5296,10 @@ export default function AdminPage() {
                       type: 'sub_challenge' as const,
                       subGoal: parsedSub,
                       subSource: editingTodoSubSource,
+                      current: sourceChanged ? 0 : (t.current ?? 0),
+                      ...(editingTodoSubSource === 'challenge'
+                        ? { subBaseline: sourceChanged || typeof t.subBaseline !== 'number' ? liveTotalSubs : t.subBaseline }
+                        : (!sourceChanged && typeof t.subBaseline === 'number' ? { subBaseline: t.subBaseline } : {})),
                     };
                   }
                   const parsedGoal = editingTodoGoal ? parseInt(editingTodoGoal, 10) : undefined;
@@ -5375,7 +5384,18 @@ export default function AdminPage() {
                       <label style={{ display: 'block', fontSize: '0.84em', fontWeight: 'bold', color: '#c4b5fd', marginBottom: '8px' }}>
                         Overlay Sub Badge Text (shown next to counter, e.g. 0/10 DAILY SUBS)
                       </label>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.75em', opacity: 0.75, marginBottom: '4px' }}>New Subs (From 0) Text</span>
+                          <input
+                            type="text"
+                            placeholder="SUBS"
+                            value={settings.todoChallengeSubsLabel ?? 'SUBS'}
+                            onChange={(e) => handleSettingsChange({ todoChallengeSubsLabel: e.target.value })}
+                            className="text-input"
+                            style={{ width: '100%', padding: '6px 10px', fontSize: '0.85em' }}
+                          />
+                        </div>
                         <div>
                           <span style={{ display: 'block', fontSize: '0.75em', opacity: 0.75, marginBottom: '4px' }}>Daily Subs Badge Text</span>
                           <input
@@ -5532,10 +5552,11 @@ export default function AdminPage() {
                             />
                             <select
                               value={newTodoSubSource}
-                              onChange={(e) => setNewTodoSubSource(e.target.value as 'daily' | 'total')}
+                              onChange={(e) => setNewTodoSubSource(e.target.value as 'challenge' | 'daily' | 'total')}
                               className="todo-input"
                               style={{ width: 'auto', padding: '8px 10px' }}
                             >
+                              <option value="challenge">New Subs (Starts at 0)</option>
                               <option value="daily">Daily Subs</option>
                               <option value="total">Total Subs</option>
                             </select>
@@ -5651,10 +5672,11 @@ export default function AdminPage() {
                                         />
                                         <select
                                           value={editingTodoSubSource}
-                                          onChange={(e) => setEditingTodoSubSource(e.target.value as 'daily' | 'total')}
+                                          onChange={(e) => setEditingTodoSubSource(e.target.value as 'challenge' | 'daily' | 'total')}
                                           className="todo-edit-input"
                                           style={{ width: 'auto', flex: 'none' }}
                                         >
+                                          <option value="challenge">New Subs (Starts at 0)</option>
                                           <option value="daily">Daily Subs</option>
                                           <option value="total">Total Subs</option>
                                         </select>
@@ -5714,7 +5736,7 @@ export default function AdminPage() {
                                       </span>
                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                                         {progress.status === 'do_challenge' && (
-                                          <span style={{ fontSize: '0.75em', background: 'linear-gradient(90deg, #f59e0b, #eab308)', color: '#111827', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
+                                          <span style={{ fontSize: '0.75em', background: 'linear-gradient(90deg, #d97706, #ea580c)', border: '1px solid rgba(253, 224, 71, 0.75)', color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.85)', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
                                             🔥 GOAL MET ({progress.subCurrent}/{progress.subTarget} {progress.subLabel}) — DO CHALLENGE!
                                           </span>
                                         )}
@@ -5734,13 +5756,24 @@ export default function AdminPage() {
                                             onClick={(e) => {
                                               e.preventDefault();
                                               e.stopPropagation();
-                                              const nextSource = progress.subSource === 'total' ? 'daily' : 'total';
-                                              const updatedTodos = allTodos.map((t) =>
-                                                t.id === todo.id ? { ...t, subSource: nextSource as 'daily' | 'total' } : t
-                                              );
+                                              const nextSource: 'challenge' | 'daily' | 'total' =
+                                                progress.subSource === 'challenge'
+                                                  ? 'daily'
+                                                  : progress.subSource === 'daily'
+                                                    ? 'total'
+                                                    : 'challenge';
+                                              const updatedTodos = allTodos.map((t) => {
+                                                if (t.id !== todo.id) return t;
+                                                if (nextSource === 'challenge') {
+                                                  return { ...t, subSource: nextSource, current: 0, subBaseline: liveTotalSubs };
+                                                }
+                                                const nextItem = { ...t, subSource: nextSource };
+                                                delete nextItem.subBaseline;
+                                                return nextItem;
+                                              });
                                               handleSettingsChange({ todos: updatedTodos });
                                             }}
-                                            title="Click to switch between Daily Subs and Total Subs"
+                                            title="Click to cycle between New Subs (Starts at 0), Daily Subs, and Total Subs"
                                             style={{
                                               fontSize: '0.72em',
                                               background: 'rgba(255, 255, 255, 0.08)',
@@ -5752,7 +5785,7 @@ export default function AdminPage() {
                                               fontWeight: 600,
                                             }}
                                           >
-                                            ⇄ Switch to {progress.subSource === 'total' ? 'Daily Subs' : 'Total Subs'}
+                                            ⇄ Mode: {progress.subSource === 'challenge' ? 'New Subs (From 0)' : progress.subSource === 'daily' ? 'Daily Subs' : 'Total Subs'}
                                           </button>
                                         )}
                                         {todo.hidden && (
@@ -5765,6 +5798,51 @@ export default function AdminPage() {
                                   </label>
 
                                   <div className="todo-actions">
+                                    {progress.isSubChallenge && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-small"
+                                          style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
+                                          onClick={() => {
+                                            const baseVal = progress.subSource === 'daily' ? liveDailySubs : liveTotalSubs;
+                                            const newCurrent = Math.max(0, progress.subCurrent - 1);
+                                            const updatedTodos = allTodos.map((t) =>
+                                              t.id === todo.id ? { ...t, current: newCurrent, subBaseline: baseVal } : t
+                                            );
+                                            handleSettingsChange({ todos: updatedTodos });
+                                          }}
+                                          title="Decrease challenge subs by 1"
+                                        >-</button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-small"
+                                          style={{ padding: '2px 8px', minWidth: '24px', fontSize: '0.85em' }}
+                                          onClick={() => {
+                                            const baseVal = progress.subSource === 'daily' ? liveDailySubs : liveTotalSubs;
+                                            const newCurrent = progress.subCurrent + 1;
+                                            const updatedTodos = allTodos.map((t) =>
+                                              t.id === todo.id ? { ...t, current: newCurrent, subBaseline: baseVal } : t
+                                            );
+                                            handleSettingsChange({ todos: updatedTodos });
+                                          }}
+                                          title="Increase challenge subs by 1"
+                                        >+</button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-small"
+                                          style={{ padding: '2px 7px', fontSize: '0.75em', opacity: 0.85 }}
+                                          onClick={() => {
+                                            const baseVal = progress.subSource === 'daily' ? liveDailySubs : liveTotalSubs;
+                                            const updatedTodos = allTodos.map((t) =>
+                                              t.id === todo.id ? { ...t, current: 0, subBaseline: baseVal, completed: false } : t
+                                            );
+                                            handleSettingsChange({ todos: updatedTodos });
+                                          }}
+                                          title="Reset challenge subs to 0"
+                                        >0↺</button>
+                                      </div>
+                                    )}
                                     {!progress.isSubChallenge && todo.goal !== undefined && todo.goal > 0 && (
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
                                         <button

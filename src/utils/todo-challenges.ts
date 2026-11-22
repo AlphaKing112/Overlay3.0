@@ -29,14 +29,33 @@ export function getTodoSubProgress(
   settings: Partial<OverlaySettings>
 ): TodoProgressInfo {
   const isSubChallenge = todo.type === 'sub_challenge' && (todo.subGoal ?? 0) > 0;
-  const subSource: TodoSubSource = todo.subSource === 'total' ? 'total' : 'daily';
-  const defaultLabel = subSource === 'total'
-    ? (settings.todoTotalSubsLabel?.trim() || 'TOTAL SUBS')
-    : (settings.todoDailySubsLabel?.trim() || 'DAILY SUBS');
+  const subSource: TodoSubSource =
+    todo.subSource === 'total' ? 'total' : todo.subSource === 'daily' ? 'daily' : 'challenge';
+  const defaultLabel =
+    subSource === 'total'
+      ? (settings.todoTotalSubsLabel?.trim() || 'TOTAL SUBS')
+      : subSource === 'daily'
+        ? (settings.todoDailySubsLabel?.trim() || 'DAILY SUBS')
+        : (settings.todoChallengeSubsLabel?.trim() || 'SUBS');
   const subLabel = todo.subLabel?.trim() || defaultLabel;
-  const subCurrent = subSource === 'total'
-    ? (settings.totalSubCurrent || 0)
-    : getEffectiveDailySubs(settings);
+
+  const rawTotal = settings.totalSubCurrent || 0;
+  const rawDaily = getEffectiveDailySubs(settings);
+
+  let subCurrent = 0;
+  if (subSource === 'challenge') {
+    const autoDelta = typeof todo.subBaseline === 'number' ? Math.max(0, rawTotal - todo.subBaseline) : 0;
+    subCurrent = Math.max(0, (todo.current ?? 0) + autoDelta);
+  } else if (subSource === 'daily') {
+    subCurrent = typeof todo.subBaseline === 'number'
+      ? Math.max(0, (todo.current ?? 0) + Math.max(0, rawDaily - todo.subBaseline))
+      : rawDaily;
+  } else {
+    subCurrent = typeof todo.subBaseline === 'number'
+      ? Math.max(0, (todo.current ?? 0) + Math.max(0, rawTotal - todo.subBaseline))
+      : rawTotal;
+  }
+
   const subTarget = isSubChallenge ? (todo.subGoal || 0) : 0;
   const goalMet = isSubChallenge && subCurrent >= subTarget;
 
